@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 scripts/reporter.py --event SessionStart --agent ZCode"
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 scripts/reporter.py --event UserPromptSubmit --agent ZCode"
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": "Bash|Write|Edit|ApplyPatch",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode"
+            }
+          ]
+        }
+      ],
+      "PostToolUse": [
+        {
+          "matcher": "Bash|Write|Edit|ApplyPatch",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 scripts/reporter.py --event PostToolUse --agent ZCode"
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "python3 scripts/reporter.py --event Stop --agent ZCode"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,6 +1,6 @@
 # AGENT MONITOR
 
-面向 AI Coding Agent（Cursor、Codex CLI、Claude Code 等）的单页会话监视器。
+面向 AI Coding Agent（ZCode、Cursor、Codex CLI、Claude Code 等）的单页会话监视器。
 
 Agent 通过 Hook 把会话事件打到本地进程，页面用 SSE 实时刷新：Running、Completed、Failed / Aborted 三列，点击卡片可查看完整 Prompt 与 Hook 时间线。
 
@@ -20,6 +20,37 @@ go run main.go
 PORT=9000 go run main.go
 ```
 
+## 接入 ZCode Hook
+
+ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.json` 中配置生命周期 Hook。
+
+本仓库已在 `.zcode/config.json` 中预置了 Hook 配置（模板见 `configs/zcode-hooks.json`）。关键配置如下：
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event SessionStart --agent ZCode" }] }
+      ],
+      "UserPromptSubmit": [
+        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event UserPromptSubmit --agent ZCode" }] }
+      ],
+      "PreToolUse": [
+        { "matcher": "Bash|Write|Edit|ApplyPatch", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode" }] }
+      ],
+      "PostToolUse": [
+        { "matcher": "Bash|Write|Edit|ApplyPatch", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PostToolUse --agent ZCode" }] }
+      ],
+      "Stop": [
+        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event Stop --agent ZCode" }] }
+      ]
+    }
+  }
+}
+```
+
 ## 接入 Cursor Hook
 
 把 `configs/cursor-hooks.json` 配进 Cursor 的 hooks（或把其中命令复制到你的 hooks 配置）。脚本会从 stdin 读取官方 payload，并向 Monitor 上报：
@@ -35,7 +66,7 @@ python3 scripts/reporter.py --event sessionStart --agent 'Cursor Agent'
 ```bash
 curl -s http://127.0.0.1:8000/api/event \
   -H 'Content-Type: application/json' \
-  -d '{"id":"task-demo","agent":"Cursor Agent","repo":"agent-kanban:main","event":"sessionStart","title":"示例任务","detail":"会话启动"}'
+  -d '{"id":"task-demo","agent":"ZCode","repo":"agent-monitor:master","event":"sessionStart","title":"示例任务","detail":"会话启动"}'
 ```
 
 ## HTTP API
@@ -53,7 +84,7 @@ curl -s http://127.0.0.1:8000/api/event \
 ```json
 {
   "id": "task-9481",
-  "agent": "Cursor Agent",
+  "agent": "ZCode",
   "repo": "my-project:feat/auth",
   "branch": "feat/auth",
   "event": "afterFileEdit",
@@ -65,9 +96,9 @@ curl -s http://127.0.0.1:8000/api/event \
 
 `event` 会映射到 Monitor 列：
 
-- `sessionStart` / `onStart` → 正在运行
-- `agentCompletion` / `onComplete` / `complete` → 已完成
-- `stop` / `failed` / `error` → 异常 / 中断
+- `sessionStart` / `onStart` / `SessionStart` / `UserPromptSubmit` → 正在运行
+- `agentCompletion` / `onComplete` / `complete` / `Stop` / `SessionEnd` → 已完成
+- `stop` / `failed` / `error` / `PostToolUseFailure` → 异常 / 中断
 
 同一 `id` 的多次上报会聚合成一条任务，并追加到时间线。
 
@@ -76,8 +107,10 @@ curl -s http://127.0.0.1:8000/api/event \
 ```
 main.go                  Monitor 服务（内存任务 + SSE）
 static/index.html        Monitor 前端（go:embed）
-scripts/reporter.py      Cursor Hook 上报
-configs/cursor-hooks.json
+scripts/reporter.py      通用 Hook 上报脚本（支持 ZCode、Cursor 等）
+configs/zcode-hooks.json ZCode Hook 配置模板
+configs/cursor-hooks.json Cursor Hook 配置模板
+.zcode/config.json       当前仓库的本地 ZCode Hook 启用配置
 AGENTS.md                给 Agent 的仓库约定
 ```
 

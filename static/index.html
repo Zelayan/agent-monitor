@@ -167,6 +167,15 @@
 
     const MOCKS = [
       {
+        agent: 'ZCode',
+        repo: 'agent-monitor:master',
+        title: 'Support ZCode lifecycle hooks reporting',
+        prompt: 'Add ZCode hook integration and local configuration support.\nReport prompt, tool usages and session completion.',
+        detail: 'scripts/reporter.py',
+        event: 'afterFileEdit',
+        finish: 'running',
+      },
+      {
         agent: 'codex-cli',
         repo: 'payments:feat/jwt',
         title: 'Add JWT auth to the payment service',

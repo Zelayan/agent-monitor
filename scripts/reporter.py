@@ -3,7 +3,7 @@ import sys, os, json, subprocess, urllib.request, argparse, time, re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--event", default="")
-parser.add_argument("--agent", default="Cursor Agent")
+parser.add_argument("--agent", default="")
 args = parser.parse_args()
 
 raw_input = sys.stdin.read().strip() if not sys.stdin.isatty() else ""
@@ -14,12 +14,28 @@ if raw_input:
     except Exception:
         payload = {"raw": raw_input}
 
-# 优先从 payload 中获取 Cursor 官方传递的 hook_event_name
-event_name = args.event or payload.get("hook_event_name") or "unknown"
+# 1. 确定 Agent 名称（优先 CLI 参数，其次 payload/环境变量，缺省回退）
+agent_name = (
+    args.agent
+    or payload.get("agent")
+    or os.environ.get("AGENT_NAME")
+    or ("ZCode" if os.environ.get("ZCODE_SESSION_ID") or "zcode" in os.environ.get("_", "").lower() else "Cursor Agent")
+)
 
-# 获取会话/任务 ID
+# 2. 确定 Hook 事件名
+event_name = (
+    args.event
+    or payload.get("hook_event_name")
+    or payload.get("hook_name")
+    or payload.get("event")
+    or "unknown"
+)
+
+# 3. 获取会话/任务 ID（兼容 ZCode、Cursor、Claude Code 等环境变量与 payload 字段）
 session_id = (
-    payload.get("conversation_id")
+    os.environ.get("ZCODE_SESSION_ID")
+    or os.environ.get("CLAUDE_SESSION_ID")
+    or payload.get("conversation_id")
     or payload.get("generation_id")
     or payload.get("session_id")
     or payload.get("sessionId")
@@ -30,7 +46,7 @@ if not session_id:
 
 
 def unwrap_user_query(text):
-    """去掉 Cursor transcript 包装，抽出 <user_query> 正文。"""
+    """去掉 transcript 包装，抽出 <user_query> 正文。"""
     if not text:
         return ""
     m = re.search(r"<user_query>\s*(.*?)\s*</user_query>", text, re.DOTALL)
@@ -88,9 +104,10 @@ def transcript_candidates():
     if env_p:
         paths.append(env_p)
     roots = []
-    proj = os.environ.get("CURSOR_PROJECT_DIR")
-    if proj:
-        roots.append(proj)
+    for env_k in ("CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CLAUDE_PROJECT_DIR"):
+        proj = os.environ.get(env_k)
+        if proj:
+            roots.append(proj)
     wr = payload.get("workspace_roots") or []
     if isinstance(wr, list):
         roots.extend(wr)
@@ -113,7 +130,15 @@ def transcript_candidates():
 
 def extract_prompt():
     """首条用户 Prompt：payload 优先，否则读 transcript。"""
-    raw = payload.get("prompt") or payload.get("user_message") or payload.get("task") or ""
+    raw = (
+        payload.get("prompt")
+        or payload.get("user_prompt")
+        or payload.get("user_query")
+        or payload.get("user_message")
+        or payload.get("task")
+        or payload.get("input")
+        or ""
+    )
     if isinstance(raw, str) and raw.strip():
         return unwrap_user_query(raw)
     for path in transcript_candidates():
@@ -135,34 +160,42 @@ def short_title(text):
     return ""
 
 
-# 获取 Prompt / 任务描述（有真实内容才上报 title，避免占位标题污染后续覆盖）
+# 获取 Prompt / 任务描述
 prompt = extract_prompt()
 title = short_title(prompt)
 
-# 动态提取操作细节
+# 动态提取操作细节（兼容 ZCode 与 Cursor 的 tool 调用结构）
 detail = ""
+tool_name = payload.get("tool_name") or payload.get("tool") or ""
+tool_input = payload.get("tool_input") or payload.get("tool_args") or payload.get("parameters") or {}
+
 if "command" in payload:
     detail = f"执行命令: {payload['command']}"
-elif "tool_name" in payload:
-    tool_input = payload.get("tool_input", {})
-    if isinstance(tool_input, dict) and "command" in tool_input:
-        detail = f"执行命令: {tool_input['command']}"
-    elif isinstance(tool_input, dict) and "path" in tool_input:
-        detail = f"操作文件: {tool_input['path']}"
-    else:
-        detail = f"调用工具: {payload['tool_name']}"
+elif tool_name in ["Bash", "bash", "execute_command"]:
+    cmd = tool_input.get("command") if isinstance(tool_input, dict) else ""
+    detail = f"执行命令: {cmd}" if cmd else "执行命令"
+elif tool_name in ["Edit", "Write", "edit_file", "write_file", "ApplyPatch"]:
+    fp = tool_input.get("file_path") or tool_input.get("path") if isinstance(tool_input, dict) else ""
+    detail = f"编辑文件: {fp}" if fp else f"文件操作: {tool_name}"
+elif tool_name:
+    detail = f"调用工具: {tool_name}"
 elif "file_path" in payload:
     detail = f"编辑文件: {payload['file_path']}"
-elif event_name in ["beforeSubmitPrompt", "sessionStart"]:
+elif event_name in ["beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit"]:
     detail = "会话启动，分析任务中..."
-elif event_name in ["stop", "sessionEnd", "agentCompletion"]:
+elif event_name in ["stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop"]:
     detail = "任务执行完成"
 
+
 def get_git_info():
-    """从 workspace_roots 或当前目录解析仓库名与分支。"""
+    """从 project_dir、workspace_roots 或当前目录解析仓库名与分支。"""
     try:
         roots = payload.get("workspace_roots")
-        cwd = roots[0] if roots and len(roots) > 0 else os.getcwd()
+        cwd = None
+        if roots and len(roots) > 0:
+            cwd = roots[0]
+        else:
+            cwd = os.environ.get("ZCODE_PROJECT_DIR") or os.environ.get("CURSOR_PROJECT_DIR") or os.getcwd()
         r = subprocess.check_output(["git", "rev-parse", "--show-toplevel"], cwd=cwd, stderr=subprocess.DEVNULL).decode().strip().split("/")[-1]
         b = subprocess.check_output(["git", "branch", "--show-current"], cwd=cwd, stderr=subprocess.DEVNULL).decode().strip()
         return r, b
@@ -173,20 +206,28 @@ repo, branch = get_git_info()
 
 # 统一事件名映射为 Monitor 识别的状态事件
 mapped_event = event_name
-if event_name in ["beforeSubmitPrompt", "sessionStart"]:
+if event_name in ["beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit"]:
     mapped_event = "sessionStart"
-elif event_name in ["stop", "sessionEnd", "agentCompletion"]:
+elif event_name in ["stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop"]:
     mapped_event = "agentCompletion"
+elif event_name in ["PostToolUseFailure", "error", "failed"]:
+    mapped_event = "failed"
+elif event_name in ["PreToolUse", "PostToolUse"]:
+    if "afterFileEdit" in event_name or tool_name in ["Edit", "Write"]:
+        mapped_event = "afterFileEdit"
+    elif "beforeShellExecution" in event_name or tool_name in ["Bash", "bash"]:
+        mapped_event = "beforeShellExecution"
+    else:
+        mapped_event = "toolUse"
 
 data = {
     "id": session_id,
-    "agent": args.agent,
+    "agent": agent_name,
     "repo": f"{repo}:{branch}",
     "event": mapped_event,
     "timestamp": int(time.time()),
     "detail": detail[:120],
 }
-# 仅在拿到真实 Prompt 时上报 title/prompt，占位标题由 Monitor 生成并可被后续升级
 if title:
     data["title"] = title
 if prompt:
@@ -203,10 +244,10 @@ try:
 except Exception:
     pass
 
-# 输出标准 hook 放行响应 (避免 stdout 格式不合规被 IDE 拦截)
-if event_name == "beforeSubmitPrompt":
+# 输出标准 hook 放行响应 (避免 stdout 格式不合规被 IDE / Client 拦截)
+if event_name in ["beforeSubmitPrompt", "UserPromptSubmit"]:
     print(json.dumps({"continue": True}))
-elif event_name in ["beforeShellExecution", "preToolUse"]:
+elif event_name in ["beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest"]:
     print(json.dumps({"permission": "allow"}))
 else:
     print(json.dumps({}))
