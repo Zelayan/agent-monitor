@@ -51,6 +51,9 @@
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 999px; }
     ::-webkit-scrollbar-track { background: transparent; }
+    #run-dropdown-menu::-webkit-scrollbar { width: 4px; }
+    #run-dropdown-menu::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
+    #run-dropdown-menu::-webkit-scrollbar-track { background: transparent; }
     input[type="search"]::-webkit-search-cancel-button { display: none; }
   </style>
 </head>
@@ -175,22 +178,49 @@
       </div>
     </div>
 
-    <!-- 工业级核心组件：Run 步进器与下拉切换器 (Run Switcher) -->
+    <!-- 工业级核心组件：Run 步进器与自定义下拉切换器 (Linear/Sentry Run Switcher) -->
     <div class="mt-4 flex items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
       <div class="flex items-center gap-1.5">
-        <button id="btn-prev-run" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+        <button id="btn-prev-run" type="button" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
           ◀ Prev Run
         </button>
-        <button id="btn-next-run" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+        <button id="btn-next-run" type="button" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
           Next Run ▶
         </button>
       </div>
 
-      <!-- 下拉选择任意 Run -->
-      <div class="flex items-center gap-2 min-w-0">
-        <span class="font-mono text-[10px] text-zinc-500 shrink-0 uppercase">JUMP TO:</span>
-        <select id="run-dropdown-select" class="bg-[#18181b] border border-line text-zinc-200 font-mono text-[11px] px-2 py-1 rounded outline-none cursor-pointer max-w-[240px] truncate">
-        </select>
+      <!-- 自定义暗色 Dropdown 下拉选择器 -->
+      <div class="relative flex items-center gap-2 min-w-0" id="run-dropdown-container">
+        <span class="font-mono text-[10px] text-zinc-500 shrink-0 uppercase select-none tracking-wider">JUMP TO:</span>
+        
+        <div class="relative">
+          <button 
+            id="run-dropdown-trigger" 
+            type="button" 
+            aria-haspopup="listbox" 
+            aria-expanded="false" 
+            class="group flex items-center gap-2 bg-[#18181b] hover:bg-[#202024] active:bg-[#151518] border border-line hover:border-zinc-500 text-zinc-200 font-mono text-[11px] px-2.5 py-1 rounded transition-colors duration-150 outline-none max-w-[260px] cursor-pointer"
+          >
+            <span id="run-trigger-badge" class="inline-flex items-center gap-1.5 shrink-0">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+              <span class="text-zinc-300 font-semibold">Run #1</span>
+            </span>
+            <span id="run-trigger-text" class="truncate text-zinc-400 group-hover:text-zinc-300">Prompt...</span>
+            <svg id="run-trigger-arrow" class="w-3 h-3 text-zinc-500 group-hover:text-zinc-300 shrink-0 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m6 9 6 6 6-6"/>
+            </svg>
+          </button>
+
+          <!-- 下拉菜单 Popover 面板 -->
+          <div 
+            id="run-dropdown-menu" 
+            role="listbox" 
+            tabindex="-1"
+            class="hidden absolute right-0 top-full mt-1.5 w-72 sm:w-80 bg-[#121316]/98 backdrop-blur-md border border-[#27272a] rounded-lg shadow-2xl p-1 z-50 max-h-64 overflow-y-auto focus:outline-none"
+          >
+            <div id="run-dropdown-options" class="space-y-0.5"></div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -568,25 +598,100 @@
     function closeDrawer() {
       selectedId = null;
       selectedRunId = null;
+      toggleRunDropdown(false);
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'true');
     }
 
+    function toggleRunDropdown(force) {
+      const menu = document.getElementById('run-dropdown-menu');
+      const trigger = document.getElementById('run-dropdown-trigger');
+      const arrow = document.getElementById('run-trigger-arrow');
+      if (!menu || !trigger) return;
+      const isOpen = typeof force === 'boolean' ? force : menu.classList.contains('hidden');
+      if (isOpen) {
+        menu.classList.remove('hidden');
+        trigger.setAttribute('aria-expanded', 'true');
+        if (arrow) arrow.classList.add('rotate-180');
+      } else {
+        menu.classList.add('hidden');
+        trigger.setAttribute('aria-expanded', 'false');
+        if (arrow) arrow.classList.remove('rotate-180');
+      }
+    }
+
     function populateRunDropdown(runs) {
-      const select = document.getElementById('run-dropdown-select');
-      select.innerHTML = '';
+      const optionsBox = document.getElementById('run-dropdown-options');
+      const triggerBadge = document.getElementById('run-trigger-badge');
+      const triggerText = document.getElementById('run-trigger-text');
+      if (!optionsBox) return;
+      optionsBox.innerHTML = '';
+
+      const currentRun = runs.find(r => (r.index || r.runId) === selectedRunId) || runs[runs.length - 1] || {};
+      const curIndex = currentRun.index || currentRun.runId || 1;
+      const curIsRunning = currentRun.status === 'running';
+      const curIsFailed = currentRun.status === 'failed';
+      const curDotColor = curIsRunning ? 'bg-amber-400 animate-pulse' : (curIsFailed ? 'bg-rose-500' : 'bg-emerald-500');
+
+      if (triggerBadge) {
+        triggerBadge.innerHTML = `
+          <span class="w-1.5 h-1.5 rounded-full ${curDotColor}"></span>
+          <span class="text-zinc-200 font-semibold">Run #${curIndex}</span>
+        `;
+      }
+      if (triggerText) {
+        const p = (currentRun.prompt || currentRun.title || 'Task').trim().split('\n')[0];
+        triggerText.textContent = p.slice(0, 24) + (p.length > 24 ? '…' : '');
+      }
 
       // 倒序展示：最新的 Run 排在最上面
       const reversedRuns = [...runs].reverse();
       reversedRuns.forEach(r => {
         const rIndex = r.index || r.runId || 1;
-        const opt = document.createElement('option');
-        opt.value = rIndex;
-        const shortPrompt = (r.prompt || r.title || 'Task').slice(0, 32).replace(/\n/g, ' ');
-        opt.innerText = `Run #${rIndex} (${(r.status || 'DONE').toUpperCase()}) - ${shortPrompt}...`;
-        if (rIndex === selectedRunId) opt.selected = true;
-        select.appendChild(opt);
+        const isSelected = rIndex === selectedRunId;
+        const isRunning = r.status === 'running';
+        const isFailed = r.status === 'failed';
+        
+        const dotColor = isRunning ? 'bg-amber-400 animate-pulse' : (isFailed ? 'bg-rose-500' : 'bg-emerald-500');
+        const badgeClass = isRunning 
+          ? 'bg-amber-950/60 text-amber-300 border border-amber-800/60' 
+          : (isFailed ? 'bg-rose-950/60 text-rose-300 border border-rose-800/60' : 'bg-zinc-800 text-zinc-400');
+        
+        const durationText = isRunning ? 'running...' : (r.duration || '00m 00s');
+        const promptSummary = (r.prompt || r.title || 'Task').trim().split('\n')[0];
+
+        const item = document.createElement('div');
+        item.setAttribute('role', 'option');
+        item.setAttribute('aria-selected', isSelected ? 'true' : 'false');
+        item.className = `group flex flex-col gap-1 p-2 rounded cursor-pointer transition-colors duration-100 ${
+          isSelected ? 'bg-zinc-800/90 text-zinc-100 border border-zinc-700/60' : 'hover:bg-zinc-800/40 text-zinc-300 border border-transparent'
+        }`;
+
+        item.innerHTML = `
+          <div class="flex items-center justify-between font-mono text-[10px]">
+            <div class="flex items-center gap-1.5">
+              <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
+              <span class="font-semibold ${isSelected ? 'text-zinc-100' : 'text-zinc-300'}">RUN #${rIndex}</span>
+              <span class="px-1 py-px rounded text-[9px] ${badgeClass}">${(r.status || 'COMPLETED').toUpperCase()}</span>
+            </div>
+            <div class="flex items-center gap-1.5 text-zinc-500">
+              <span class="tabular-nums">${esc(durationText)}</span>
+              ${isSelected ? '<svg class="w-3 h-3 text-zinc-200 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>' : ''}
+            </div>
+          </div>
+          <div class="text-[11px] text-zinc-400 group-hover:text-zinc-300 truncate leading-snug">
+            ${esc(promptSummary)}
+          </div>
+        `;
+
+        item.addEventListener('click', (e) => {
+          e.stopPropagation();
+          onSelectRun(rIndex);
+          toggleRunDropdown(false);
+        });
+
+        optionsBox.appendChild(item);
       });
 
       updateStepButtons(runs.length);
@@ -604,8 +709,8 @@
       const target = selectedRunId + delta;
       if (target >= 1 && target <= runs.length) {
         selectedRunId = target;
-        document.getElementById('run-dropdown-select').value = target;
         updateStepButtons(runs.length);
+        populateRunDropdown(runs);
         renderSelectedRunDetails(task, runs);
       }
     }
@@ -616,6 +721,7 @@
       if (!task) return;
       const runs = getTaskRuns(task);
       updateStepButtons(runs.length);
+      populateRunDropdown(runs);
       renderSelectedRunDetails(task, runs);
     }
 
@@ -748,7 +854,21 @@
     document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
     document.getElementById('btn-prev-run').addEventListener('click', () => stepRun(-1));
     document.getElementById('btn-next-run').addEventListener('click', () => stepRun(1));
-    document.getElementById('run-dropdown-select').addEventListener('change', (e) => onSelectRun(e.target.value));
+
+    const dropdownTrigger = document.getElementById('run-dropdown-trigger');
+    if (dropdownTrigger) {
+      dropdownTrigger.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleRunDropdown();
+      });
+    }
+
+    document.addEventListener('click', (e) => {
+      const container = document.getElementById('run-dropdown-container');
+      if (container && !container.contains(e.target)) {
+        toggleRunDropdown(false);
+      }
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeDrawer();
