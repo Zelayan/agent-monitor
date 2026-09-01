@@ -22,5 +22,5 @@
 .idea/
 .vscode/
 
-# zcode agent plans & local cache
-.zcode/plans/
+# zcode agent workspace & local cache
+.zcode/
