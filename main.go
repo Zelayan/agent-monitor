@@ -180,6 +180,30 @@ func placeholderTitle(agent string) string {
 	return agent + " 任务"
 }
 
+// cleanPromptTitle 从 Prompt 中提取首行作为简洁标题，过滤常用前缀标记并限制长度。
+func cleanPromptTitle(prompt string) string {
+	for _, line := range strings.Split(prompt, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 移除常见标记前缀
+		prefixes := []string{"#task", "#Task", "[board]", "[Board]", "任务:", "任务：", "TODO:", "todo:"}
+		for _, p := range prefixes {
+			line = strings.TrimPrefix(line, p)
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if len(line) > 80 {
+			return line[:80]
+		}
+		return line
+	}
+	return ""
+}
+
 // handleEvent 接收 Hook 上报：支持多轮会话（Runs）聚合与独立生命周期结算。
 func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -212,7 +236,12 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 		// 首次上报：创建会话容器，并初始化 Run #1
 		title := p.Title
 		if !isRealTitle(title) {
-			title = placeholderTitle(p.Agent)
+			if p.Prompt != "" {
+				title = cleanPromptTitle(p.Prompt)
+			}
+			if !isRealTitle(title) {
+				title = placeholderTitle(p.Agent)
+			}
 		}
 		rootGoal := p.Prompt
 		if rootGoal == "" {
@@ -261,23 +290,20 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 			shouldStartNewTurn = true
 		}
 
-		if shouldStartNewTurn {
-			// 开启全新 Run
-			newIdx := task.TotalRuns + 1
-			newTitle := p.Title
-			if !isRealTitle(newTitle) {
-				if p.Prompt != "" {
-					lines := strings.Split(p.Prompt, "\n")
-					newTitle = strings.TrimSpace(lines[0])
-					if len(newTitle) > 80 {
-						newTitle = newTitle[:80]
+			if shouldStartNewTurn {
+				// 开启全新 Run
+				newIdx := task.TotalRuns + 1
+				newTitle := p.Title
+				if !isRealTitle(newTitle) {
+					if p.Prompt != "" {
+						newTitle = cleanPromptTitle(p.Prompt)
 					}
-				} else {
-					newTitle = fmt.Sprintf("Run #%d", newIdx)
+					if !isRealTitle(newTitle) {
+						newTitle = fmt.Sprintf("Run #%d", newIdx)
+					}
 				}
-			}
 
-			newTurn := Turn{
+				newTurn := Turn{
 				Index:     newIdx,
 				Prompt:    p.Prompt,
 				Title:     newTitle,
@@ -304,8 +330,29 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 	if curRun.Prompt == "" && p.Prompt != "" {
 		curRun.Prompt = p.Prompt
 	}
-	if isRealTitle(p.Title) && (isPlaceholderTitle(curRun.Title) || curRun.Title == "") {
+	if isRealTitle(p.Title) {
 		curRun.Title = p.Title
+	} else if (isPlaceholderTitle(curRun.Title) || curRun.Title == "") && p.Prompt != "" {
+		curRun.Title = cleanPromptTitle(p.Prompt)
+	}
+
+	// 动态覆写 Task 容器级别的 RootGoal、Title 与 Prompt（当初始创建时为占位符时）
+	if isPlaceholderTitle(task.RootGoal) || task.RootGoal == "" || task.RootGoal == placeholderTitle(task.Agent) {
+		if p.Prompt != "" {
+			task.RootGoal = p.Prompt
+		} else if isRealTitle(p.Title) {
+			task.RootGoal = p.Title
+		}
+	}
+	if isPlaceholderTitle(task.Title) || task.Title == "" {
+		if isRealTitle(p.Title) {
+			task.Title = p.Title
+		} else if p.Prompt != "" {
+			task.Title = cleanPromptTitle(p.Prompt)
+		}
+	}
+	if task.Prompt == "" && p.Prompt != "" {
+		task.Prompt = p.Prompt
 	}
 
 	curRun.Timeline = append(curRun.Timeline, TimelineItem{
