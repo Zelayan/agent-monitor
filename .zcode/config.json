@@ -7,7 +7,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 scripts/reporter.py --event SessionStart --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event SessionStart --agent ZCode"
             }
           ]
         }
@@ -17,29 +17,29 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 scripts/reporter.py --event UserPromptSubmit --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event UserPromptSubmit --agent ZCode"
             }
           ]
         }
       ],
       "PreToolUse": [
         {
-          "matcher": "Bash|Write|Edit|ApplyPatch",
+          "matcher": ".*",
           "hooks": [
             {
               "type": "command",
-              "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PreToolUse --agent ZCode"
             }
           ]
         }
       ],
       "PostToolUse": [
         {
-          "matcher": "Bash|Write|Edit|ApplyPatch",
+          "matcher": ".*",
           "hooks": [
             {
               "type": "command",
-              "command": "python3 scripts/reporter.py --event PostToolUse --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PostToolUse --agent ZCode"
             }
           ]
         }
@@ -49,7 +49,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 scripts/reporter.py --event Stop --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event Stop --agent ZCode"
             }
           ]
         }
