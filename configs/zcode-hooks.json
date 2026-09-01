@@ -7,7 +7,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event SessionStart --agent ZCode"
+              "command": "/Users/chenzezeya/agent-monitor/bin/agent-reporter --event SessionStart --agent ZCode"
             }
           ]
         }
@@ -17,7 +17,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event UserPromptSubmit --agent ZCode"
+              "command": "/Users/chenzezeya/agent-monitor/bin/agent-reporter --event UserPromptSubmit --agent ZCode"
             }
           ]
         }
@@ -28,7 +28,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PreToolUse --agent ZCode"
+              "command": "/Users/chenzezeya/agent-monitor/bin/agent-reporter --event PreToolUse --agent ZCode"
             }
           ]
         }
@@ -39,7 +39,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PostToolUseFailure --agent ZCode"
+              "command": "/Users/chenzezeya/agent-monitor/bin/agent-reporter --event PostToolUseFailure --agent ZCode"
             }
           ]
         }
@@ -49,7 +49,7 @@
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event Stop --agent ZCode"
+              "command": "/Users/chenzezeya/agent-monitor/bin/agent-reporter --event Stop --agent ZCode"
             }
           ]
         }

@@ -20,6 +20,20 @@ go run main.go
 PORT=9000 go run main.go
 ```
 
+## 构建与安装
+
+```bash
+# 编译 Monitor 与 Reporter
+make build
+
+# 跨平台一键编译全平台静态二进制
+make build-all
+```
+
+编译产物位于 `bin/` 目录：
+- `bin/agent-monitor`：Monitor Web 仪表盘服务
+- `bin/agent-reporter`：面向 AI Agent 的零依赖 Hook 上报器（支持 macOS/Linux/Windows）
+
 ## 接入 ZCode Hook
 
 ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.json` 中配置生命周期 Hook。
@@ -32,19 +46,19 @@ ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.jso
     "enabled": true,
     "events": {
       "SessionStart": [
-        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event SessionStart --agent ZCode" }] }
+        { "hooks": [{ "type": "command", "command": "bin/agent-reporter --event SessionStart --agent ZCode" }] }
       ],
       "UserPromptSubmit": [
-        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event UserPromptSubmit --agent ZCode" }] }
+        { "hooks": [{ "type": "command", "command": "bin/agent-reporter --event UserPromptSubmit --agent ZCode" }] }
       ],
       "PreToolUse": [
-        { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode" }] }
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "bin/agent-reporter --event PreToolUse --agent ZCode" }] }
       ],
       "PostToolUseFailure": [
-        { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PostToolUseFailure --agent ZCode" }] }
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "bin/agent-reporter --event PostToolUseFailure --agent ZCode" }] }
       ],
       "Stop": [
-        { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event Stop --agent ZCode" }] }
+        { "hooks": [{ "type": "command", "command": "bin/agent-reporter --event Stop --agent ZCode" }] }
       ]
     }
   }
@@ -53,11 +67,13 @@ ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.jso
 
 ## 接入 Cursor Hook
 
-把 `configs/cursor-hooks.json` 配进 Cursor 的 hooks（或把其中命令复制到你的 hooks 配置）。脚本会从 stdin 读取官方 payload，并向 Monitor 上报：
+把 `configs/cursor-hooks.json` 配进 Cursor 的 hooks（或把其中命令复制到你的 hooks 配置）。上报器会从 stdin 读取官方 payload，并向 Monitor 上报：
 
 ```bash
-python3 scripts/reporter.py --event sessionStart --agent 'Cursor Agent'
+bin/agent-reporter --event sessionStart --agent 'Cursor Agent'
 ```
+
+*(也支持使用 `python3 scripts/reporter.py` 作为兼容方案)*
 
 其他 Agent（Codex / Claude 等）只要向 `/api/event` POST 同一份 JSON 即可，过滤胶囊会按实际上报的 `agent` 名称动态出现。
 
@@ -106,13 +122,16 @@ curl -s http://127.0.0.1:8000/api/event \
 ## 目录
 
 ```
-main.go                  Monitor 服务（内存任务 + SSE）
+main.go                  Monitor 服务入口（内存任务 + SSE）
 static/index.html        Monitor 前端（go:embed）
-scripts/reporter.py      通用 Hook 上报脚本（支持 ZCode、Cursor 等）
+cmd/reporter/            Go 原生零依赖 Hook 上报器命令行入口
+internal/reporter/       上报器核心逻辑（协议放行、过滤规则、Git/Transcript解析）
+scripts/reporter.py      通用 Hook 上报脚本（Python 备用兼容版本）
 configs/zcode-hooks.json ZCode Hook 配置模板
 configs/cursor-hooks.json Cursor Hook 配置模板
 .zcode/config.json       当前仓库的本地 ZCode Hook 启用配置
 AGENTS.md                给 Agent 的仓库约定
+Makefile                 构建与跨平台编译脚本
 ```
 
 改 `static/index.html` 后必须重启 `go run main.go`，嵌入内容只在编译时打进二进制。

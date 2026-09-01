@@ -1,10 +1,10 @@
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "python3 scripts/reporter.py --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
-    "sessionStart": [{ "command": "python3 scripts/reporter.py --event sessionStart --agent 'Cursor Agent'" }],
-    "afterFileEdit": [{ "command": "python3 scripts/reporter.py --event afterFileEdit --agent 'Cursor Agent'" }],
-    "beforeShellExecution": [{ "command": "python3 scripts/reporter.py --event beforeShellExecution --agent 'Cursor Agent'" }],
-    "agentCompletion": [{ "command": "python3 scripts/reporter.py --event agentCompletion --agent 'Cursor Agent'" }]
+    "beforeSubmitPrompt": [{ "command": "bin/agent-reporter --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
+    "sessionStart": [{ "command": "bin/agent-reporter --event sessionStart --agent 'Cursor Agent'" }],
+    "afterFileEdit": [{ "command": "bin/agent-reporter --event afterFileEdit --agent 'Cursor Agent'" }],
+    "beforeShellExecution": [{ "command": "bin/agent-reporter --event beforeShellExecution --agent 'Cursor Agent'" }],
+    "agentCompletion": [{ "command": "bin/agent-reporter --event agentCompletion --agent 'Cursor Agent'" }]
   }
 }
