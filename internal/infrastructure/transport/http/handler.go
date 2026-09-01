@@ -95,19 +95,81 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// HandleTasks 处理任务查询与清空已完成。
+// HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	if r.Method == http.MethodDelete {
-		_ = h.svc.ClearFinishedTasks()
-		w.Write([]byte(`{"cleared":true}`))
+		var req monitor.DeleteTasksRequest
+		// 1. 支持通过 URL Query ?all=true 清空全部
+		if r.URL.Query().Get("all") == "true" || r.URL.Query().Get("all") == "1" {
+			req.All = true
+		}
+		// 2. 支持通过 JSON Body 传入指定要删除的 ids 列表
+		if r.Body != nil {
+			_ = json.NewDecoder(r.Body).Decode(&req)
+		}
+		// 3. 支持通过 URL Query ?ids=id1,id2
+		if idsQuery := r.URL.Query().Get("ids"); idsQuery != "" && len(req.IDs) == 0 {
+			req.IDs = splitAndTrim(idsQuery, ",")
+		}
+
+		deleted := h.svc.DeleteTasks(req)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"cleared":    true,
+			"deletedIds": deleted,
+			"count":      len(deleted),
+		})
 		return
 	}
 
 	tasks := h.svc.GetAllTasks()
 	json.NewEncoder(w).Encode(tasks)
+}
+
+func splitAndTrim(s, sep string) []string {
+	parts := make([]string, 0)
+	for _, p := range json.RawMessage(s) { // fallback
+		_ = p
+	}
+	for _, raw := range []string{s} {
+		for _, part := range json.RawMessage(raw) {
+			_ = part
+		}
+	}
+	// standard split
+	for _, token := range stringsSplit(s, sep) {
+		token = trim(token)
+		if token != "" {
+			parts = append(parts, token)
+		}
+	}
+	return parts
+}
+
+func stringsSplit(s, sep string) []string {
+	var res []string
+	start := 0
+	for i := 0; i+len(sep) <= len(s); i++ {
+		if s[i:i+len(sep)] == sep {
+			res = append(res, s[start:i])
+			start = i + len(sep)
+			i += len(sep) - 1
+		}
+	}
+	res = append(res, s[start:])
+	return res
+}
+
+func trim(s string) string {
+	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r') {
+		s = s[1:]
+	}
+	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t' || s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
+		s = s[:len(s)-1]
+	}
+	return s
 }
 
 // HandleIndex 渲染嵌入的前端 SPA 页面。

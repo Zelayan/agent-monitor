@@ -100,11 +100,55 @@
         <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
           EN
         </button>
-        <button id="btn-clear" type="button" class="h-7 px-2.5 rounded border border-line bg-transparent text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200">
-          清空
-        </button>
+
+        <!-- 多模式清空下拉菜单 (Clear Actions Dropdown) -->
+        <div class="relative" id="clear-dropdown-container">
+          <button id="btn-clear-dropdown" type="button" aria-haspopup="true" aria-expanded="false" class="h-7 px-2.5 rounded border border-line bg-card hover:border-zinc-500 text-[11px] text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5 transition-colors">
+            <span id="lbl-clear-btn">清空</span>
+            <svg class="w-3 h-3 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
+          </button>
+          <div id="clear-dropdown-menu" class="hidden absolute right-0 top-full mt-1.5 w-52 bg-[#121316]/98 backdrop-blur-md border border-line rounded-lg shadow-2xl p-1 z-50 font-mono text-[11px]">
+            <button type="button" id="btn-action-clear-finished" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-zinc-800/80 text-zinc-300 text-left transition-colors">
+              <span id="lbl-act-finished">清空已完成 & 失败</span>
+              <span class="text-[9px] text-zinc-500">Done</span>
+            </button>
+            <button type="button" id="btn-action-clear-all" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-rose-950/40 text-rose-300 text-left transition-colors">
+              <span id="lbl-act-all">清空全部任务 (含运行中)</span>
+              <span class="text-[9px] text-rose-500/80">All</span>
+            </button>
+            <div class="my-1 border-t border-line"></div>
+            <button type="button" id="btn-action-toggle-select" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-zinc-800/80 text-zinc-300 text-left transition-colors">
+              <span id="lbl-act-select">开启批量选择清理...</span>
+              <span class="text-[9px] text-zinc-500">Batch</span>
+            </button>
+          </div>
+        </div>
       </div>
 
+    </div>
+
+    <!-- 批量选择操作工具条 (选中模式下显示) -->
+    <div id="batch-bar" class="hidden border-t border-line bg-[#14151a] px-3 sm:px-4 py-2">
+      <div class="max-w-[1440px] mx-auto flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+        <div class="flex items-center gap-2">
+          <span class="inline-flex items-center justify-center w-5 h-5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/60 font-semibold text-[10px]" id="batch-selected-count">0</span>
+          <span class="text-zinc-300 font-medium" id="lbl-batch-selected">已选中 0 项任务</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" id="btn-batch-select-all" class="px-2 py-1 rounded border border-line bg-card hover:bg-zinc-800 text-zinc-300 text-[11px]">
+            全选
+          </button>
+          <button type="button" id="btn-batch-invert" class="px-2 py-1 rounded border border-line bg-card hover:bg-zinc-800 text-zinc-300 text-[11px]">
+            反选
+          </button>
+          <button type="button" id="btn-batch-delete" class="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white font-medium text-[11px] disabled:opacity-40 transition-colors" disabled>
+            删除所选
+          </button>
+          <button type="button" id="btn-batch-cancel" class="px-2 py-1 rounded text-zinc-400 hover:text-zinc-200 text-[11px]">
+            退出
+          </button>
+        </div>
+      </div>
     </div>
   </header>
 
@@ -163,6 +207,10 @@
         <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
       <div class="flex items-center gap-1.5">
+        <button id="btn-delete-session" type="button" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-rose-400 hover:border-rose-500 hover:text-rose-200 flex items-center gap-1" title="Delete this session / 删除此会话">
+          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <span id="lbl-drawer-del">删除会话</span>
+        </button>
         <button id="btn-toggle-widescreen" type="button" class="hidden md:flex px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 items-center gap-1">
           <svg id="icon-expand" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
           <span id="lbl-widescreen">宽屏</span>
@@ -267,6 +315,18 @@
         statAvg: '平均生命周期:',
         searchPlaceholder: '筛选会话',
         btnClear: '清空',
+        actFinished: '清空已完成 & 失败',
+        actAll: '清空全部会话 (含运行中)',
+        actSelect: '批量选择清理...',
+        drawerDel: '删除会话',
+        batchSelected: '已选择 {n} 项任务',
+        batchSelectAll: '全选',
+        batchInvert: '反选',
+        batchDelete: '删除所选',
+        batchCancel: '退出',
+        confirmDelSingle: '确认彻底删除此会话记录？',
+        confirmDelAll: '危险：确认清空全部会话（包含正在运行中的任务）？',
+        confirmDelBatch: '确认彻底删除选中的 {n} 项会话？',
         headerRunning: '活跃中 WORKFLOWS',
         headerCompleted: '就绪 / 已完成 SESSIONS',
         headerFailed: '异常 / 终止 TERMINATED',
@@ -297,6 +357,18 @@
         statAvg: 'AVG_LIFETIME:',
         searchPlaceholder: 'Filter sessions',
         btnClear: 'Clear',
+        actFinished: 'Clear Done & Failed',
+        actAll: 'Clear All Sessions (inc. Active)',
+        actSelect: 'Batch Selection Mode...',
+        drawerDel: 'Delete Session',
+        batchSelected: '{n} session(s) selected',
+        batchSelectAll: 'Select All',
+        batchInvert: 'Invert',
+        batchDelete: 'Delete Selected',
+        batchCancel: 'Cancel',
+        confirmDelSingle: 'Permanently delete this session record?',
+        confirmDelAll: 'Warning: Permanently delete ALL sessions including active ones?',
+        confirmDelBatch: 'Permanently delete {n} selected session(s)?',
         headerRunning: 'ACTIVE WORKFLOWS',
         headerCompleted: 'IDLE / COMPLETED',
         headerFailed: 'TERMINATED / FAILED',
@@ -323,6 +395,8 @@
 
     let currentLang = localStorage.getItem('agent_monitor_lang') || 'zh';
     let isWidescreen = false;
+    let isSelectMode = false;
+    const selectedTaskIds = new Set();
 
     const tasksMap = new Map();
     let query = '';
@@ -344,7 +418,11 @@
       document.getElementById('lbl-stat-avg').textContent = t('statAvg');
       document.getElementById('search-input').placeholder = t('searchPlaceholder');
       document.getElementById('btn-lang').textContent = t('langBtn');
-      document.getElementById('btn-clear').textContent = t('btnClear');
+      document.getElementById('lbl-clear-btn').textContent = t('btnClear');
+      document.getElementById('lbl-act-finished').textContent = t('actFinished');
+      document.getElementById('lbl-act-all').textContent = t('actAll');
+      document.getElementById('lbl-act-select').textContent = t('actSelect');
+      document.getElementById('lbl-drawer-del').textContent = t('drawerDel');
       document.getElementById('header-running').textContent = t('headerRunning');
       document.getElementById('header-completed').textContent = t('headerCompleted');
       document.getElementById('header-failed').textContent = t('headerFailed');
@@ -353,7 +431,12 @@
       document.getElementById('lbl-drawer-trace').textContent = t('drawerTrace');
       document.getElementById('btn-prev-run').textContent = t('btnPrev');
       document.getElementById('btn-next-run').textContent = t('btnNext');
+      document.getElementById('btn-batch-select-all').textContent = t('batchSelectAll');
+      document.getElementById('btn-batch-invert').textContent = t('batchInvert');
+      document.getElementById('btn-batch-delete').textContent = t('batchDelete');
+      document.getElementById('btn-batch-cancel').textContent = t('batchCancel');
       document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
+      updateBatchUI();
       setDaemon(isOnline);
       lastFilterSignature = '';
       render();
@@ -501,13 +584,25 @@
 
       const latestAction = latestRun.prompt || tObj.detail || tObj.title || 'Processing...';
 
+      const isSelected = selectedTaskIds.has(tObj.id);
+      const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
+
+      const checkboxHTML = isSelectMode ? `
+        <div class="shrink-0 pl-1" onclick="event.stopPropagation()">
+          <input type="checkbox" data-select-id="${esc(tObj.id)}" ${isSelected ? 'checked' : ''} 
+            class="w-4 h-4 rounded bg-zinc-900 border-line text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer">
+        </div>` : '';
+
       return `
-        <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} p-3 rounded text-[13px]"
+        <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} ${selectBorder} p-3 rounded text-[13px] relative"
           data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
           
           <div class="flex items-center justify-between font-mono text-[11px] mb-1.5">
-            ${agentBadge(tObj.agent)}
-            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate">${esc(repoLabel(tObj))}</span>
+            <div class="flex items-center gap-1.5 min-w-0">
+              ${checkboxHTML}
+              ${agentBadge(tObj.agent)}
+            </div>
+            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate ml-1">${esc(repoLabel(tObj))}</span>
           </div>
 
           <!-- 会话主体根目标 -->
@@ -810,9 +905,21 @@
       eventSource.onopen = () => setDaemon(true);
       eventSource.onmessage = (e) => {
         try {
-          const task = JSON.parse(e.data);
-          if (task && task.id) {
-            tasksMap.set(task.id, task);
+          const data = JSON.parse(e.data);
+          // 处理后端 SSE 广播的删除事件
+          if (data && data.type === 'delete_tasks' && Array.isArray(data.deletedIds)) {
+            data.deletedIds.forEach(id => {
+              tasksMap.delete(id);
+              selectedTaskIds.delete(id);
+            });
+            if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+            updateBatchUI();
+            render();
+            return;
+          }
+          // 普通任务增量更新或全量快照
+          if (data && data.id) {
+            tasksMap.set(data.id, data);
             render();
           }
         } catch (_) { /* ignore malformed frames */ }
@@ -825,7 +932,24 @@
       };
     }
 
-    async function clearCompleted() {
+    // 切换多种清空操作下拉菜单
+    function toggleClearDropdown(force) {
+      const menu = document.getElementById('clear-dropdown-menu');
+      const btn = document.getElementById('btn-clear-dropdown');
+      if (!menu || !btn) return;
+      const isOpen = typeof force === 'boolean' ? force : menu.classList.contains('hidden');
+      if (isOpen) {
+        menu.classList.remove('hidden');
+        btn.setAttribute('aria-expanded', 'true');
+      } else {
+        menu.classList.add('hidden');
+        btn.setAttribute('aria-expanded', 'false');
+      }
+    }
+
+    // 1. 清空已完成与失败任务
+    async function clearFinishedTasks() {
+      toggleClearDropdown(false);
       try {
         await fetch('/api/tasks', { method: 'DELETE' });
       } catch (_) { /* local fallback */ }
@@ -834,6 +958,99 @@
       }
       if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
       render();
+    }
+
+    // 2. 清空全部任务（包括正在运行的会话）
+    async function clearAllTasks() {
+      toggleClearDropdown(false);
+      if (!confirm(t('confirmDelAll'))) return;
+      try {
+        await fetch('/api/tasks?all=true', { method: 'DELETE' });
+      } catch (_) { /* local fallback */ }
+      tasksMap.clear();
+      selectedTaskIds.clear();
+      closeDrawer();
+      updateBatchUI();
+      render();
+    }
+
+    // 3. 删除单个特定会话（抽屉内触发）
+    async function deleteSingleSession(id) {
+      if (!id) return;
+      if (!confirm(t('confirmDelSingle'))) return;
+      try {
+        await fetch('/api/tasks', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [id] })
+        });
+      } catch (_) { /* local fallback */ }
+      tasksMap.delete(id);
+      selectedTaskIds.delete(id);
+      if (selectedId === id) closeDrawer();
+      updateBatchUI();
+      render();
+    }
+
+    // 4. 批量选择模式控制
+    function toggleSelectMode(enable) {
+      isSelectMode = typeof enable === 'boolean' ? enable : !isSelectMode;
+      const batchBar = document.getElementById('batch-bar');
+      if (isSelectMode) {
+        batchBar.classList.remove('hidden');
+        toggleClearDropdown(false);
+      } else {
+        batchBar.classList.add('hidden');
+        selectedTaskIds.clear();
+      }
+      updateBatchUI();
+      render();
+    }
+
+    function updateBatchUI() {
+      const countEl = document.getElementById('batch-selected-count');
+      const textEl = document.getElementById('lbl-batch-selected');
+      const delBtn = document.getElementById('btn-batch-delete');
+      if (countEl) countEl.textContent = selectedTaskIds.size;
+      if (textEl) textEl.textContent = t('batchSelected').replace('{n}', selectedTaskIds.size);
+      if (delBtn) delBtn.disabled = selectedTaskIds.size === 0;
+    }
+
+    function selectAllTasks() {
+      for (const id of tasksMap.keys()) {
+        selectedTaskIds.add(id);
+      }
+      updateBatchUI();
+      render();
+    }
+
+    function invertTaskSelection() {
+      for (const id of tasksMap.keys()) {
+        if (selectedTaskIds.has(id)) {
+          selectedTaskIds.delete(id);
+        } else {
+          selectedTaskIds.add(id);
+        }
+      }
+      updateBatchUI();
+      render();
+    }
+
+    async function deleteSelectedBatch() {
+      if (selectedTaskIds.size === 0) return;
+      const ids = Array.from(selectedTaskIds);
+      if (!confirm(t('confirmDelBatch').replace('{n}', ids.length))) return;
+      try {
+        await fetch('/api/tasks', {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: ids })
+        });
+      } catch (_) { /* local fallback */ }
+      ids.forEach(id => tasksMap.delete(id));
+      selectedTaskIds.clear();
+      if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+      toggleSelectMode(false);
     }
 
     function focusSearch() {
@@ -855,11 +1072,27 @@
     });
     document.getElementById('btn-lang').addEventListener('click', toggleLanguage);
     document.getElementById('btn-toggle-widescreen').addEventListener('click', toggleWidescreen);
-    document.getElementById('btn-clear').addEventListener('click', clearCompleted);
     document.getElementById('drawer-close').addEventListener('click', closeDrawer);
     document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
     document.getElementById('btn-prev-run').addEventListener('click', () => stepRun(-1));
     document.getElementById('btn-next-run').addEventListener('click', () => stepRun(1));
+
+    // 清空操作下拉菜单与批量模式绑定
+    const btnClearDropdown = document.getElementById('btn-clear-dropdown');
+    if (btnClearDropdown) {
+      btnClearDropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleClearDropdown();
+      });
+    }
+    document.getElementById('btn-action-clear-finished').addEventListener('click', clearFinishedTasks);
+    document.getElementById('btn-action-clear-all').addEventListener('click', clearAllTasks);
+    document.getElementById('btn-action-toggle-select').addEventListener('click', () => toggleSelectMode(true));
+    document.getElementById('btn-batch-select-all').addEventListener('click', selectAllTasks);
+    document.getElementById('btn-batch-invert').addEventListener('click', invertTaskSelection);
+    document.getElementById('btn-batch-delete').addEventListener('click', deleteSelectedBatch);
+    document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleSelectMode(false));
+    document.getElementById('btn-delete-session').addEventListener('click', () => deleteSingleSession(selectedId));
 
     const dropdownTrigger = document.getElementById('run-dropdown-trigger');
     if (dropdownTrigger) {
@@ -870,14 +1103,24 @@
     }
 
     document.addEventListener('click', (e) => {
-      const container = document.getElementById('run-dropdown-container');
-      if (container && !container.contains(e.target)) {
+      const runContainer = document.getElementById('run-dropdown-container');
+      if (runContainer && !runContainer.contains(e.target)) {
         toggleRunDropdown(false);
+      }
+      const clearContainer = document.getElementById('clear-dropdown-container');
+      if (clearContainer && !clearContainer.contains(e.target)) {
+        toggleClearDropdown(false);
       }
     });
 
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') closeDrawer();
+      if (e.key === 'Escape') {
+        if (isSelectMode) {
+          toggleSelectMode(false);
+        } else {
+          closeDrawer();
+        }
+      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         focusSearch();
@@ -887,9 +1130,36 @@
         focusSearch();
       }
     });
+
     document.addEventListener('click', (e) => {
+      const checkbox = e.target.closest('[data-select-id]');
+      if (checkbox) {
+        const id = checkbox.dataset.selectId;
+        if (checkbox.checked) {
+          selectedTaskIds.add(id);
+        } else {
+          selectedTaskIds.delete(id);
+        }
+        updateBatchUI();
+        render();
+        return;
+      }
+
       const card = e.target.closest('[data-task-id]');
-      if (card) openDrawer(card.dataset.taskId);
+      if (card) {
+        if (isSelectMode) {
+          const id = card.dataset.taskId;
+          if (selectedTaskIds.has(id)) {
+            selectedTaskIds.delete(id);
+          } else {
+            selectedTaskIds.add(id);
+          }
+          updateBatchUI();
+          render();
+        } else {
+          openDrawer(card.dataset.taskId);
+        }
+      }
     });
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter' && e.key !== ' ') return;

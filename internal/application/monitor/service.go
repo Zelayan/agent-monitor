@@ -98,18 +98,43 @@ func (s *MonitorService) GetAllTasks() []*task.Task {
 	return list
 }
 
-// ClearFinishedTasks 清除所有已完成或失败的任务，并返回清除数量。
-func (s *MonitorService) ClearFinishedTasks() int {
+// DeleteTasksRequest 定义删除任务的参数载荷。
+type DeleteTasksRequest struct {
+	IDs []string `json:"ids,omitempty"`
+	All bool     `json:"all,omitempty"`
+}
+
+// DeleteTasks 根据模式删除任务（指定 ids、全清、或清空已完成/失败），并通过 SSE 广播删除事件，返回被删除的 ID 列表。
+func (s *MonitorService) DeleteTasks(req DeleteTasksRequest) []string {
 	s.mu.Lock()
 	var toDelete []string
-	for id, t := range s.tasks {
-		if t.Status == "completed" || t.Status == "failed" {
+
+	if req.All {
+		// 清空全部任务（包括 running）
+		for id := range s.tasks {
 			delete(s.tasks, id)
 			toDelete = append(toDelete, id)
+		}
+	} else if len(req.IDs) > 0 {
+		// 精确删除指定 ID 列表
+		for _, targetID := range req.IDs {
+			if _, exists := s.tasks[targetID]; exists {
+				delete(s.tasks, targetID)
+				toDelete = append(toDelete, targetID)
+			}
+		}
+	} else {
+		// 默认行为：只清已完成和失败任务
+		for id, t := range s.tasks {
+			if t.Status == "completed" || t.Status == "failed" {
+				delete(s.tasks, id)
+				toDelete = append(toDelete, id)
+			}
 		}
 	}
 	s.mu.Unlock()
 
+	// 异步持久化清理
 	if s.repo != nil && len(toDelete) > 0 {
 		go func(ids []string) {
 			for _, id := range ids {
@@ -120,5 +145,22 @@ func (s *MonitorService) ClearFinishedTasks() int {
 		}(toDelete)
 	}
 
-	return len(toDelete)
+	// 广播 SSE 删除消息，确保所有客户端同步清理
+	if s.hub != nil && len(toDelete) > 0 {
+		delEvent := map[string]interface{}{
+			"type":       "delete_tasks",
+			"deletedIds": toDelete,
+		}
+		if msgJSON, err := json.Marshal(delEvent); err == nil {
+			s.hub.Broadcast(string(msgJSON))
+		}
+	}
+
+	return toDelete
+}
+
+// ClearFinishedTasks 清除所有已完成或失败的任务，并返回清除数量。
+func (s *MonitorService) ClearFinishedTasks() int {
+	deleted := s.DeleteTasks(DeleteTasksRequest{})
+	return len(deleted)
 }

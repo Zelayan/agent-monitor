@@ -240,12 +240,12 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 		t.TotalLifetime = totalSec
 		t.Duration = FormatDuration(totalSec)
-	case "stop", "failed", "error", "PostToolUseFailure":
-		curRun.Status = "failed"
-		curRun.EndTime = nowMs
-		t.Status = "failed"
-		t.EndTime = nowMs
-	}
+		case "stop", "failed", "error", "toolFailure", "PostToolUseFailure":
+			curRun.Status = "failed"
+			curRun.EndTime = nowMs
+			t.Status = "failed"
+			t.EndTime = nowMs
+		}
 
 	t.LastHook = p.Event
 	t.Detail = p.Detail
