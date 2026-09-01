@@ -67,9 +67,9 @@
       </div>
 
       <div class="flex items-center gap-3 font-mono text-[11px] tabular-nums">
-        <span class="text-amber-500"><span class="uppercase tracking-wide">Active:</span> <span id="stat-running">0</span></span>
-        <span class="text-zinc-200"><span class="uppercase tracking-wide">Done:</span> <span id="stat-completed">0</span></span>
-        <span class="text-zinc-500"><span class="uppercase tracking-wide">Avg_dur:</span> <span id="stat-avg">00m 00s</span></span>
+        <span class="text-amber-500"><span id="lbl-stat-running" class="uppercase tracking-wide">运行中:</span> <span id="stat-running">0</span></span>
+        <span class="text-zinc-200"><span id="lbl-stat-completed" class="uppercase tracking-wide">已完成:</span> <span id="stat-completed">0</span></span>
+        <span class="text-zinc-500"><span id="lbl-stat-avg" class="uppercase tracking-wide">平均耗时:</span> <span id="stat-avg">00m 00s</span></span>
       </div>
 
       <div class="flex items-center gap-2 flex-1 min-w-[240px] justify-end">
@@ -77,16 +77,19 @@
           <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
           </span>
-          <input id="search-input" type="search" placeholder="Filter sessions"
+          <input id="search-input" type="search" placeholder="筛选会话"
             class="w-full h-7 pl-7 pr-11 rounded bg-card border border-line text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
           <kbd class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
         </label>
         <div id="agent-filters" class="flex items-center gap-1 flex-wrap" role="group" aria-label="Agent filter"></div>
+        <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
+          EN
+        </button>
         <button id="btn-mock" type="button" class="h-7 px-2.5 rounded bg-zinc-100 text-zinc-950 text-[11px] font-medium hover:bg-white">
-          + Dispatch Mock
+          + 模拟上报
         </button>
         <button id="btn-clear" type="button" class="h-7 px-2.5 rounded border border-line bg-transparent text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200">
-          Clear
+          清空
         </button>
       </div>
     </div>
@@ -98,7 +101,7 @@
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-            Running
+            <span id="header-running">运行中</span>
           </span>
           <span id="count-running" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
@@ -108,7 +111,7 @@
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>
-            Completed
+            <span id="header-completed">已完成</span>
           </span>
           <span id="count-completed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
@@ -118,7 +121,7 @@
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16.2h.01"/></svg>
-            Failed / Aborted
+            <span id="header-failed">失败 / 中断</span>
           </span>
           <span id="count-failed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
@@ -143,11 +146,11 @@
     </div>
     <div class="flex-1 overflow-y-auto px-3 py-3 space-y-4">
       <section>
-        <h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-1.5">Prompt</h3>
+        <h3 id="drawer-prompt-title" class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-1.5">用户 Prompt</h3>
         <p id="drawer-prompt" class="text-[13px] leading-relaxed text-zinc-200 whitespace-pre-wrap"></p>
       </section>
       <section>
-        <h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-2">Lifecycle Hook Trace</h3>
+        <h3 id="drawer-trace-title" class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-2">生命周期 Hook 时间线</h3>
         <ol id="drawer-timeline" class="relative"></ol>
       </section>
     </div>
@@ -155,6 +158,69 @@
   </aside>
 
   <script>
+    const I18N = {
+      zh: {
+        htmlLang: 'zh-CN',
+        langBtn: 'EN',
+        statRunning: '运行中:',
+        statCompleted: '已完成:',
+        statAvg: '平均耗时:',
+        searchPlaceholder: '筛选会话',
+        btnMock: '+ 模拟上报',
+        btnClear: '清空',
+        headerRunning: '运行中',
+        headerCompleted: '已完成',
+        headerFailed: '失败 / 中断',
+        drawerPrompt: '用户 Prompt',
+        drawerTrace: '生命周期 Hook 时间线',
+        drawerDuration: '耗时',
+        drawerHooks: '事件数',
+        drawerStatus: '状态',
+        statusRunning: '运行中',
+        statusCompleted: '已完成',
+        statusFailed: '已失败',
+        noRunning: '暂无运行中的会话',
+        noCompleted: '暂无已完成的会话',
+        noFailed: '暂无失败会话',
+        noPrompt: '(无 Prompt 描述)',
+        noTimeline: '暂无 Hook 轨迹',
+        offline: '离线',
+        filterAll: '全部',
+        abortedDefault: '用户终止执行 (SIGINT)',
+      },
+      en: {
+        htmlLang: 'en',
+        langBtn: '中文',
+        statRunning: 'ACTIVE:',
+        statCompleted: 'DONE:',
+        statAvg: 'AVG_DUR:',
+        searchPlaceholder: 'Filter sessions',
+        btnMock: '+ Dispatch Mock',
+        btnClear: 'Clear',
+        headerRunning: 'Running',
+        headerCompleted: 'Completed',
+        headerFailed: 'Failed / Aborted',
+        drawerPrompt: 'Prompt',
+        drawerTrace: 'Lifecycle Hook Trace',
+        drawerDuration: 'Duration',
+        drawerHooks: 'Hooks',
+        drawerStatus: 'Status',
+        statusRunning: 'RUNNING',
+        statusCompleted: 'COMPLETED',
+        statusFailed: 'FAILED',
+        noRunning: 'No active sessions',
+        noCompleted: 'No completed sessions',
+        noFailed: 'No failed sessions',
+        noPrompt: '(no prompt)',
+        noTimeline: 'No hook events',
+        offline: 'offline',
+        filterAll: 'ALL',
+        abortedDefault: 'Aborted by user (SIGINT)',
+      },
+    };
+
+    let currentLang = localStorage.getItem('agent_monitor_lang') || 'zh';
+
     const tasksMap = new Map();
     let query = '';
     let agentFilter = 'all';
@@ -162,6 +228,7 @@
     let eventSource = null;
     let reconnectTimer = null;
     let mockSeq = 0;
+    let isOnline = true;
 
     const ICO_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>';
 
@@ -169,8 +236,8 @@
       {
         agent: 'ZCode',
         repo: 'agent-monitor:master',
-        title: 'Support ZCode lifecycle hooks reporting',
-        prompt: 'Add ZCode hook integration and local configuration support.\nReport prompt, tool usages and session completion.',
+        title: '支持生命周期 Hook 实时上报',
+        prompt: '在 ZCode 中接入生命周期 Hook 监视。\n上报首条 Prompt、工具调用与会话完结状态。',
         detail: 'scripts/reporter.py',
         event: 'afterFileEdit',
         finish: 'running',
@@ -204,6 +271,35 @@
       },
     ];
 
+    function t(key) {
+      return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
+    }
+
+    function applyLanguageUI() {
+      document.documentElement.lang = t('htmlLang');
+      document.getElementById('lbl-stat-running').textContent = t('statRunning');
+      document.getElementById('lbl-stat-completed').textContent = t('statCompleted');
+      document.getElementById('lbl-stat-avg').textContent = t('statAvg');
+      document.getElementById('search-input').placeholder = t('searchPlaceholder');
+      document.getElementById('btn-lang').textContent = t('langBtn');
+      document.getElementById('btn-mock').textContent = t('btnMock');
+      document.getElementById('btn-clear').textContent = t('btnClear');
+      document.getElementById('header-running').textContent = t('headerRunning');
+      document.getElementById('header-completed').textContent = t('headerCompleted');
+      document.getElementById('header-failed').textContent = t('headerFailed');
+      document.getElementById('drawer-prompt-title').textContent = t('drawerPrompt');
+      document.getElementById('drawer-trace-title').textContent = t('drawerTrace');
+      setDaemon(isOnline);
+      lastFilterSignature = '';
+      render();
+    }
+
+    function toggleLanguage() {
+      currentLang = currentLang === 'zh' ? 'en' : 'zh';
+      localStorage.setItem('agent_monitor_lang', currentLang);
+      applyLanguageUI();
+    }
+
     function esc(s) {
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
@@ -224,20 +320,20 @@
       return `${String(Math.floor(s / 60)).padStart(2, '0')}m ${String(s % 60).padStart(2, '0')}s`;
     }
 
-    function durationMs(t) {
-      if (t.endTime && t.startTime) return Math.max(0, t.endTime - t.startTime);
-      if (t.duration) {
-        const m = String(t.duration).match(/(\d+)\s*m.*?(\d+)\s*s/i);
+    function durationMs(tObj) {
+      if (tObj.endTime && tObj.startTime) return Math.max(0, tObj.endTime - tObj.startTime);
+      if (tObj.duration) {
+        const m = String(tObj.duration).match(/(\d+)\s*m.*?(\d+)\s*s/i);
         if (m) return (Number(m[1]) * 60 + Number(m[2])) * 1000;
       }
-      if (t.status === 'running' && t.startTime) return Date.now() - t.startTime;
+      if (tObj.status === 'running' && tObj.startTime) return Date.now() - tObj.startTime;
       return 0;
     }
 
-    function repoLabel(t) {
-      const repo = t.repo || 'workspace';
-      if (t.branch && !String(repo).includes(t.branch) && !String(repo).includes(':')) {
-        return `${repo}:${t.branch}`;
+    function repoLabel(tObj) {
+      const repo = tObj.repo || 'workspace';
+      if (tObj.branch && !String(repo).includes(tObj.branch) && !String(repo).includes(':')) {
+        return `${repo}:${tObj.branch}`;
       }
       return repo;
     }
@@ -256,14 +352,14 @@
       return String(detail || '').replace(/^(编辑文件|执行命令|操作文件|调用工具|会话启动，分析任务中\.\.\.|任务执行完成):\s*/, '');
     }
 
-    function actionLine(t) {
-      const ev = t.lastHook || t.event || 'event';
-      const detail = stripDetail(t.detail) || '…';
+    function actionLine(tObj) {
+      const ev = tObj.lastHook || tObj.event || 'event';
+      const detail = stripDetail(tObj.detail) || '…';
       return `$ ${ev}: ${detail}`;
     }
 
-    function agentName(t) {
-      return String(t && t.agent || '').trim() || 'AI Agent';
+    function agentName(tObj) {
+      return String(tObj && tObj.agent || '').trim() || 'AI Agent';
     }
 
     let lastFilterSignature = '';
@@ -271,22 +367,23 @@
       const names = [...new Set([...tasksMap.values()].map(agentName))]
         .sort((a, b) => a.localeCompare(b, 'zh-CN'));
       if (agentFilter !== 'all' && !names.includes(agentFilter)) agentFilter = 'all';
-      const signature = names.join('\0') + '|' + agentFilter;
+      const signature = names.join('\0') + '|' + agentFilter + '|' + currentLang;
       if (signature === lastFilterSignature) return;
       lastFilterSignature = signature;
 
       const pill = 'filter-pill h-7 px-2 rounded border border-line text-[11px] font-mono text-zinc-500 hover:text-zinc-300';
-      const allBtn = `<button type="button" data-filter="all" aria-pressed="${agentFilter === 'all'}" class="${pill}">ALL</button>`;
+      const allLabel = t('filterAll');
+      const allBtn = `<button type="button" data-filter="all" aria-pressed="${agentFilter === 'all'}" class="${pill}">${esc(allLabel)}</button>`;
       const agentBtns = names.map((name) => (
         `<button type="button" data-filter="${esc(name)}" aria-pressed="${agentFilter === name}" class="${pill}">${esc(agentSlug(name))}</button>`
       )).join('');
       document.getElementById('agent-filters').innerHTML = allBtn + agentBtns;
     }
 
-    function matchesFilter(t) {
-      if (agentFilter !== 'all' && agentName(t) !== agentFilter) return false;
+    function matchesFilter(tObj) {
+      if (agentFilter !== 'all' && agentName(tObj) !== agentFilter) return false;
       if (!query) return true;
-      const hay = [t.title, t.prompt, t.repo, t.branch, t.id, t.detail, t.agent].join(' ').toLowerCase();
+      const hay = [tObj.title, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
       return hay.includes(query);
     }
 
@@ -294,45 +391,45 @@
       return `<div class="border border-dashed border-line bg-card/40 px-3 py-6 text-center font-mono text-[11px] text-zinc-600">${esc(text)}</div>`;
     }
 
-    function cardHTML(t) {
-      const dur = t.status === 'running'
-        ? formatDurLong(Date.now() - (t.startTime || Date.now()))
-        : (t.duration || formatDurLong(durationMs(t)));
-      const failReason = t.detail || 'Aborted by user (SIGINT)';
-      const accent = t.status === 'running'
+    function cardHTML(tObj) {
+      const dur = tObj.status === 'running'
+        ? formatDurLong(Date.now() - (tObj.startTime || Date.now()))
+        : (tObj.duration || formatDurLong(durationMs(tObj)));
+      const failReason = tObj.detail || t('abortedDefault');
+      const accent = tObj.status === 'running'
         ? 'border-l-amber-500'
-        : t.status === 'completed'
+        : tObj.status === 'completed'
           ? 'border-l-emerald-600'
           : 'border-l-red-500';
 
-      const actionBar = t.status === 'running' ? `
+      const actionBar = tObj.status === 'running' ? `
         <div class="font-mono text-[11px] tabular-nums text-zinc-400 bg-black/40 border border-line px-2 py-1 rounded truncate">
-          ${esc(actionLine(t))}
+          ${esc(actionLine(tObj))}
         </div>` : '';
 
-      const footer = t.status === 'running' ? `
+      const footer = tObj.status === 'running' ? `
         <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
-          <span class="text-amber-500 live-timer" data-start="${t.startTime || Date.now()}">${dur}</span>
-          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
-        </div>` : t.status === 'completed' ? `
+          <span class="text-amber-500 live-timer" data-start="${tObj.startTime || Date.now()}">${dur}</span>
+          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
+        </div>` : tObj.status === 'completed' ? `
         <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
           <span class="inline-flex items-center gap-1 text-emerald-500">${ICO_CHECK}<span>${esc(dur)}</span></span>
-          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
+          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
         </div>` : `
         <div class="font-mono text-[11px] text-red-300 bg-[#1c1214] border border-[#3f1d1d] px-2 py-1 rounded mb-2 line-clamp-2">${esc(failReason)}</div>
         <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
           <span class="text-red-400">${esc(dur)}</span>
-          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
+          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
         </div>`;
 
       return `
         <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} p-3 rounded text-[13px]"
-          data-task-id="${esc(t.id)}" role="button" tabindex="0">
+          data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
           <div class="flex items-start justify-between gap-2 mb-2">
-            ${agentBadge(t.agent)}
-            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate">${esc(repoLabel(t))}</span>
+            ${agentBadge(tObj.agent)}
+            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate">${esc(repoLabel(tObj))}</span>
           </div>
-          <h3 class="text-[13px] leading-snug text-zinc-100 line-clamp-2 mb-2">${esc(t.title || t.prompt || 'untitled session')}</h3>
+          <h3 class="text-[13px] leading-snug text-zinc-100 line-clamp-2 mb-2">${esc(tObj.title || tObj.prompt || 'untitled session')}</h3>
           <div class="space-y-2">
             ${actionBar}
             ${footer}
@@ -346,24 +443,24 @@
       Array.from(tasksMap.values())
         .filter(matchesFilter)
         .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
-        .forEach((t) => {
-          const status = buckets[t.status] ? t.status : 'failed';
-          buckets[status].push(t);
+        .forEach((tObj) => {
+          const status = buckets[tObj.status] ? tObj.status : 'failed';
+          buckets[status].push(tObj);
         });
 
       document.getElementById('col-running').innerHTML = buckets.running.length
         ? buckets.running.map(cardHTML).join('')
-        : emptyState('No active sessions');
+        : emptyState(t('noRunning'));
       document.getElementById('col-completed').innerHTML = buckets.completed.length
         ? buckets.completed.map(cardHTML).join('')
-        : emptyState('No completed sessions');
+        : emptyState(t('noCompleted'));
       document.getElementById('col-failed').innerHTML = buckets.failed.length
         ? buckets.failed.map(cardHTML).join('')
-        : emptyState('No failed sessions');
+        : emptyState(t('noFailed'));
 
       const all = Array.from(tasksMap.values());
-      const runningN = all.filter((t) => t.status === 'running').length;
-      const done = all.filter((t) => t.status === 'completed');
+      const runningN = all.filter((tObj) => tObj.status === 'running').length;
+      const done = all.filter((tObj) => tObj.status === 'completed');
       const doneMs = done.map(durationMs).filter((n) => n > 0);
       const avg = doneMs.length ? doneMs.reduce((a, b) => a + b, 0) / doneMs.length : 0;
 
@@ -399,14 +496,14 @@
     }
 
     function refreshDrawer() {
-      const t = tasksMap.get(selectedId);
-      if (!t) { closeDrawer(); return; }
-      document.getElementById('drawer-id').textContent = t.id;
-      document.getElementById('drawer-agent').innerHTML = agentBadge(t.agent);
-      document.getElementById('drawer-repo').textContent = repoLabel(t);
-      document.getElementById('drawer-prompt').textContent = t.prompt || t.title || '(no prompt)';
+      const tObj = tasksMap.get(selectedId);
+      if (!tObj) { closeDrawer(); return; }
+      document.getElementById('drawer-id').textContent = tObj.id;
+      document.getElementById('drawer-agent').innerHTML = agentBadge(tObj.agent);
+      document.getElementById('drawer-repo').textContent = repoLabel(tObj);
+      document.getElementById('drawer-prompt').textContent = tObj.prompt || tObj.title || t('noPrompt');
 
-      const items = t.timeline || [];
+      const items = tObj.timeline || [];
       document.getElementById('drawer-timeline').innerHTML = items.length
         ? items.map((it, i) => {
             const last = i === items.length - 1;
@@ -422,30 +519,31 @@
                 <p class="mt-0.5 font-mono text-[11px] text-zinc-500 leading-relaxed">${esc(it.desc || '—')}</p>
               </li>`;
           }).join('')
-        : '<li class="font-mono text-[11px] text-zinc-600">No hook events</li>';
+        : `<li class="font-mono text-[11px] text-zinc-600">${esc(t('noTimeline'))}</li>`;
 
-      const statusLabel = t.status === 'running' ? 'RUNNING' : t.status === 'completed' ? 'COMPLETED' : 'FAILED';
-      const statusCls = t.status === 'running' ? 'text-amber-500' : t.status === 'completed' ? 'text-emerald-500' : 'text-red-400';
+      const statusLabel = tObj.status === 'running' ? t('statusRunning') : tObj.status === 'completed' ? t('statusCompleted') : t('statusFailed');
+      const statusCls = tObj.status === 'running' ? 'text-amber-500' : tObj.status === 'completed' ? 'text-emerald-500' : 'text-red-400';
       document.getElementById('drawer-metrics').innerHTML = `
         <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Duration</div>
-          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${esc(t.duration || formatDurLong(durationMs(t)))}</div>
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerDuration'))}</div>
+          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${esc(tObj.duration || formatDurLong(durationMs(tObj)))}</div>
         </div>
         <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Hooks</div>
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerHooks'))}</div>
           <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${items.length}</div>
         </div>
         <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Status</div>
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerStatus'))}</div>
           <div class="mt-0.5 font-mono text-[12px] ${statusCls}">${statusLabel}</div>
         </div>`;
     }
 
     function setDaemon(online) {
+      isOnline = online;
       const el = document.getElementById('daemon-status');
       el.innerHTML = online
         ? '<span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>127.0.0.1:8000'
-        : '<span class="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>offline';
+        : `<span class="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>${esc(t('offline'))}`;
       el.className = 'inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums ' + (online ? 'text-zinc-500' : 'text-zinc-600');
     }
 
@@ -551,8 +649,8 @@
       try {
         await fetch('/api/tasks', { method: 'DELETE' });
       } catch (_) { /* local fallback */ }
-      for (const [id, t] of tasksMap) {
-        if (t.status !== 'running') tasksMap.delete(id);
+      for (const [id, tObj] of tasksMap) {
+        if (tObj.status !== 'running') tasksMap.delete(id);
       }
       if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
       render();
@@ -575,6 +673,7 @@
       lastFilterSignature = '';
       render();
     });
+    document.getElementById('btn-lang').addEventListener('click', toggleLanguage);
     document.getElementById('btn-mock').addEventListener('click', dispatchMock);
     document.getElementById('btn-clear').addEventListener('click', clearCompleted);
     document.getElementById('drawer-close').addEventListener('click', closeDrawer);
@@ -603,7 +702,7 @@
     });
 
     setInterval(tickTimers, 1000);
-    render();
+    applyLanguageUI();
     connect();
   </script>
 </body>
