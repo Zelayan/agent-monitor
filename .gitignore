@@ -5,6 +5,9 @@
 *.test
 /tmp/
 
+# runtime data
+/data/
+
 # env & secrets
 .env
 .env.*

@@ -81,21 +81,41 @@ type EventPayload struct {
 type Hub struct {
 	mu        sync.RWMutex         // 保护 tasks 与 clients
 	tasks     map[string]*Task     // 任务列表，key 为会话/任务 ID
+	store     Store                // 抽象存储层接口
 	clients   map[chan string]bool // 已连接的 SSE 客户端
 	addClient chan chan string     // 注册新客户端
 	rmClient  chan chan string     // 移除客户端
 	broadcast chan string          // 广播消息通道
 }
 
-// newHub 创建空的任务中心，broadcast 带缓冲以免上报被阻塞。
-func newHub() *Hub {
-	return &Hub{
+// newHub 创建任务中心并从 Store 加载已有会话，broadcast 带缓冲以免上报被阻塞。
+func newHub(store Store) *Hub {
+	h := &Hub{
 		tasks:     make(map[string]*Task),
+		store:     store,
 		clients:   make(map[chan string]bool),
 		addClient: make(chan chan string),
 		rmClient:  make(chan chan string),
 		broadcast: make(chan string, 100),
 	}
+
+	if store != nil {
+		persistedTasks, err := store.LoadAll()
+		if err != nil {
+			log.Printf("[Store] Warning: failed to load persisted tasks: %v", err)
+		} else {
+			for _, t := range persistedTasks {
+				if t != nil && t.ID != "" {
+					h.tasks[t.ID] = t
+				}
+			}
+			if len(h.tasks) > 0 {
+				log.Printf("[Store] Loaded %d persisted sessions from storage", len(h.tasks))
+			}
+		}
+	}
+
+	return h
 }
 
 // run 在独立 goroutine 中处理客户端注册/注销与消息广播。
@@ -337,6 +357,15 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 	taskJSON, _ := json.Marshal(task)
 	h.mu.Unlock()
 
+	// 异步持久化存储，不阻塞 Hook 上报与 SSE 推送
+	if h.store != nil {
+		go func(t *Task) {
+			if err := h.store.SaveTask(t); err != nil {
+				log.Printf("[Store] Error saving task %s: %v", t.ID, err)
+			}
+		}(task)
+	}
+
 	h.broadcast <- string(taskJSON)
 
 	w.Header().Set("Content-Type", "application/json")
@@ -393,13 +422,26 @@ func (h *Hub) handleTasks(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	if r.Method == http.MethodDelete {
+		var toDelete []string
 		h.mu.Lock()
 		for id, t := range h.tasks {
 			if t.Status == "completed" || t.Status == "failed" {
 				delete(h.tasks, id)
+				toDelete = append(toDelete, id)
 			}
 		}
 		h.mu.Unlock()
+
+		if h.store != nil && len(toDelete) > 0 {
+			go func(ids []string) {
+				for _, id := range ids {
+					if err := h.store.DeleteTask(id); err != nil {
+						log.Printf("[Store] Error deleting task file %s: %v", id, err)
+					}
+				}
+			}(toDelete)
+		}
+
 		w.Write([]byte(`{"cleared":true}`))
 		return
 	}
@@ -418,8 +460,19 @@ func main() {
 	if port == "" {
 		port = "8000"
 	}
+	dataDir := os.Getenv("DATA_DIR")
+	if dataDir == "" {
+		dataDir = "data/sessions"
+	}
 
-	hub := newHub()
+	store, err := NewJSONStore(dataDir)
+	if err != nil {
+		log.Printf("[Store] Warning: failed to initialize JSON store in %s: %v", dataDir, err)
+	} else {
+		defer store.Close()
+	}
+
+	hub := newHub(store)
 	go hub.run()
 
 	mux := http.NewServeMux()
