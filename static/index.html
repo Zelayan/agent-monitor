@@ -302,7 +302,7 @@
     function matchesFilter(t) {
       if (agentFilter !== 'all' && agentName(t) !== agentFilter) return false;
       if (!query) return true;
-      const hay = [t.title, t.repo, t.branch, t.id, t.detail, t.agent].join(' ').toLowerCase();
+      const hay = [t.title, t.prompt, t.repo, t.branch, t.id, t.detail, t.agent].join(' ').toLowerCase();
       return hay.includes(query);
     }
 
@@ -423,7 +423,7 @@
       document.getElementById('drawer-id').textContent = t.id;
       document.getElementById('drawer-agent').innerHTML = agentBadge(t.agent);
       document.getElementById('drawer-repo').textContent = `📁 ${repoLabel(t)}`;
-      document.getElementById('drawer-prompt').textContent = t.title || '（无 Prompt）';
+      document.getElementById('drawer-prompt').textContent = t.prompt || t.title || '（无 Prompt）';
 
       const items = t.timeline || [];
       document.getElementById('drawer-timeline').innerHTML = items.length

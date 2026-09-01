@@ -30,7 +30,8 @@ type Task struct {
     Repo      string         `json:"repo"`               // 仓库名
     Branch    string         `json:"branch"`             // 当前分支
     Event     string         `json:"event"`              // 最近一次事件名
-    Title     string         `json:"title"`              // 任务标题
+    Title     string         `json:"title"`              // 任务标题（卡片短标题）
+    Prompt    string         `json:"prompt,omitempty"`   // 首条用户 Prompt，抽屉展示
     Status    string         `json:"status"`             // running / completed / failed
     StartTime int64          `json:"startTime"`          // 开始时间，Unix 毫秒
     EndTime   int64          `json:"endTime,omitempty"`  // 结束时间，Unix 毫秒
@@ -47,7 +48,8 @@ type EventPayload struct {
     Repo      string `json:"repo"`      // 仓库信息
     Branch    string `json:"branch"`    // 分支名
     Event     string `json:"event"`     // hook 事件名，决定任务状态流转
-    Title     string `json:"title"`     // 任务标题
+    Title     string `json:"title"`     // 任务标题；占位标题可被后续真实 Prompt 覆盖
+    Prompt    string `json:"prompt"`    // 完整首条 Prompt，空则不更新
     Timestamp int64  `json:"timestamp"` // Unix 秒；为 0 则用服务端当前时间
     Detail    string `json:"detail"`    // 本次操作的简要说明
 }
@@ -106,6 +108,33 @@ func formatDuration(sec int64) string {
     return fmt.Sprintf("%02dm %02ds", m, s)
 }
 
+// isPlaceholderTitle 判断标题是否为可被真实 Prompt 覆盖的占位文案。
+func isPlaceholderTitle(title string) bool {
+    t := strings.TrimSpace(title)
+    if t == "" || t == "未命名" || t == "未命名任务" {
+        return true
+    }
+    if strings.HasPrefix(t, "CLI Task") {
+        return true
+    }
+    // 「Cursor Agent 任务」「AI Agent 任务」等
+    if strings.HasSuffix(t, " 任务") {
+        return true
+    }
+    return false
+}
+
+func isRealTitle(title string) bool {
+    return strings.TrimSpace(title) != "" && !isPlaceholderTitle(title)
+}
+
+func placeholderTitle(agent string) string {
+    if strings.TrimSpace(agent) == "" {
+        return "AI Agent 任务"
+    }
+    return agent + " 任务"
+}
+
 // handleEvent 接收 Hook 上报：创建或更新任务，并广播给所有看板客户端。
 func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
@@ -136,12 +165,17 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
     task, exists := h.tasks[p.ID]
     if !exists {
         // 首次上报：新建任务，默认进入 running
+        title := p.Title
+        if !isRealTitle(title) {
+            title = placeholderTitle(p.Agent)
+        }
         task = &Task{
             ID:        p.ID,
             Agent:     p.Agent,
             Repo:      p.Repo,
             Branch:    p.Branch,
-            Title:     p.Title,
+            Title:     title,
+            Prompt:    p.Prompt,
             Status:    "running",
             StartTime: p.Timestamp * 1000,
             Timeline:  make([]TimelineItem, 0),
@@ -151,9 +185,13 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
 
     task.LastHook = p.Event
     task.Detail = p.Detail
-    // 占位标题（如 CLI Task）允许被后续更明确的 Prompt 覆盖
-    if p.Title != "" && (task.Title == "" || strings.HasPrefix(task.Title, "CLI Task")) {
+    // 占位标题允许被后续更明确的 Prompt 覆盖；已有真实标题不再改
+    if isRealTitle(p.Title) && isPlaceholderTitle(task.Title) {
         task.Title = p.Title
+    }
+    // 完整 Prompt 只保留首条，避免后续跟进消息覆盖任务描述
+    if task.Prompt == "" && p.Prompt != "" {
+        task.Prompt = p.Prompt
     }
 
     task.Timeline = append(task.Timeline, TimelineItem{

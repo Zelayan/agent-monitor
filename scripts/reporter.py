@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, subprocess, urllib.request, argparse, time
+import sys, os, json, subprocess, urllib.request, argparse, time, re
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--event", default="")
@@ -28,13 +28,116 @@ session_id = (
 if not session_id:
     session_id = f"sess-{int(time.time())}"
 
-# 获取 Prompt / 任务描述
-prompt = (
-    payload.get("prompt")
-    or payload.get("user_message")
-    or payload.get("task")
-    or ""
-)
+
+def unwrap_user_query(text):
+    """去掉 Cursor transcript 包装，抽出 <user_query> 正文。"""
+    if not text:
+        return ""
+    m = re.search(r"<user_query>\s*(.*?)\s*</user_query>", text, re.DOTALL)
+    if m:
+        text = m.group(1)
+    text = re.sub(r"<timestamp>.*?</timestamp>", "", text, flags=re.DOTALL)
+    return text.strip()
+
+
+def text_from_transcript_line(obj):
+    if obj.get("role") != "user":
+        return ""
+    msg = obj.get("message") or obj
+    content = msg.get("content") if isinstance(msg, dict) else obj.get("content")
+    chunks = []
+    if isinstance(content, list):
+        for c in content:
+            if isinstance(c, dict) and c.get("type") == "text":
+                chunks.append(c.get("text") or "")
+            elif isinstance(c, str):
+                chunks.append(c)
+    elif isinstance(content, str):
+        chunks.append(content)
+    elif isinstance(obj.get("text"), str):
+        chunks.append(obj["text"])
+    return unwrap_user_query("\n".join(chunks))
+
+
+def read_first_user_prompt(path):
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                text = text_from_transcript_line(obj)
+                if text:
+                    return text
+    except Exception:
+        return ""
+    return ""
+
+
+def transcript_candidates():
+    paths = []
+    for key in ("transcript_path",):
+        p = payload.get(key)
+        if p:
+            paths.append(p)
+    env_p = os.environ.get("CURSOR_TRANSCRIPT_PATH")
+    if env_p:
+        paths.append(env_p)
+    roots = []
+    proj = os.environ.get("CURSOR_PROJECT_DIR")
+    if proj:
+        roots.append(proj)
+    wr = payload.get("workspace_roots") or []
+    if isinstance(wr, list):
+        roots.extend(wr)
+    home = os.path.expanduser("~")
+    for root in roots:
+        if not isinstance(root, str) or not root:
+            continue
+        slug = root.strip("/").replace("/", "-")
+        base = os.path.join(home, ".cursor", "projects", slug, "agent-transcripts", session_id)
+        paths.append(os.path.join(base, session_id + ".jsonl"))
+        paths.append(os.path.join(base, session_id + ".txt"))
+    seen = set()
+    out = []
+    for p in paths:
+        if p and p not in seen:
+            seen.add(p)
+            out.append(p)
+    return out
+
+
+def extract_prompt():
+    """首条用户 Prompt：payload 优先，否则读 transcript。"""
+    raw = payload.get("prompt") or payload.get("user_message") or payload.get("task") or ""
+    if isinstance(raw, str) and raw.strip():
+        return unwrap_user_query(raw)
+    for path in transcript_candidates():
+        text = read_first_user_prompt(path)
+        if text:
+            return text
+    return ""
+
+
+def short_title(text):
+    """清洗后取第一行，作卡片短标题。"""
+    if not text:
+        return ""
+    cleaned = text.replace("#task", "").replace("[board]", "").replace("任务:", "")
+    for line in cleaned.splitlines():
+        line = re.sub(r"\s+", " ", line).strip()
+        if line:
+            return line[:80]
+    return ""
+
+
+# 获取 Prompt / 任务描述（有真实内容才上报 title，避免占位标题污染后续覆盖）
+prompt = extract_prompt()
+title = short_title(prompt)
 
 # 动态提取操作细节
 detail = ""
@@ -68,10 +171,6 @@ def get_git_info():
 
 repo, branch = get_git_info()
 
-title = prompt.replace("#task", "").replace("[board]", "").replace("任务:", "").strip()
-if not title:
-    title = f"{args.agent} 任务"
-
 # 统一事件名映射为看板识别的状态事件
 mapped_event = event_name
 if event_name in ["beforeSubmitPrompt", "sessionStart"]:
@@ -84,10 +183,14 @@ data = {
     "agent": args.agent,
     "repo": f"{repo}:{branch}",
     "event": mapped_event,
-    "title": title[:80],
     "timestamp": int(time.time()),
     "detail": detail[:120],
 }
+# 仅在拿到真实 Prompt 时上报 title/prompt，占位标题由 Hub 生成并可被后续升级
+if title:
+    data["title"] = title
+if prompt:
+    data["prompt"] = prompt[:4000]
 
 # 异步/短超时上报至本地 Kanban Hub
 try:
