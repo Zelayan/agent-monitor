@@ -38,10 +38,10 @@ ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.jso
         { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event UserPromptSubmit --agent ZCode" }] }
       ],
       "PreToolUse": [
-        { "matcher": "Bash|Write|Edit|ApplyPatch", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode" }] }
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PreToolUse --agent ZCode" }] }
       ],
-      "PostToolUse": [
-        { "matcher": "Bash|Write|Edit|ApplyPatch", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PostToolUse --agent ZCode" }] }
+      "PostToolUseFailure": [
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event PostToolUseFailure --agent ZCode" }] }
       ],
       "Stop": [
         { "hooks": [{ "type": "command", "command": "python3 scripts/reporter.py --event Stop --agent ZCode" }] }
@@ -98,7 +98,8 @@ curl -s http://127.0.0.1:8000/api/event \
 
 - `sessionStart` / `onStart` / `SessionStart` / `UserPromptSubmit` → 正在运行
 - `agentCompletion` / `onComplete` / `complete` / `Stop` / `SessionEnd` → 已完成
-- `stop` / `failed` / `error` / `PostToolUseFailure` → 异常 / 中断
+- `stop` / `failed` / `error` → 异常 / 中断
+- `toolUse` / `beforeShellExecution` / `afterFileEdit` / `toolFailure` → 操作轨迹（记录在时间线中）
 
 同一 `id` 的多次上报会聚合成一条任务，并追加到时间线。
 

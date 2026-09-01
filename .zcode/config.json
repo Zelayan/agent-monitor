@@ -33,13 +33,13 @@
           ]
         }
       ],
-      "PostToolUse": [
+      "PostToolUseFailure": [
         {
           "matcher": ".*",
           "hooks": [
             {
               "type": "command",
-              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PostToolUse --agent ZCode"
+              "command": "python3 /Users/chenzezeya/agent-monitor/scripts/reporter.py --event PostToolUseFailure --agent ZCode"
             }
           ]
         }

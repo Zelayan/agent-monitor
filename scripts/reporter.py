@@ -169,7 +169,13 @@ detail = ""
 tool_name = payload.get("tool_name") or payload.get("tool") or ""
 tool_input = payload.get("tool_input") or payload.get("tool_args") or payload.get("parameters") or {}
 
-if "command" in payload:
+if event_name in ["PostToolUseFailure"]:
+    err = payload.get("error") or payload.get("message") or ""
+    if tool_name:
+        detail = f"工具执行失败 ({tool_name}): {err}" if err else f"工具执行失败: {tool_name}"
+    else:
+        detail = f"工具执行失败: {err}" if err else "工具执行失败"
+elif "command" in payload:
     detail = f"执行命令: {payload['command']}"
 elif tool_name in ["Bash", "bash", "execute_command"]:
     cmd = tool_input.get("command") if isinstance(tool_input, dict) else ""
@@ -210,7 +216,9 @@ if event_name in ["beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPro
     mapped_event = "sessionStart"
 elif event_name in ["stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop"]:
     mapped_event = "agentCompletion"
-elif event_name in ["PostToolUseFailure", "error", "failed"]:
+elif event_name in ["PostToolUseFailure"]:
+    mapped_event = "toolFailure"
+elif event_name in ["error", "failed"]:
     mapped_event = "failed"
 elif event_name in ["PreToolUse", "PostToolUse"]:
     if "afterFileEdit" in event_name or tool_name in ["Edit", "Write"]:
