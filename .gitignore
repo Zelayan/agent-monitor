@@ -1,6 +1,9 @@
 # binaries
 /agent-kanban
 /agent-monitor
+/agent-reporter
+/bin/
+/dist/
 *.exe
 *.test
 /tmp/

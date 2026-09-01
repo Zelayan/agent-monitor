@@ -1,0 +1,668 @@
+package reporter
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// IgnoredTools 忽略微粒度文件修改与纯读取/管理工具，避免污染监控时间线
+var IgnoredTools = map[string]bool{
+	"Read":               true,
+	"read":               true,
+	"read_file":          true,
+	"Glob":               true,
+	"glob":               true,
+	"Grep":               true,
+	"grep":               true,
+	"grep_search":        true,
+	"file_search":        true,
+	"TodoWrite":          true,
+	"TodoRead":           true,
+	"WebFetch":           true,
+	"WebSearch":          true,
+	"ReadSessionContext": true,
+	"AskUserQuestion":    true,
+	"SendMessage":        true,
+	"TaskOutput":         true,
+	"TaskStop":           true,
+	"CronCreate":         true,
+	"CronDelete":         true,
+	"CronList":           true,
+	"CronUpdate":         true,
+	"EnterPlanMode":      true,
+	"ExitPlanMode":       true,
+	"Skill":              true,
+	"Edit":               true,
+	"Write":              true,
+	"edit_file":          true,
+	"write_file":         true,
+	"ApplyPatch":         true,
+}
+
+// Config 封装 CLI 传入参数与运行配置
+type Config struct {
+	Event    string
+	Agent    string
+	Turn     int
+	ServerURL string
+}
+
+// Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
+type Payload struct {
+	Raw            string                 `json:"raw,omitempty"`
+	Agent          string                 `json:"agent,omitempty"`
+	HookEventName  string                 `json:"hook_event_name,omitempty"`
+	HookName       string                 `json:"hook_name,omitempty"`
+	Event          string                 `json:"event,omitempty"`
+	SessionID      string                 `json:"session_id,omitempty"`
+	SessionIDCamel string                 `json:"sessionId,omitempty"`
+	ConversationID string                 `json:"conversation_id,omitempty"`
+	GenerationID   string                 `json:"generation_id,omitempty"`
+	ToolName       string                 `json:"tool_name,omitempty"`
+	Tool           string                 `json:"tool,omitempty"`
+	ToolInput      map[string]interface{} `json:"tool_input,omitempty"`
+	ToolArgs       map[string]interface{} `json:"tool_args,omitempty"`
+	Parameters     map[string]interface{} `json:"parameters,omitempty"`
+	Command        string                 `json:"command,omitempty"`
+	Prompt         interface{}            `json:"prompt,omitempty"`
+	UserPrompt     interface{}            `json:"user_prompt,omitempty"`
+	UserQuery      interface{}            `json:"user_query,omitempty"`
+	UserMessage    interface{}            `json:"user_message,omitempty"`
+	Task           interface{}            `json:"task,omitempty"`
+	Input          interface{}            `json:"input,omitempty"`
+	Error          string                 `json:"error,omitempty"`
+	Message        string                 `json:"message,omitempty"`
+	WorkspaceRoots []string               `json:"workspace_roots,omitempty"`
+	TranscriptPath string                 `json:"transcript_path,omitempty"`
+}
+
+// EventReport 向 Monitor 服务端 /api/event 提交的数据结构
+type EventReport struct {
+	ID         string `json:"id"`
+	Agent      string `json:"agent"`
+	Repo       string `json:"repo"`
+	Event      string `json:"event"`
+	Timestamp  int64  `json:"timestamp"`
+	Detail     string `json:"detail"`
+	TurnIndex  int    `json:"turn_index"`
+	Title      string `json:"title,omitempty"`
+	Prompt     string `json:"prompt,omitempty"`
+	AIResponse string `json:"ai_response,omitempty"`
+}
+
+// GetHookResponse 根据事件名返回对应的 Hook 协议 JSON 响应
+func GetHookResponse(event string) string {
+	switch event {
+	case "beforeSubmitPrompt", "UserPromptSubmit":
+		return `{"continue":true}`
+	case "beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest":
+		return `{"permission":"allow"}`
+	default:
+		return `{}`
+	}
+}
+
+// RespondAndExit 打印 Hook 协议响应并以退出码 0 退出
+func RespondAndExit(event string) {
+	fmt.Println(GetHookResponse(event))
+	os.Exit(0)
+}
+
+// Run 执行完整的 Reporter 逻辑
+func Run(cfg Config, inputReader io.Reader) {
+	if cfg.ServerURL == "" {
+		cfg.ServerURL = "http://127.0.0.1:8000/api/event"
+	}
+
+	payload := parsePayload(inputReader)
+
+	// 1. 确定 Agent 名称
+	agentName := cfg.Agent
+	if agentName == "" {
+		agentName = payload.Agent
+	}
+	if agentName == "" {
+		agentName = os.Getenv("AGENT_NAME")
+	}
+	if agentName == "" {
+		if os.Getenv("ZCODE_SESSION_ID") != "" || strings.Contains(strings.ToLower(os.Getenv("_")), "zcode") {
+			agentName = "ZCode"
+		} else {
+			agentName = "Cursor Agent"
+		}
+	}
+
+	// 2. 确定 Hook 事件名
+	eventName := cfg.Event
+	if eventName == "" {
+		eventName = payload.HookEventName
+	}
+	if eventName == "" {
+		eventName = payload.HookName
+	}
+	if eventName == "" {
+		eventName = payload.Event
+	}
+	if eventName == "" {
+		eventName = "unknown"
+	}
+
+	// 3. 获取 Session ID
+	sessionID := os.Getenv("ZCODE_SESSION_ID")
+	if sessionID == "" {
+		sessionID = os.Getenv("CLAUDE_SESSION_ID")
+	}
+	if sessionID == "" {
+		sessionID = payload.ConversationID
+	}
+	if sessionID == "" {
+		sessionID = payload.GenerationID
+	}
+	if sessionID == "" {
+		sessionID = payload.SessionID
+	}
+	if sessionID == "" {
+		sessionID = payload.SessionIDCamel
+	}
+	if sessionID == "" {
+		sessionID = os.Getenv("AGENT_SESSION_ID")
+	}
+	if sessionID == "" {
+		sessionID = fmt.Sprintf("sess-%d", time.Now().Unix())
+	}
+
+	// 4. 事件过滤
+	toolName := payload.ToolName
+	if toolName == "" {
+		toolName = payload.Tool
+	}
+
+	isFailure := false
+	switch eventName {
+	case "PostToolUseFailure", "toolFailure", "failed", "error":
+		isFailure = true
+	}
+
+	if eventName == "afterFileEdit" {
+		RespondAndExit(eventName)
+		return
+	}
+
+	if eventName == "PreToolUse" || eventName == "PostToolUse" {
+		if !isFailure {
+			if IgnoredTools[toolName] {
+				RespondAndExit(eventName)
+				return
+			}
+			if eventName == "PostToolUse" {
+				RespondAndExit(eventName)
+				return
+			}
+		}
+	}
+
+	// 5. 提取多轮 Prompt 与标题
+	turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
+	title := ShortTitle(currentPrompt)
+	if title == "" {
+		title = ShortTitle(firstPrompt)
+	}
+
+	// 6. 动态提取操作细节
+	detail := ExtractDetail(payload, eventName, toolName, isFailure)
+
+	// 7. 获取 Git 仓库与分支
+	repo, branch := GetGitInfo(payload)
+
+	// 8. 映射事件名称
+	mappedEvent := eventName
+	switch eventName {
+	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
+		mappedEvent = "sessionStart"
+	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
+		mappedEvent = "agentCompletion"
+	case "PostToolUseFailure":
+		mappedEvent = "toolFailure"
+	case "error", "failed":
+		mappedEvent = "failed"
+	case "PreToolUse", "beforeShellExecution":
+		if isBashTool(toolName) || payload.Command != "" {
+			mappedEvent = "beforeShellExecution"
+		} else {
+			mappedEvent = "toolUse"
+		}
+	}
+
+	// 9. 如果是会话完成，尝试从 transcript 文件提取最新的 AI 回复
+	aiResponseText := ""
+	if mappedEvent == "agentCompletion" {
+		aiResponseText = ExtractAIResponseFromTranscripts(payload, sessionID)
+		if aiResponseText != "" {
+			aiSummary := ShortTitle(aiResponseText)
+			if aiSummary != "" {
+				detail = fmt.Sprintf("AI 回复: %s", aiSummary)
+			}
+		}
+	}
+
+	if len(detail) > 160 {
+		detail = detail[:160]
+	}
+
+	data := EventReport{
+		ID:        sessionID,
+		Agent:     agentName,
+		Repo:      fmt.Sprintf("%s:%s", repo, branch),
+		Event:     mappedEvent,
+		Timestamp: time.Now().Unix(),
+		Detail:    detail,
+		TurnIndex: turnCount,
+		Title:     title,
+	}
+	if len(currentPrompt) > 4000 {
+		data.Prompt = currentPrompt[:4000]
+	} else {
+		data.Prompt = currentPrompt
+	}
+	if aiResponseText != "" {
+		data.AIResponse = aiResponseText
+	}
+
+	// 10. 发送 HTTP POST 请求上报
+	SendEvent(cfg.ServerURL, data)
+
+	// 11. 正常响应 Hook 协议
+	RespondAndExit(eventName)
+}
+
+func parsePayload(r io.Reader) Payload {
+	var payload Payload
+	if r == nil {
+		return payload
+	}
+	data, err := io.ReadAll(r)
+	if err != nil || len(bytes.TrimSpace(data)) == 0 {
+		return payload
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		payload.Raw = string(data)
+	}
+	return payload
+}
+
+func isBashTool(tool string) bool {
+	switch strings.ToLower(tool) {
+	case "bash", "execute_command", "shell", "run_command":
+		return true
+	default:
+		return false
+	}
+}
+
+// ExtractDetail 提取工具调用或事件的描述文本
+func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) string {
+	if isFailure {
+		if payload.Error != "" {
+			return payload.Error
+		}
+		if payload.Message != "" {
+			return payload.Message
+		}
+		if toolName != "" {
+			return fmt.Sprintf("工具执行失败: %s", toolName)
+		}
+		return "执行失败"
+	}
+	if payload.Command != "" {
+		return fmt.Sprintf("执行命令: %s", payload.Command)
+	}
+	if isBashTool(toolName) {
+		cmd := extractCommandFromArgs(payload)
+		if cmd != "" {
+			return fmt.Sprintf("执行命令: %s", cmd)
+		}
+		return "执行命令"
+	}
+	switch eventName {
+	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
+		return "会话启动，分析任务中..."
+	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
+		return "任务执行完成"
+	}
+	if toolName != "" {
+		return fmt.Sprintf("调用工具: %s", toolName)
+	}
+	return ""
+}
+
+func extractCommandFromArgs(payload Payload) string {
+	for _, m := range []map[string]interface{}{payload.ToolInput, payload.ToolArgs, payload.Parameters} {
+		if m != nil {
+			if v, ok := m["command"].(string); ok && v != "" {
+				return v
+			}
+			if v, ok := m["cmd"].(string); ok && v != "" {
+				return v
+			}
+		}
+	}
+	return ""
+}
+
+var userQueryRe = regexp.MustCompile(`(?s)<user_query>\s*(.*?)\s*</user_query>`)
+var timestampRe = regexp.MustCompile(`(?s)<timestamp>.*?</timestamp>`)
+var whitespaceRe = regexp.MustCompile(`\s+`)
+
+// UnwrapUserQuery 去掉 transcript 包装，抽出 <user_query> 正文
+func UnwrapUserQuery(text string) string {
+	if text == "" {
+		return ""
+	}
+	if m := userQueryRe.FindStringSubmatch(text); len(m) > 1 {
+		text = m[1]
+	}
+	text = timestampRe.ReplaceAllString(text, "")
+	return strings.TrimSpace(text)
+}
+
+// ShortTitle 清洗后取第一行作为短标题
+func ShortTitle(text string) string {
+	if text == "" {
+		return ""
+	}
+	cleaned := strings.ReplaceAll(text, "#task", "")
+	cleaned = strings.ReplaceAll(cleaned, "[board]", "")
+	cleaned = strings.ReplaceAll(cleaned, "任务:", "")
+
+	scanner := bufio.NewScanner(strings.NewReader(cleaned))
+	for scanner.Scan() {
+		line := strings.TrimSpace(whitespaceRe.ReplaceAllString(scanner.Text(), " "))
+		if line != "" {
+			if len([]rune(line)) > 80 {
+				return string([]rune(line)[:80])
+			}
+			return line
+		}
+	}
+	return ""
+}
+
+func extractDirectPrompt(payload Payload) string {
+	for _, v := range []interface{}{
+		payload.Prompt,
+		payload.UserPrompt,
+		payload.UserQuery,
+		payload.UserMessage,
+		payload.Task,
+		payload.Input,
+	} {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) != "" {
+			return UnwrapUserQuery(s)
+		}
+	}
+	return ""
+}
+
+// ExtractTurnInfo 提取当前轮次序号及对应 Prompt
+func ExtractTurnInfo(payload Payload, sessionID string, turnArg int) (int, string, string) {
+	directPrompt := extractDirectPrompt(payload)
+
+	var allPrompts []string
+	for _, path := range TranscriptCandidates(payload, sessionID) {
+		prompts := readUserPrompts(path)
+		if len(prompts) > 0 {
+			allPrompts = prompts
+			break
+		}
+	}
+
+	if directPrompt != "" {
+		if len(allPrompts) == 0 || allPrompts[len(allPrompts)-1] != directPrompt {
+			allPrompts = append(allPrompts, directPrompt)
+		}
+	}
+
+	turnCount := len(allPrompts)
+	if turnCount < 1 {
+		turnCount = 1
+	}
+	if turnArg > 0 {
+		turnCount = turnArg
+	}
+
+	currentPrompt := directPrompt
+	firstPrompt := directPrompt
+	if len(allPrompts) > 0 {
+		currentPrompt = allPrompts[len(allPrompts)-1]
+		firstPrompt = allPrompts[0]
+	}
+
+	return turnCount, currentPrompt, firstPrompt
+}
+
+func readUserPrompts(path string) []string {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var prompts []string
+	scanner := bufio.NewScanner(f)
+	// 增大单个 Token 缓冲区上限至 10MB，防止长行溢出
+	buf := make([]byte, 64*1024)
+	scanner.Buffer(buf, 10*1024*1024)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var obj map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &obj); err != nil {
+			continue
+		}
+		text := textFromTranscriptLine(obj)
+		if text != "" {
+			prompts = append(prompts, text)
+		}
+	}
+	return prompts
+}
+
+func textFromTranscriptLine(obj map[string]interface{}) string {
+	if role, _ := obj["role"].(string); role != "user" {
+		return ""
+	}
+	var chunks []string
+
+	msgObj, ok := obj["message"].(map[string]interface{})
+	if !ok {
+		msgObj = obj
+	}
+
+	if contentList, ok := msgObj["content"].([]interface{}); ok {
+		for _, c := range contentList {
+			if cMap, ok := c.(map[string]interface{}); ok {
+				if cMap["type"] == "text" {
+					if t, ok := cMap["text"].(string); ok {
+						chunks = append(chunks, t)
+					}
+				}
+			} else if s, ok := c.(string); ok {
+				chunks = append(chunks, s)
+			}
+		}
+	} else if s, ok := msgObj["content"].(string); ok {
+		chunks = append(chunks, s)
+	} else if s, ok := obj["text"].(string); ok {
+		chunks = append(chunks, s)
+	}
+
+	return UnwrapUserQuery(strings.Join(chunks, "\n"))
+}
+
+// TranscriptCandidates 获取可能存在的 Transcript 文件路径
+func TranscriptCandidates(payload Payload, sessionID string) []string {
+	var paths []string
+	if payload.TranscriptPath != "" {
+		paths = append(paths, payload.TranscriptPath)
+	}
+	if envP := os.Getenv("CURSOR_TRANSCRIPT_PATH"); envP != "" {
+		paths = append(paths, envP)
+	}
+
+	var roots []string
+	for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CLAUDE_PROJECT_DIR"} {
+		if p := os.Getenv(envK); p != "" {
+			roots = append(roots, p)
+		}
+	}
+	roots = append(roots, payload.WorkspaceRoots...)
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		for _, root := range roots {
+			if root == "" {
+				continue
+			}
+			slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
+			base := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
+			paths = append(paths, filepath.Join(base, sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(base, sessionID+".txt"))
+		}
+	}
+
+	seen := make(map[string]bool)
+	var out []string
+	for _, p := range paths {
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// ExtractAIResponseFromTranscripts 从 Transcript 文件倒序查找最新 Assistant 回复
+func ExtractAIResponseFromTranscripts(payload Payload, sessionID string) string {
+	for _, path := range TranscriptCandidates(payload, sessionID) {
+		f, err := os.Open(path)
+		if err != nil {
+			continue
+		}
+		var lines []string
+		scanner := bufio.NewScanner(f)
+		buf := make([]byte, 64*1024)
+		scanner.Buffer(buf, 10*1024*1024)
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		f.Close()
+
+		for i := len(lines) - 1; i >= 0; i-- {
+			line := strings.TrimSpace(lines[i])
+			if line == "" {
+				continue
+			}
+			var obj map[string]interface{}
+			if err := json.Unmarshal([]byte(line), &obj); err != nil {
+				continue
+			}
+			if role, _ := obj["role"].(string); role == "assistant" {
+				if content, ok := obj["content"].(string); ok && strings.TrimSpace(content) != "" {
+					return strings.TrimSpace(content)
+				}
+				if msg, ok := obj["message"].(map[string]interface{}); ok {
+					if content, ok := msg["content"].(string); ok && strings.TrimSpace(content) != "" {
+						return strings.TrimSpace(content)
+					}
+				}
+				if text, ok := obj["text"].(string); ok && strings.TrimSpace(text) != "" {
+					return strings.TrimSpace(text)
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// GetGitInfo 获取 Git 仓库名与分支名（具备快速超时与兜底）
+func GetGitInfo(payload Payload) (string, string) {
+	cwd := ""
+	if len(payload.WorkspaceRoots) > 0 && payload.WorkspaceRoots[0] != "" {
+		cwd = payload.WorkspaceRoots[0]
+	} else {
+		for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR"} {
+			if v := os.Getenv(envK); v != "" {
+				cwd = v
+				break
+			}
+		}
+	}
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+
+	repo := "workspace"
+	branch := "main"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	cmdRepo := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
+	cmdRepo.Dir = cwd
+	if out, err := cmdRepo.Output(); err == nil {
+		top := strings.TrimSpace(string(out))
+		if top != "" {
+			repo = filepath.Base(top)
+		}
+	}
+
+	cmdBranch := exec.CommandContext(ctx, "git", "branch", "--show-current")
+	cmdBranch.Dir = cwd
+	if out, err := cmdBranch.Output(); err == nil {
+		b := strings.TrimSpace(string(out))
+		if b != "" {
+			branch = b
+		}
+	}
+
+	return repo, branch
+}
+
+// SendEvent 异步向 Monitor 发送事件
+func SendEvent(serverURL string, report EventReport) {
+	data, err := json.Marshal(report)
+	if err != nil {
+		return
+	}
+
+	client := &http.Client{
+		Timeout: 800 * time.Millisecond,
+	}
+
+	req, err := http.NewRequest("POST", serverURL, bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+}
