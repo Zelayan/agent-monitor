@@ -3,10 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENT HUB · Multi-Agent Kanban</title>
+  <title>AGENT MONITOR</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -17,7 +17,10 @@
             mono: ['JetBrains Mono', 'Menlo', 'ui-monospace', 'monospace'],
           },
           colors: {
-            canvas: '#020617',
+            canvas: '#09090b',
+            panel: '#0c0d0e',
+            card: '#111215',
+            line: '#27272a',
           },
         },
       },
@@ -25,145 +28,130 @@
   </script>
   <style>
     :root { color-scheme: dark; }
-    body {
-      background-color: #020617;
-      background-image:
-        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56, 189, 248, 0.08), transparent),
-        linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
-      background-size: auto, 48px 48px, 48px 48px;
-    }
-    .logo-mark {
-      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #22d3ee 100%);
-      box-shadow: 0 0 20px rgba(56, 189, 248, 0.35), inset 0 1px 0 rgba(255,255,255,0.25);
-    }
-    .pulse-dot {
-      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
-      animation: pulse-glow 1.8s ease-out infinite;
-    }
-    @keyframes pulse-glow {
-      0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
-      70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
-      100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
-    }
-    .lane { max-height: calc(100vh - 11.5rem); }
-    .task-card { transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease; }
-    .task-card:hover {
-      transform: translateY(-2px);
-      border-color: rgba(100, 116, 139, 0.9);
-      box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.65);
-    }
+    body { background: #09090b; }
+    .lane { max-height: calc(100vh - 8.75rem); }
+    .task-card { transition: border-color 0.12s ease; }
+    .task-card:hover { border-color: #3f3f46; }
     .overlay {
       opacity: 0;
       pointer-events: none;
-      transition: opacity 0.22s ease;
+      transition: opacity 0.18s ease;
     }
     .overlay.open { opacity: 1; pointer-events: auto; }
     .drawer {
       transform: translateX(100%);
-      transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+      transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
     }
     .drawer.open { transform: translateX(0); }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
-    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
-    ::-webkit-scrollbar-track { background: transparent; }
     .filter-pill[aria-pressed="true"] {
-      background: rgba(14, 165, 233, 0.12);
-      border-color: rgba(56, 189, 248, 0.35);
-      color: #e0f2fe;
+      background: #18181b;
+      border-color: #3f3f46;
+      color: #e4e4e7;
     }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    input[type="search"]::-webkit-search-cancel-button { display: none; }
   </style>
 </head>
-<body class="min-h-screen text-slate-100 font-sans antialiased tracking-tight">
-  <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl">
-    <div class="max-w-[1440px] mx-auto px-5 py-3.5 space-y-3">
-      <div class="flex flex-wrap items-center gap-4 justify-between">
-        <div class="flex items-center gap-3 min-w-0">
-          <div class="logo-mark w-8 h-8 rounded-lg flex items-center justify-center text-slate-950 font-bold text-sm">⚡</div>
-          <div class="leading-tight">
-            <div class="text-[13px] font-semibold tracking-[0.18em] text-slate-100">AGENT HUB</div>
-            <div class="text-[10px] font-mono text-slate-500">Multi-Agent Kanban</div>
-          </div>
-          <div id="daemon-status" class="ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <span class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-            Daemon Online (127.0.0.1:8000)
-          </div>
-        </div>
-        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] font-mono">
-          <span class="text-amber-400">● 正在运行 <b id="stat-running" class="text-amber-300">0</b></span>
-          <span class="text-emerald-400">✔ 今日完成 <b id="stat-completed" class="text-emerald-300">0</b></span>
-          <span class="text-cyan-400">⏱️ 平均耗时 <b id="stat-avg" class="text-cyan-300">00m 00s</b></span>
-        </div>
+<body class="min-h-screen text-zinc-200 font-sans antialiased">
+  <header class="sticky top-0 z-30 border-b border-line bg-panel">
+    <div class="max-w-[1440px] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-3">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
+        <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100">AGENT MONITOR</span>
+        <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-zinc-500">
+          <span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>
+          127.0.0.1:8000
+        </span>
       </div>
-      <div class="flex flex-wrap items-center gap-3">
-        <label class="relative flex-1 min-w-[220px] max-w-md">
-          <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">⌕</span>
-          <input id="search-input" type="search" placeholder="搜索 Prompt / 仓库 / 分支 / Session ID"
-            class="w-full h-8 pl-8 pr-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30">
+
+      <div class="flex items-center gap-3 font-mono text-[11px] tabular-nums">
+        <span class="text-amber-500"><span class="uppercase tracking-wide">Active:</span> <span id="stat-running">0</span></span>
+        <span class="text-zinc-200"><span class="uppercase tracking-wide">Done:</span> <span id="stat-completed">0</span></span>
+        <span class="text-zinc-500"><span class="uppercase tracking-wide">Avg_dur:</span> <span id="stat-avg">00m 00s</span></span>
+      </div>
+
+      <div class="flex items-center gap-2 flex-1 min-w-[240px] justify-end">
+        <label class="relative flex-1 max-w-xs">
+          <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
+          </span>
+          <input id="search-input" type="search" placeholder="Filter sessions"
+            class="w-full h-7 pl-7 pr-11 rounded bg-card border border-line text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
+          <kbd class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
         </label>
-        <div id="agent-filters" class="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Agent 来源过滤"></div>
-        <button id="btn-clear" type="button" class="h-8 px-3 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:bg-slate-800 hover:text-slate-100">
-          清空已完成
+        <div id="agent-filters" class="flex items-center gap-1 flex-wrap" role="group" aria-label="Agent filter"></div>
+        <button id="btn-mock" type="button" class="h-7 px-2.5 rounded bg-zinc-100 text-zinc-950 text-[11px] font-medium hover:bg-white">
+          + Dispatch Mock
+        </button>
+        <button id="btn-clear" type="button" class="h-7 px-2.5 rounded border border-line bg-transparent text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200">
+          Clear
         </button>
       </div>
     </div>
   </header>
 
-  <main class="max-w-[1440px] mx-auto px-5 py-5">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
-      <section>
-        <h2 class="text-[11px] font-semibold font-mono text-amber-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
-          <span class="inline-flex items-center gap-2">
-            <span class="relative flex h-2 w-2">
-              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-              <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
-            </span>
-            正在运行
+  <main class="max-w-[1440px] mx-auto px-4 py-3">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      <section class="min-w-0">
+        <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
+          <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
+            Running
           </span>
-          <span id="count-running" class="text-amber-300/80">0</span>
+          <span id="count-running" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-running" class="lane overflow-y-auto space-y-3 pr-1"></div>
+        <div id="col-running" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
-      <section>
-        <h2 class="text-[11px] font-semibold font-mono text-emerald-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
-          <span>✔ 已完成</span>
-          <span id="count-completed" class="text-emerald-300/80">0</span>
+      <section class="min-w-0">
+        <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
+          <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>
+            Completed
+          </span>
+          <span id="count-completed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-completed" class="lane overflow-y-auto space-y-3 pr-1"></div>
+        <div id="col-completed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
-      <section>
-        <h2 class="text-[11px] font-semibold font-mono text-rose-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
-          <span>⚠ 异常 / 中断</span>
-          <span id="count-failed" class="text-rose-300/80">0</span>
+      <section class="min-w-0">
+        <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
+          <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16.2h.01"/></svg>
+            Failed / Aborted
+          </span>
+          <span id="count-failed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-failed" class="lane overflow-y-auto space-y-3 pr-1"></div>
+        <div id="col-failed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
     </div>
   </main>
 
-  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm"></div>
-  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-[440px] bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col" aria-hidden="true">
-    <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-800">
+  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/50"></div>
+  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-[400px] bg-panel border-l border-line flex flex-col" aria-hidden="true">
+    <div class="flex items-start justify-between gap-2 px-3 py-3 border-b border-line">
       <div class="min-w-0">
-        <div id="drawer-id" class="font-mono text-[11px] text-slate-400"></div>
-        <div class="mt-2 flex flex-wrap items-center gap-2">
+        <div id="drawer-id" class="font-mono text-[11px] tabular-nums text-zinc-400"></div>
+        <div class="mt-1.5 flex flex-wrap items-center gap-2">
           <span id="drawer-agent"></span>
-          <span id="drawer-repo" class="font-mono text-[11px] text-slate-400"></span>
+          <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-500"></span>
         </div>
       </div>
-      <button id="drawer-close" type="button" class="shrink-0 w-8 h-8 rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800">✕</button>
+      <button id="drawer-close" type="button" class="shrink-0 w-7 h-7 rounded border border-line text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 inline-flex items-center justify-center" aria-label="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
     </div>
-    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+    <div class="flex-1 overflow-y-auto px-3 py-3 space-y-4">
       <section>
-        <h3 class="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">任务描述 / Prompt</h3>
-        <p id="drawer-prompt" class="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap"></p>
+        <h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-1.5">Prompt</h3>
+        <p id="drawer-prompt" class="text-[13px] leading-relaxed text-zinc-200 whitespace-pre-wrap"></p>
       </section>
       <section>
-        <h3 class="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-3">⚡ Hook 生命周期</h3>
-        <ol id="drawer-timeline" class="relative space-y-0"></ol>
+        <h3 class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-2">Lifecycle Hook Trace</h3>
+        <ol id="drawer-timeline" class="relative"></ol>
       </section>
     </div>
-    <div id="drawer-metrics" class="grid grid-cols-3 gap-px bg-slate-800 border-t border-slate-800 text-center"></div>
+    <div id="drawer-metrics" class="grid grid-cols-3 gap-px bg-line border-t border-line text-center"></div>
   </aside>
 
   <script>
@@ -173,13 +161,39 @@
     let selectedId = null;
     let eventSource = null;
     let reconnectTimer = null;
+    let mockSeq = 0;
 
-    const AGENT_STYLES = {
-      cursor: { label: 'Cursor Agent', cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
-      codex:  { label: 'Codex TUI',    cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
-      claude: { label: 'Claude Code',  cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
-      other:  { label: 'AI Agent',     cls: 'text-slate-300 bg-slate-500/10 border-slate-500/20' },
-    };
+    const ICO_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>';
+
+    const MOCKS = [
+      {
+        agent: 'codex-cli',
+        repo: 'payments:feat/jwt',
+        title: 'Add JWT auth to the payment service',
+        prompt: 'Add JWT auth to the payment service.\nCover refresh-token rotation and middleware on /v1/charges.',
+        detail: 'src/auth/jwt.go',
+        event: 'afterFileEdit',
+        finish: 'running',
+      },
+      {
+        agent: 'Cursor Agent',
+        repo: 'agent-kanban:main',
+        title: 'Tighten the session monitor layout',
+        prompt: 'Rewrite the kanban as a compact Agent Session Monitor.\nNo emoji. Inspector drawer for hook traces.',
+        detail: 'static/index.html',
+        event: 'afterFileEdit',
+        finish: 'complete',
+      },
+      {
+        agent: 'claude-code',
+        repo: 'infra-tf:fix/sg',
+        title: 'Restrict SSH security group to bastion',
+        prompt: 'Restrict the production SSH security group to the bastion CIDR only.',
+        detail: 'terraform apply -auto-approve',
+        event: 'beforeShellExecution',
+        finish: 'fail',
+      },
+    ];
 
     function esc(s) {
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({
@@ -187,28 +201,13 @@
       }[c]));
     }
 
-    function agentKey(name) {
-      const a = String(name || '').toLowerCase();
-      if (a.includes('codex')) return 'codex';
-      if (a.includes('claude')) return 'claude';
-      if (a.includes('cursor')) return 'cursor';
-      return 'other';
-    }
-
-    function agentMeta(name) {
-      const key = agentKey(name);
-      const style = AGENT_STYLES[key];
-      return { key, label: name || style.label, cls: style.cls };
+    function agentSlug(name) {
+      const raw = String(name || '').trim() || 'agent';
+      return raw.toLowerCase().replace(/\s+/g, '-');
     }
 
     function agentBadge(name) {
-      const m = agentMeta(name);
-      return `<span class="inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono ${m.cls}">[${esc(m.label)}]</span>`;
-    }
-
-    function formatDur(ms) {
-      const s = Math.max(0, Math.floor(ms / 1000));
-      return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+      return `<span class="inline-flex items-center px-1 py-px rounded border border-line bg-[#16171a] font-mono text-[10px] text-zinc-300">[${esc(agentSlug(name))}]</span>`;
     }
 
     function formatDurLong(ms) {
@@ -226,13 +225,6 @@
       return 0;
     }
 
-    function isToday(ms) {
-      if (!ms) return false;
-      const d = new Date(ms);
-      const n = new Date();
-      return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
-    }
-
     function repoLabel(t) {
       const repo = t.repo || 'workspace';
       if (t.branch && !String(repo).includes(t.branch) && !String(repo).includes(':')) {
@@ -241,61 +233,44 @@
       return repo;
     }
 
-    function eventMeta(ev) {
+    function eventTone(ev) {
       const e = String(ev || '').toLowerCase();
-      if (e.includes('sessionstart') || e === 'onstart') return { icon: '▶', color: 'text-cyan-400', dot: 'bg-cyan-400' };
-      if (e.includes('fileedit') || e.includes('afterfile')) return { icon: '✎', color: 'text-sky-400', dot: 'bg-sky-400' };
-      if (e.includes('shell') || e.includes('command')) return { icon: '⚙', color: 'text-amber-400', dot: 'bg-amber-400' };
-      if (e.includes('complete')) return { icon: '✔', color: 'text-emerald-400', dot: 'bg-emerald-400' };
-      if (e.includes('stop') || e.includes('fail') || e.includes('error')) return { icon: '✕', color: 'text-rose-400', dot: 'bg-rose-400' };
-      return { icon: '●', color: 'text-slate-400', dot: 'bg-slate-500' };
+      if (e.includes('complete')) return 'text-emerald-500';
+      if (e.includes('stop') || e.includes('fail') || e.includes('error')) return 'text-red-400';
+      if (e.includes('shell') || e.includes('command')) return 'text-amber-500';
+      if (e.includes('file')) return 'text-zinc-300';
+      if (e.includes('sessionstart') || e === 'onstart') return 'text-zinc-400';
+      return 'text-zinc-500';
     }
 
-    function diffSummary(t) {
-      const items = t.timeline || [];
-      let plus = 0, minus = 0, files = 0, cmds = 0;
-      items.forEach((it) => {
-        const ev = `${it.event || ''} ${it.desc || ''}`;
-        const m = ev.match(/\+(\d+)\s*[\/,]\s*-(\d+)/);
-        if (m) { plus += Number(m[1]); minus += Number(m[2]); }
-        if (/fileedit|afterfile|编辑文件|操作文件|file_path/i.test(ev)) files += 1;
-        if (/shell|command|执行命令/i.test(ev)) cmds += 1;
-      });
-      if (plus || minus) return `<span class="text-emerald-400">+${plus}</span> <span class="text-slate-600">/</span> <span class="text-rose-400">-${minus}</span> <span class="text-slate-500">行</span>`;
-      if (files || cmds) {
-        return `<span class="text-emerald-400">+${files} files</span> <span class="text-slate-600">/</span> <span class="text-rose-400">-${cmds} cmds</span>`;
-      }
-      return '';
+    function stripDetail(detail) {
+      return String(detail || '').replace(/^(编辑文件|执行命令|操作文件|调用工具|会话启动，分析任务中\.\.\.|任务执行完成):\s*/, '');
+    }
+
+    function actionLine(t) {
+      const ev = t.lastHook || t.event || 'event';
+      const detail = stripDetail(t.detail) || '…';
+      return `$ ${ev}: ${detail}`;
     }
 
     function agentName(t) {
       return String(t && t.agent || '').trim() || 'AI Agent';
     }
 
-    // 过滤胶囊按当前任务里实际出现过的 Agent 动态生成，不再写死 Cursor/Codex/Claude
     let lastFilterSignature = '';
     function renderAgentFilters() {
       const names = [...new Set([...tasksMap.values()].map(agentName))]
         .sort((a, b) => a.localeCompare(b, 'zh-CN'));
-      if (agentFilter !== 'all' && !names.includes(agentFilter)) {
-        agentFilter = 'all';
-      }
+      if (agentFilter !== 'all' && !names.includes(agentFilter)) agentFilter = 'all';
       const signature = names.join('\0') + '|' + agentFilter;
       if (signature === lastFilterSignature) return;
       lastFilterSignature = signature;
 
-      const pill = 'filter-pill h-8 px-2.5 rounded-full border border-slate-800 text-[11px] font-medium';
-      const colorCls = {
-        cursor: 'text-sky-400/80 hover:text-sky-300',
-        codex: 'text-indigo-400/80 hover:text-indigo-300',
-        claude: 'text-amber-400/80 hover:text-amber-300',
-        other: 'text-slate-400 hover:text-slate-200',
-      };
-      const allBtn = `<button type="button" data-filter="all" aria-pressed="${agentFilter === 'all'}" class="${pill} text-slate-400 hover:text-slate-200">All</button>`;
-      const agentBtns = names.map((name) => {
-        const m = agentMeta(name);
-        return `<button type="button" data-filter="${esc(name)}" aria-pressed="${agentFilter === name}" class="${pill} ${colorCls[m.key]}">${esc(name)}</button>`;
-      }).join('');
+      const pill = 'filter-pill h-7 px-2 rounded border border-line text-[11px] font-mono text-zinc-500 hover:text-zinc-300';
+      const allBtn = `<button type="button" data-filter="all" aria-pressed="${agentFilter === 'all'}" class="${pill}">ALL</button>`;
+      const agentBtns = names.map((name) => (
+        `<button type="button" data-filter="${esc(name)}" aria-pressed="${agentFilter === name}" class="${pill}">${esc(agentSlug(name))}</button>`
+      )).join('');
       document.getElementById('agent-filters').innerHTML = allBtn + agentBtns;
     }
 
@@ -307,58 +282,52 @@
     }
 
     function emptyState(text) {
-      return `<div class="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 px-4 py-8 text-center text-xs text-slate-500">${esc(text)}</div>`;
+      return `<div class="border border-dashed border-line bg-card/40 px-3 py-6 text-center font-mono text-[11px] text-zinc-600">${esc(text)}</div>`;
     }
 
     function cardHTML(t) {
-      const accent = t.status === 'running' ? 'border-l-amber-400/80' : t.status === 'completed' ? 'border-l-emerald-400/70' : 'border-l-rose-400/70';
-      const action = t.lastHook || t.event || '';
-      const meta = eventMeta(action);
       const dur = t.status === 'running'
-        ? formatDur(Date.now() - (t.startTime || Date.now()))
+        ? formatDurLong(Date.now() - (t.startTime || Date.now()))
         : (t.duration || formatDurLong(durationMs(t)));
-      const failReason = t.detail || '任务异常中断 / 用户 Ctrl+C (SIGINT)';
-      const rawDetail = t.detail || 'Processing...';
-      const actionLabel = rawDetail.toLowerCase().startsWith(String(action).toLowerCase())
-        ? rawDetail
-        : (action ? `${action}: ${rawDetail}` : rawDetail);
-      const diff = diffSummary(t);
+      const failReason = t.detail || 'Aborted by user (SIGINT)';
+      const accent = t.status === 'running'
+        ? 'border-l-amber-500'
+        : t.status === 'completed'
+          ? 'border-l-emerald-600'
+          : 'border-l-red-500';
 
       const actionBar = t.status === 'running' ? `
-        <div class="text-[11px] font-mono text-slate-400 bg-slate-950/80 border border-slate-800/80 px-2 py-1.5 rounded-md mb-2 truncate">
-          <span class="${meta.color}">${meta.icon}</span>
-          <span>${esc(actionLabel)}</span>
+        <div class="font-mono text-[11px] tabular-nums text-zinc-400 bg-black/40 border border-line px-2 py-1 rounded truncate">
+          ${esc(actionLine(t))}
         </div>` : '';
 
       const footer = t.status === 'running' ? `
-        <div class="flex items-center justify-between text-[11px] font-mono">
-          <span class="text-amber-400 inline-flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-            <span class="live-timer" data-start="${t.startTime || Date.now()}">${dur}</span>
-          </span>
-          <span class="text-slate-500">${esc(t.id)}</span>
+        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
+          <span class="text-amber-500 live-timer" data-start="${t.startTime || Date.now()}">${dur}</span>
+          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
         </div>` : t.status === 'completed' ? `
-        ${diff ? `<div class="mb-2 font-mono text-[11px]">${diff}</div>` : ''}
-        <div class="flex items-center justify-between text-[11px] font-mono">
-          <span class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">✔ ${esc(dur)}</span>
-          <span class="text-slate-500">${esc(t.id)}</span>
+        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
+          <span class="inline-flex items-center gap-1 text-emerald-500">${ICO_CHECK}<span>${esc(dur)}</span></span>
+          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
         </div>` : `
-        <div class="text-[11px] text-rose-400 font-mono mb-1.5 line-clamp-2">${esc(failReason)}</div>
-        <div class="flex items-center justify-between text-[11px] font-mono">
-          <span class="text-rose-400">✕ ${esc(dur)}</span>
-          <span class="text-slate-500">${esc(t.id)}</span>
+        <div class="font-mono text-[11px] text-red-300 bg-[#1c1214] border border-[#3f1d1d] px-2 py-1 rounded mb-2 line-clamp-2">${esc(failReason)}</div>
+        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
+          <span class="text-red-400">${esc(dur)}</span>
+          <span class="text-zinc-600 truncate ml-2">${esc(t.id)}</span>
         </div>`;
 
       return `
-        <article class="task-card cursor-pointer bg-slate-900 border border-slate-800/80 border-l-2 ${accent} p-3.5 rounded-xl text-sm"
+        <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} p-3 rounded text-[13px]"
           data-task-id="${esc(t.id)}" role="button" tabindex="0">
           <div class="flex items-start justify-between gap-2 mb-2">
             ${agentBadge(t.agent)}
-            <span class="font-mono text-[10px] text-slate-500 truncate">📁 ${esc(repoLabel(t))}</span>
+            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate">${esc(repoLabel(t))}</span>
           </div>
-          <h3 class="font-medium text-slate-100 text-[13px] leading-snug line-clamp-2 mb-2 hover:text-sky-200">${esc(t.title || '未命名任务')}</h3>
-          ${actionBar}
-          ${footer}
+          <h3 class="text-[13px] leading-snug text-zinc-100 line-clamp-2 mb-2">${esc(t.title || t.prompt || 'untitled session')}</h3>
+          <div class="space-y-2">
+            ${actionBar}
+            ${footer}
+          </div>
         </article>`;
     }
 
@@ -373,21 +342,24 @@
           buckets[status].push(t);
         });
 
-      const cr = document.getElementById('col-running');
-      const cc = document.getElementById('col-completed');
-      const cf = document.getElementById('col-failed');
-      cr.innerHTML = buckets.running.length ? buckets.running.map(cardHTML).join('') : emptyState('暂无进行中的会话');
-      cc.innerHTML = buckets.completed.length ? buckets.completed.map(cardHTML).join('') : emptyState('今日尚无完成任务');
-      cf.innerHTML = buckets.failed.length ? buckets.failed.map(cardHTML).join('') : emptyState('暂无异常或中断');
+      document.getElementById('col-running').innerHTML = buckets.running.length
+        ? buckets.running.map(cardHTML).join('')
+        : emptyState('No active sessions');
+      document.getElementById('col-completed').innerHTML = buckets.completed.length
+        ? buckets.completed.map(cardHTML).join('')
+        : emptyState('No completed sessions');
+      document.getElementById('col-failed').innerHTML = buckets.failed.length
+        ? buckets.failed.map(cardHTML).join('')
+        : emptyState('No failed sessions');
 
       const all = Array.from(tasksMap.values());
       const runningN = all.filter((t) => t.status === 'running').length;
-      const todayDone = all.filter((t) => t.status === 'completed' && isToday(t.endTime || t.startTime));
-      const doneMs = todayDone.map(durationMs).filter((n) => n > 0);
+      const done = all.filter((t) => t.status === 'completed');
+      const doneMs = done.map(durationMs).filter((n) => n > 0);
       const avg = doneMs.length ? doneMs.reduce((a, b) => a + b, 0) / doneMs.length : 0;
 
       document.getElementById('stat-running').textContent = runningN;
-      document.getElementById('stat-completed').textContent = todayDone.length;
+      document.getElementById('stat-completed').textContent = done.length;
       document.getElementById('stat-avg').textContent = formatDurLong(avg);
       document.getElementById('count-running').textContent = buckets.running.length;
       document.getElementById('count-completed').textContent = buckets.completed.length;
@@ -398,7 +370,7 @@
 
     function tickTimers() {
       document.querySelectorAll('.live-timer').forEach((el) => {
-        el.textContent = formatDur(Date.now() - parseInt(el.dataset.start, 10));
+        el.textContent = formatDurLong(Date.now() - parseInt(el.dataset.start, 10));
       });
     }
 
@@ -422,53 +394,50 @@
       if (!t) { closeDrawer(); return; }
       document.getElementById('drawer-id').textContent = t.id;
       document.getElementById('drawer-agent').innerHTML = agentBadge(t.agent);
-      document.getElementById('drawer-repo').textContent = `📁 ${repoLabel(t)}`;
-      document.getElementById('drawer-prompt').textContent = t.prompt || t.title || '（无 Prompt）';
+      document.getElementById('drawer-repo').textContent = repoLabel(t);
+      document.getElementById('drawer-prompt').textContent = t.prompt || t.title || '(no prompt)';
 
       const items = t.timeline || [];
       document.getElementById('drawer-timeline').innerHTML = items.length
         ? items.map((it, i) => {
-            const meta = eventMeta(it.event);
             const last = i === items.length - 1;
+            const tone = eventTone(it.event);
             return `
-              <li class="relative pl-6 pb-4">
-                ${last ? '' : '<span class="absolute left-[5px] top-3 bottom-0 w-px bg-slate-800"></span>'}
-                <span class="absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ${meta.dot} ring-4 ring-slate-900"></span>
+              <li class="relative pl-4 pb-3">
+                ${last ? '' : '<span class="absolute left-[3px] top-3 bottom-0 w-px bg-line"></span>'}
+                <span class="absolute left-0 top-1.5 w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
                 <div class="flex items-baseline gap-2">
-                  <span class="font-mono text-[10px] text-slate-500">[${esc(it.time || '--:--:--')}]</span>
-                  <span class="font-mono text-[11px] ${meta.color}">${esc(it.event || 'event')}</span>
+                  <span class="font-mono text-[10px] tabular-nums text-zinc-600">${esc(it.time || '--:--:--')}</span>
+                  <span class="font-mono text-[11px] ${tone}">${esc(it.event || 'event')}</span>
                 </div>
-                <p class="mt-1 text-xs text-slate-400 leading-relaxed">${esc(it.desc || '—')}</p>
+                <p class="mt-0.5 font-mono text-[11px] text-zinc-500 leading-relaxed">${esc(it.desc || '—')}</p>
               </li>`;
           }).join('')
-        : '<li class="text-xs text-slate-500">暂无 Hook 事件</li>';
+        : '<li class="font-mono text-[11px] text-zinc-600">No hook events</li>';
 
-      const statusLabel = t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : '异常 / 中断';
-      const statusCls = t.status === 'running' ? 'text-amber-400' : t.status === 'completed' ? 'text-emerald-400' : 'text-rose-400';
+      const statusLabel = t.status === 'running' ? 'RUNNING' : t.status === 'completed' ? 'COMPLETED' : 'FAILED';
+      const statusCls = t.status === 'running' ? 'text-amber-500' : t.status === 'completed' ? 'text-emerald-500' : 'text-red-400';
       document.getElementById('drawer-metrics').innerHTML = `
-        <div class="bg-slate-900 py-3">
-          <div class="text-[10px] font-mono text-slate-500 uppercase">总耗时</div>
-          <div class="mt-1 font-mono text-xs text-slate-200">${esc(t.duration || formatDurLong(durationMs(t)))}</div>
+        <div class="bg-panel py-2.5">
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Duration</div>
+          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${esc(t.duration || formatDurLong(durationMs(t)))}</div>
         </div>
-        <div class="bg-slate-900 py-3">
-          <div class="text-[10px] font-mono text-slate-500 uppercase">Hook 次数</div>
-          <div class="mt-1 font-mono text-xs text-slate-200">${items.length}</div>
+        <div class="bg-panel py-2.5">
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Hooks</div>
+          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${items.length}</div>
         </div>
-        <div class="bg-slate-900 py-3">
-          <div class="text-[10px] font-mono text-slate-500 uppercase">最终状态</div>
-          <div class="mt-1 font-mono text-xs ${statusCls}">${statusLabel}</div>
+        <div class="bg-panel py-2.5">
+          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">Status</div>
+          <div class="mt-0.5 font-mono text-[12px] ${statusCls}">${statusLabel}</div>
         </div>`;
     }
 
     function setDaemon(online) {
       const el = document.getElementById('daemon-status');
-      if (online) {
-        el.className = 'ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-        el.innerHTML = '<span class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Daemon Online (127.0.0.1:8000)';
-      } else {
-        el.className = 'ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20';
-        el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Daemon Offline';
-      }
+      el.innerHTML = online
+        ? '<span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>127.0.0.1:8000'
+        : '<span class="w-1.5 h-1.5 rounded-full bg-zinc-600"></span>offline';
+      el.className = 'inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums ' + (online ? 'text-zinc-500' : 'text-zinc-600');
     }
 
     function connect() {
@@ -495,13 +464,95 @@
       };
     }
 
+    async function postEvent(body) {
+      const res = await fetch('/api/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error('event failed');
+    }
+
+    function applyLocal(taskPatch) {
+      const prev = tasksMap.get(taskPatch.id) || {
+        id: taskPatch.id,
+        agent: taskPatch.agent,
+        repo: taskPatch.repo,
+        title: taskPatch.title,
+        prompt: taskPatch.prompt,
+        status: 'running',
+        startTime: Date.now(),
+        timeline: [],
+      };
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const mm = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      prev.agent = taskPatch.agent || prev.agent;
+      prev.repo = taskPatch.repo || prev.repo;
+      if (taskPatch.title) prev.title = taskPatch.title;
+      if (taskPatch.prompt && !prev.prompt) prev.prompt = taskPatch.prompt;
+      prev.event = taskPatch.event;
+      prev.lastHook = taskPatch.event;
+      prev.detail = taskPatch.detail;
+      prev.status = taskPatch.status || prev.status;
+      if (taskPatch.status === 'completed' || taskPatch.status === 'failed') {
+        prev.endTime = Date.now();
+        prev.duration = formatDurLong(prev.endTime - prev.startTime);
+      }
+      prev.timeline = (prev.timeline || []).concat([{
+        time: `${hh}:${mm}:${ss}`,
+        event: taskPatch.event,
+        desc: taskPatch.detail,
+      }]);
+      tasksMap.set(prev.id, prev);
+      render();
+    }
+
+    async function dispatchMock() {
+      const spec = MOCKS[mockSeq % MOCKS.length];
+      mockSeq += 1;
+      const id = `mock-${Date.now().toString(36)}`;
+      const base = {
+        id,
+        agent: spec.agent,
+        repo: spec.repo,
+        title: spec.title,
+        prompt: spec.prompt,
+      };
+      const start = { ...base, event: 'sessionStart', detail: 'session start' };
+      const mid = { ...base, event: spec.event, detail: spec.detail };
+      try {
+        await postEvent(start);
+        await postEvent(mid);
+        if (spec.finish === 'complete') {
+          await postEvent({ ...base, event: 'agentCompletion', detail: 'agent completion' });
+        } else if (spec.finish === 'fail') {
+          await postEvent({ ...base, event: 'stop', detail: 'Aborted by user (SIGINT)' });
+        }
+      } catch (_) {
+        applyLocal({ ...start, status: 'running' });
+        applyLocal({ ...mid, status: 'running' });
+        if (spec.finish === 'complete') applyLocal({ ...base, event: 'agentCompletion', detail: 'agent completion', status: 'completed' });
+        if (spec.finish === 'fail') applyLocal({ ...base, event: 'stop', detail: 'Aborted by user (SIGINT)', status: 'failed' });
+      }
+    }
+
     async function clearCompleted() {
-      await fetch('/api/tasks', { method: 'DELETE' });
+      try {
+        await fetch('/api/tasks', { method: 'DELETE' });
+      } catch (_) { /* local fallback */ }
       for (const [id, t] of tasksMap) {
         if (t.status !== 'running') tasksMap.delete(id);
       }
       if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
       render();
+    }
+
+    function focusSearch() {
+      const el = document.getElementById('search-input');
+      el.focus();
+      el.select();
     }
 
     document.getElementById('search-input').addEventListener('input', (e) => {
@@ -515,14 +566,19 @@
       lastFilterSignature = '';
       render();
     });
+    document.getElementById('btn-mock').addEventListener('click', dispatchMock);
     document.getElementById('btn-clear').addEventListener('click', clearCompleted);
     document.getElementById('drawer-close').addEventListener('click', closeDrawer);
     document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeDrawer();
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        focusSearch();
+      }
       if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
-        document.getElementById('search-input').focus();
+        focusSearch();
       }
     });
     document.addEventListener('click', (e) => {
