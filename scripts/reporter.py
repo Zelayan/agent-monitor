@@ -4,6 +4,7 @@ import sys, os, json, subprocess, urllib.request, argparse, time, re
 parser = argparse.ArgumentParser()
 parser.add_argument("--event", default="")
 parser.add_argument("--agent", default="")
+parser.add_argument("--turn", type=int, default=0)
 args = parser.parse_args()
 
 raw_input = sys.stdin.read().strip() if not sys.stdin.isatty() else ""
@@ -14,7 +15,7 @@ if raw_input:
     except Exception:
         payload = {"raw": raw_input}
 
-# 1. 确定 Agent 名称（优先 CLI 参数，其次 payload/环境变量，缺省回退）
+# 1. 确定 Agent 名称
 agent_name = (
     args.agent
     or payload.get("agent")
@@ -31,7 +32,7 @@ event_name = (
     or "unknown"
 )
 
-# 3. 获取会话/任务 ID（兼容 ZCode、Cursor、Claude Code 等环境变量与 payload 字段）
+# 3. 获取会话 ID
 session_id = (
     os.environ.get("ZCODE_SESSION_ID")
     or os.environ.get("CLAUDE_SESSION_ID")
@@ -75,7 +76,9 @@ def text_from_transcript_line(obj):
     return unwrap_user_query("\n".join(chunks))
 
 
-def read_first_user_prompt(path):
+def read_user_prompts(path):
+    """读取并按顺序返回该会话 transcript 中的所有用户 Prompt 列表。"""
+    prompts = []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
             for line in f:
@@ -88,10 +91,10 @@ def read_first_user_prompt(path):
                     continue
                 text = text_from_transcript_line(obj)
                 if text:
-                    return text
+                    prompts.append(text)
     except Exception:
-        return ""
-    return ""
+        pass
+    return prompts
 
 
 def transcript_candidates():
@@ -128,9 +131,9 @@ def transcript_candidates():
     return out
 
 
-def extract_prompt():
-    """首条用户 Prompt：payload 优先，否则读 transcript。"""
-    raw = (
+def extract_turn_info():
+    """提取当前轮次序号及对应 Prompt，支持 50+ 轮长会话。"""
+    direct_prompt = (
         payload.get("prompt")
         or payload.get("user_prompt")
         or payload.get("user_query")
@@ -139,17 +142,32 @@ def extract_prompt():
         or payload.get("input")
         or ""
     )
-    if isinstance(raw, str) and raw.strip():
-        return unwrap_user_query(raw)
+    if isinstance(direct_prompt, str) and direct_prompt.strip():
+        direct_prompt = unwrap_user_query(direct_prompt)
+    else:
+        direct_prompt = ""
+
+    all_prompts = []
     for path in transcript_candidates():
-        text = read_first_user_prompt(path)
-        if text:
-            return text
-    return ""
+        prompts = read_user_prompts(path)
+        if prompts:
+            all_prompts = prompts
+            break
+
+    if direct_prompt:
+        if not all_prompts or all_prompts[-1] != direct_prompt:
+            all_prompts.append(direct_prompt)
+
+    turn_count = max(1, len(all_prompts))
+    if args.turn > 0:
+        turn_count = args.turn
+    current_prompt = all_prompts[-1] if all_prompts else direct_prompt
+    first_prompt = all_prompts[0] if all_prompts else direct_prompt
+    return turn_count, current_prompt, first_prompt
 
 
 def short_title(text):
-    """清洗后取第一行，作卡片短标题。"""
+    """清洗后取第一行，作短标题。"""
     if not text:
         return ""
     cleaned = text.replace("#task", "").replace("[board]", "").replace("任务:", "")
@@ -160,22 +178,15 @@ def short_title(text):
     return ""
 
 
-# 获取 Prompt / 任务描述
-prompt = extract_prompt()
-title = short_title(prompt)
+turn_index, current_prompt, first_prompt = extract_turn_info()
+title = short_title(current_prompt) or short_title(first_prompt)
 
-# 动态提取操作细节（兼容 ZCode 与 Cursor 的 tool 调用结构）
+# 动态提取操作细节
 detail = ""
 tool_name = payload.get("tool_name") or payload.get("tool") or ""
 tool_input = payload.get("tool_input") or payload.get("tool_args") or payload.get("parameters") or {}
 
-if event_name in ["PostToolUseFailure"]:
-    err = payload.get("error") or payload.get("message") or ""
-    if tool_name:
-        detail = f"工具执行失败 ({tool_name}): {err}" if err else f"工具执行失败: {tool_name}"
-    else:
-        detail = f"工具执行失败: {err}" if err else "工具执行失败"
-elif "command" in payload:
+if "command" in payload:
     detail = f"执行命令: {payload['command']}"
 elif tool_name in ["Bash", "bash", "execute_command"]:
     cmd = tool_input.get("command") if isinstance(tool_input, dict) else ""
@@ -194,7 +205,6 @@ elif event_name in ["stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop
 
 
 def get_git_info():
-    """从 project_dir、workspace_roots 或当前目录解析仓库名与分支。"""
     try:
         roots = payload.get("workspace_roots")
         cwd = None
@@ -210,7 +220,6 @@ def get_git_info():
 
 repo, branch = get_git_info()
 
-# 统一事件名映射为 Monitor 识别的状态事件
 mapped_event = event_name
 if event_name in ["beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit"]:
     mapped_event = "sessionStart"
@@ -235,13 +244,13 @@ data = {
     "event": mapped_event,
     "timestamp": int(time.time()),
     "detail": detail[:120],
+    "turn_index": turn_index,
 }
 if title:
     data["title"] = title
-if prompt:
-    data["prompt"] = prompt[:4000]
+if current_prompt:
+    data["prompt"] = current_prompt[:4000]
 
-# 异步/短超时上报至本地 AGENT MONITOR
 try:
     req = urllib.request.Request(
         "http://127.0.0.1:8000/api/event",
@@ -252,7 +261,6 @@ try:
 except Exception:
     pass
 
-# 输出标准 hook 放行响应 (避免 stdout 格式不合规被 IDE / Client 拦截)
 if event_name in ["beforeSubmitPrompt", "UserPromptSubmit"]:
     print(json.dumps({"continue": True}))
 elif event_name in ["beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest"]:

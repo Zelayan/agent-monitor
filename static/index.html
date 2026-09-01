@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AGENT MONITOR</title>
+  <title>AGENT MONITOR - Workflow & Multi-Run Engine</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -13,8 +13,8 @@
       theme: {
         extend: {
           fontFamily: {
-            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-            mono: ['JetBrains Mono', 'Menlo', 'ui-monospace', 'monospace'],
+            sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
           },
           colors: {
             canvas: '#09090b',
@@ -30,7 +30,7 @@
     :root { color-scheme: dark; }
     body { background: #09090b; }
     .lane { max-height: calc(100vh - 8.75rem); }
-    .task-card { transition: border-color 0.12s ease; }
+    .task-card { transition: border-color 0.12s ease, transform 0.1s ease; }
     .task-card:hover { border-color: #3f3f46; }
     .overlay {
       opacity: 0;
@@ -40,7 +40,7 @@
     .overlay.open { opacity: 1; pointer-events: auto; }
     .drawer {
       transform: translateX(100%);
-      transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1);
+      transition: transform 0.22s cubic-bezier(0.32, 0.72, 0, 1), width 0.2s ease, max-width 0.2s ease;
     }
     .drawer.open { transform: translateX(0); }
     .filter-pill[aria-pressed="true"] {
@@ -48,18 +48,24 @@
       border-color: #3f3f46;
       color: #e4e4e7;
     }
-    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 999px; }
     ::-webkit-scrollbar-track { background: transparent; }
     input[type="search"]::-webkit-search-cancel-button { display: none; }
   </style>
 </head>
-<body class="min-h-screen text-zinc-200 font-sans antialiased">
+<body class="min-h-screen text-zinc-200 font-sans antialiased selection:bg-zinc-800">
+
+  <!-- 1. 顶部导航与全局状态 -->
   <header class="sticky top-0 z-30 border-b border-line bg-panel">
-    <div class="max-w-[1440px] mx-auto px-4 py-2.5 flex flex-wrap items-center gap-3">
-      <div class="flex items-center gap-2.5 min-w-0">
-        <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
-        <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100">AGENT MONITOR</span>
+    <div class="max-w-[1440px] mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+      
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
+          <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100 uppercase">AGENT MONITOR</span>
+        </div>
+        <span class="text-zinc-700">/</span>
         <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-zinc-500">
           <span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>
           127.0.0.1:8000
@@ -67,12 +73,12 @@
       </div>
 
       <div class="flex items-center gap-3 font-mono text-[11px] tabular-nums">
-        <span class="text-amber-500"><span id="lbl-stat-running" class="uppercase tracking-wide">运行中:</span> <span id="stat-running">0</span></span>
-        <span class="text-zinc-200"><span id="lbl-stat-completed" class="uppercase tracking-wide">已完成:</span> <span id="stat-completed">0</span></span>
-        <span class="text-zinc-500"><span id="lbl-stat-avg" class="uppercase tracking-wide">平均耗时:</span> <span id="stat-avg">00m 00s</span></span>
+        <span class="text-amber-500"><span id="lbl-stat-running" class="uppercase tracking-wide">ACTIVE:</span> <span id="stat-running">0</span></span>
+        <span class="text-zinc-200"><span id="lbl-stat-completed" class="uppercase tracking-wide">IDLE/DONE:</span> <span id="stat-completed">0</span></span>
+        <span class="text-zinc-500"><span id="lbl-stat-avg" class="uppercase tracking-wide">AVG_LIFETIME:</span> <span id="stat-avg">00m 00s</span></span>
       </div>
 
-      <div class="flex items-center gap-2 flex-1 min-w-[240px] justify-end">
+      <div class="flex items-center gap-2 flex-1 min-w-[280px] justify-end">
         <label class="relative flex-1 max-w-xs">
           <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
@@ -85,76 +91,134 @@
         <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
           EN
         </button>
-        <button id="btn-mock" type="button" class="h-7 px-2.5 rounded bg-zinc-100 text-zinc-950 text-[11px] font-medium hover:bg-white">
-          + 模拟上报
-        </button>
         <button id="btn-clear" type="button" class="h-7 px-2.5 rounded border border-line bg-transparent text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200">
           清空
         </button>
       </div>
+
     </div>
   </header>
 
+  <!-- 2. 看板三列主体 -->
   <main class="max-w-[1440px] mx-auto px-4 py-3">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+      
+      <!-- 活跃中 (ACTIVE WORKFLOWS) -->
       <section class="min-w-0">
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <span class="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0"></span>
-            <span id="header-running">运行中</span>
+            <span id="header-running">ACTIVE WORKFLOWS</span>
           </span>
           <span id="count-running" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
         <div id="col-running" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
+
+      <!-- 已完结/就绪 (IDLE / COMPLETED SESSIONS) -->
       <section class="min-w-0">
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#22c55e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>
-            <span id="header-completed">已完成</span>
+            <span id="header-completed">IDLE / COMPLETED</span>
           </span>
           <span id="count-completed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
         <div id="col-completed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
+
+      <!-- 异常/终止 (TERMINATED / FAILED) -->
       <section class="min-w-0">
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16.2h.01"/></svg>
-            <span id="header-failed">失败 / 中断</span>
+            <span id="header-failed">TERMINATED / FAILED</span>
           </span>
           <span id="count-failed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
         <div id="col-failed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
+
     </div>
   </main>
 
-  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/50"></div>
-  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-[400px] bg-panel border-l border-line flex flex-col" aria-hidden="true">
-    <div class="flex items-start justify-between gap-2 px-3 py-3 border-b border-line">
-      <div class="min-w-0">
-        <div id="drawer-id" class="font-mono text-[11px] tabular-nums text-zinc-400"></div>
-        <div class="mt-1.5 flex flex-wrap items-center gap-2">
-          <span id="drawer-agent"></span>
-          <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-500"></span>
-        </div>
+  <!-- 3. 企业级多轮工作流抽屉 (支持宽屏/全屏展开与 Run 步进器) -->
+  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/60"></div>
+  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line flex flex-col p-5 overflow-y-auto" aria-hidden="true">
+    
+    <!-- 抽屉顶部 Bar -->
+    <div class="flex items-center justify-between gap-2 pb-3 border-b border-line">
+      <div class="flex items-center gap-2 min-w-0">
+        <span id="drawer-agent"></span>
+        <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate"></span>
+        <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
-      <button id="drawer-close" type="button" class="shrink-0 w-7 h-7 rounded border border-line text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 inline-flex items-center justify-center" aria-label="Close">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"/></svg>
-      </button>
+      <div class="flex items-center gap-1.5">
+        <button id="btn-toggle-widescreen" type="button" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 flex items-center gap-1">
+          <svg id="icon-expand" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+          <span id="lbl-widescreen">宽屏</span>
+        </button>
+        <button id="drawer-close" type="button" class="w-7 h-7 rounded border border-line text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 inline-flex items-center justify-center font-mono text-xs" aria-label="Close">
+          ✕
+        </button>
+      </div>
     </div>
-    <div class="flex-1 overflow-y-auto px-3 py-3 space-y-4">
-      <section>
-        <h3 id="drawer-prompt-title" class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-1.5">用户 Prompt</h3>
-        <p id="drawer-prompt" class="text-[13px] leading-relaxed text-zinc-200 whitespace-pre-wrap"></p>
-      </section>
-      <section>
-        <h3 id="drawer-trace-title" class="font-mono text-[10px] uppercase tracking-[0.16em] text-zinc-500 mb-2">生命周期 Hook 时间线</h3>
-        <ol id="drawer-timeline" class="relative"></ol>
-      </section>
+
+    <!-- 会话整体容器 (SESSION CONTAINER) -->
+    <div class="mt-4 pb-4 border-b border-[#1e1e22]">
+      <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
+      <h2 id="drawer-root-title" class="text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
+      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-zinc-500 mt-2">
+        <span id="drawer-session-id">ID: -</span>
+        <span id="drawer-total-duration">Lifetime: -</span>
+        <span id="drawer-runs-count">Total Runs: -</span>
+      </div>
     </div>
-    <div id="drawer-metrics" class="grid grid-cols-3 gap-px bg-line border-t border-line text-center"></div>
+
+    <!-- 工业级核心组件：Run 步进器与下拉切换器 (Run Switcher) -->
+    <div class="mt-4 flex items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
+      <div class="flex items-center gap-1.5">
+        <button id="btn-prev-run" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+          ◀ Prev Run
+        </button>
+        <button id="btn-next-run" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+          Next Run ▶
+        </button>
+      </div>
+
+      <!-- 下拉选择任意 Run -->
+      <div class="flex items-center gap-2 min-w-0">
+        <span class="font-mono text-[10px] text-zinc-500 shrink-0 uppercase">JUMP TO:</span>
+        <select id="run-dropdown-select" class="bg-[#18181b] border border-line text-zinc-200 font-mono text-[11px] px-2 py-1 rounded outline-none cursor-pointer max-w-[240px] truncate">
+        </select>
+      </div>
+    </div>
+
+    <!-- 选中的 Run 执行明细 -->
+    <div class="mt-4 bg-card border border-line rounded-md p-4 space-y-3 flex-1 flex flex-col">
+      <div class="flex items-center justify-between pb-2 border-b border-[#1e1e22]">
+        <div class="flex items-center gap-2">
+          <span id="run-detail-title" class="font-mono text-xs font-semibold text-zinc-200">RUN #1 DETAILS</span>
+          <span id="run-detail-status" class="font-mono text-[10px] px-1.5 rounded bg-zinc-800 text-zinc-400">COMPLETED</span>
+        </div>
+        <span id="run-detail-dur" class="font-mono text-[11px] text-zinc-400">00m 00s</span>
+      </div>
+
+      <div>
+        <div class="font-mono text-[10px] text-zinc-500 uppercase" id="lbl-drawer-goal">PROMPT / GOAL FOR THIS RUN</div>
+        <p id="run-detail-prompt" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto bg-black/30 p-2.5 rounded border border-line"></p>
+      </div>
+
+      <!-- Sentry 风格 Hook 面包屑 (Lifecycle Hook Breadcrumbs) -->
+      <div class="pt-2 border-t border-[#1e1e22] flex-1 flex flex-col">
+        <div class="font-mono text-[10px] text-zinc-500 uppercase mb-2 flex items-center justify-between">
+          <span id="lbl-drawer-trace">LIFECYCLE HOOK BREADCRUMBS</span>
+          <span id="run-detail-event-count" class="text-zinc-600">0 events</span>
+        </div>
+        <div id="run-detail-breadcrumbs" class="space-y-1.5 font-mono text-[11px] overflow-y-auto max-h-[320px] pr-1"></div>
+      </div>
+    </div>
+
   </aside>
 
   <script>
@@ -162,28 +226,29 @@
       zh: {
         htmlLang: 'zh-CN',
         langBtn: 'EN',
-        statRunning: '运行中:',
-        statCompleted: '已完成:',
-        statAvg: '平均耗时:',
+        statRunning: '活跃会话:',
+        statCompleted: '就绪/完成:',
+        statAvg: '平均生命周期:',
         searchPlaceholder: '筛选会话',
-        btnMock: '+ 模拟上报',
         btnClear: '清空',
-        headerRunning: '运行中',
-        headerCompleted: '已完成',
-        headerFailed: '失败 / 中断',
-        drawerPrompt: '用户 Prompt',
-        drawerTrace: '生命周期 Hook 时间线',
-        drawerDuration: '耗时',
-        drawerHooks: '事件数',
-        drawerStatus: '状态',
-        statusRunning: '运行中',
-        statusCompleted: '已完成',
-        statusFailed: '已失败',
-        noRunning: '暂无运行中的会话',
+        headerRunning: '活跃中 WORKFLOWS',
+        headerCompleted: '就绪 / 已完成 SESSIONS',
+        headerFailed: '异常 / 终止 TERMINATED',
+        drawerContainer: '会话总容器 (WORKFLOW)',
+        drawerGoal: '本轮任务 PROMPT / GOAL',
+        drawerTrace: '生命周期 HOOK 面包屑轨迹',
+        btnPrev: '◀ 上一轮',
+        btnNext: '下一轮 ▶',
+        widescreen: '宽屏',
+        standardWidth: '默认',
+        statusRunning: 'RUNNING',
+        statusCompleted: 'COMPLETED',
+        statusFailed: 'FAILED',
+        noRunning: '暂无活跃中的工作流',
         noCompleted: '暂无已完成的会话',
-        noFailed: '暂无失败会话',
+        noFailed: '暂无异常终止的会话',
         noPrompt: '(无 Prompt 描述)',
-        noTimeline: '暂无 Hook 轨迹',
+        noEvents: '本轮暂无 Hook 事件',
         offline: '离线',
         filterAll: '全部',
         abortedDefault: '用户终止执行 (SIGINT)',
@@ -192,27 +257,28 @@
         htmlLang: 'en',
         langBtn: '中文',
         statRunning: 'ACTIVE:',
-        statCompleted: 'DONE:',
-        statAvg: 'AVG_DUR:',
+        statCompleted: 'IDLE/DONE:',
+        statAvg: 'AVG_LIFETIME:',
         searchPlaceholder: 'Filter sessions',
-        btnMock: '+ Dispatch Mock',
         btnClear: 'Clear',
-        headerRunning: 'Running',
-        headerCompleted: 'Completed',
-        headerFailed: 'Failed / Aborted',
-        drawerPrompt: 'Prompt',
-        drawerTrace: 'Lifecycle Hook Trace',
-        drawerDuration: 'Duration',
-        drawerHooks: 'Hooks',
-        drawerStatus: 'Status',
+        headerRunning: 'ACTIVE WORKFLOWS',
+        headerCompleted: 'IDLE / COMPLETED',
+        headerFailed: 'TERMINATED / FAILED',
+        drawerContainer: 'SESSION CONTAINER (WORKFLOW)',
+        drawerGoal: 'PROMPT / GOAL FOR THIS RUN',
+        drawerTrace: 'LIFECYCLE HOOK BREADCRUMBS',
+        btnPrev: '◀ Prev Run',
+        btnNext: 'Next Run ▶',
+        widescreen: 'Widescreen',
+        standardWidth: 'Standard',
         statusRunning: 'RUNNING',
         statusCompleted: 'COMPLETED',
         statusFailed: 'FAILED',
-        noRunning: 'No active sessions',
+        noRunning: 'No active workflows',
         noCompleted: 'No completed sessions',
-        noFailed: 'No failed sessions',
+        noFailed: 'No terminated sessions',
         noPrompt: '(no prompt)',
-        noTimeline: 'No hook events',
+        noEvents: 'No hook events for this run',
         offline: 'offline',
         filterAll: 'ALL',
         abortedDefault: 'Aborted by user (SIGINT)',
@@ -220,56 +286,16 @@
     };
 
     let currentLang = localStorage.getItem('agent_monitor_lang') || 'zh';
+    let isWidescreen = false;
 
     const tasksMap = new Map();
     let query = '';
     let agentFilter = 'all';
     let selectedId = null;
+    let selectedRunId = null;
     let eventSource = null;
     let reconnectTimer = null;
-    let mockSeq = 0;
     let isOnline = true;
-
-    const ICO_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5 9.5 17 19 7"/></svg>';
-
-    const MOCKS = [
-      {
-        agent: 'ZCode',
-        repo: 'agent-monitor:master',
-        title: '支持生命周期 Hook 实时上报',
-        prompt: '在 ZCode 中接入生命周期 Hook 监视。\n上报首条 Prompt、工具调用与会话完结状态。',
-        detail: 'scripts/reporter.py',
-        event: 'afterFileEdit',
-        finish: 'running',
-      },
-      {
-        agent: 'codex-cli',
-        repo: 'payments:feat/jwt',
-        title: 'Add JWT auth to the payment service',
-        prompt: 'Add JWT auth to the payment service.\nCover refresh-token rotation and middleware on /v1/charges.',
-        detail: 'src/auth/jwt.go',
-        event: 'afterFileEdit',
-        finish: 'running',
-      },
-      {
-        agent: 'Cursor Agent',
-        repo: 'agent-monitor:main',
-        title: 'Tighten the session monitor layout',
-        prompt: 'Rewrite the kanban as a compact Agent Session Monitor.\nNo emoji. Inspector drawer for hook traces.',
-        detail: 'static/index.html',
-        event: 'afterFileEdit',
-        finish: 'complete',
-      },
-      {
-        agent: 'claude-code',
-        repo: 'infra-tf:fix/sg',
-        title: 'Restrict SSH security group to bastion',
-        prompt: 'Restrict the production SSH security group to the bastion CIDR only.',
-        detail: 'terraform apply -auto-approve',
-        event: 'beforeShellExecution',
-        finish: 'fail',
-      },
-    ];
 
     function t(key) {
       return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
@@ -282,13 +308,16 @@
       document.getElementById('lbl-stat-avg').textContent = t('statAvg');
       document.getElementById('search-input').placeholder = t('searchPlaceholder');
       document.getElementById('btn-lang').textContent = t('langBtn');
-      document.getElementById('btn-mock').textContent = t('btnMock');
       document.getElementById('btn-clear').textContent = t('btnClear');
       document.getElementById('header-running').textContent = t('headerRunning');
       document.getElementById('header-completed').textContent = t('headerCompleted');
       document.getElementById('header-failed').textContent = t('headerFailed');
-      document.getElementById('drawer-prompt-title').textContent = t('drawerPrompt');
-      document.getElementById('drawer-trace-title').textContent = t('drawerTrace');
+      document.getElementById('lbl-drawer-container').textContent = t('drawerContainer');
+      document.getElementById('lbl-drawer-goal').textContent = t('drawerGoal');
+      document.getElementById('lbl-drawer-trace').textContent = t('drawerTrace');
+      document.getElementById('btn-prev-run').textContent = t('btnPrev');
+      document.getElementById('btn-next-run').textContent = t('btnNext');
+      document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
       setDaemon(isOnline);
       lastFilterSignature = '';
       render();
@@ -298,6 +327,19 @@
       currentLang = currentLang === 'zh' ? 'en' : 'zh';
       localStorage.setItem('agent_monitor_lang', currentLang);
       applyLanguageUI();
+    }
+
+    function toggleWidescreen() {
+      isWidescreen = !isWidescreen;
+      const drawer = document.getElementById('drawer');
+      if (isWidescreen) {
+        drawer.classList.remove('max-w-2xl');
+        drawer.classList.add('max-w-[92vw]', 'lg:max-w-5xl');
+      } else {
+        drawer.classList.remove('max-w-[92vw]', 'lg:max-w-5xl');
+        drawer.classList.add('max-w-2xl');
+      }
+      document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
     }
 
     function esc(s) {
@@ -312,22 +354,28 @@
     }
 
     function agentBadge(name) {
-      return `<span class="inline-flex items-center px-1 py-px rounded border border-line bg-[#16171a] font-mono text-[10px] text-zinc-300">[${esc(agentSlug(name))}]</span>`;
+      return `<span class="inline-flex items-center px-1.5 py-0.5 rounded border border-line bg-[#16171a] font-mono text-[10px] text-zinc-300 font-medium">[${esc(agentSlug(name))}]</span>`;
     }
 
-    function formatDurLong(ms) {
-      const s = Math.max(0, Math.floor(ms / 1000));
+    function formatSec(sec) {
+      const s = Math.max(0, Math.floor(sec));
       return `${String(Math.floor(s / 60)).padStart(2, '0')}m ${String(s % 60).padStart(2, '0')}s`;
     }
 
-    function durationMs(tObj) {
-      if (tObj.endTime && tObj.startTime) return Math.max(0, tObj.endTime - tObj.startTime);
-      if (tObj.duration) {
-        const m = String(tObj.duration).match(/(\d+)\s*m.*?(\d+)\s*s/i);
-        if (m) return (Number(m[1]) * 60 + Number(m[2])) * 1000;
-      }
-      if (tObj.status === 'running' && tObj.startTime) return Date.now() - tObj.startTime;
-      return 0;
+    function getTaskRuns(task) {
+      if (task.runs && Array.isArray(task.runs) && task.runs.length > 0) return task.runs;
+      if (task.turns && Array.isArray(task.turns) && task.turns.length > 0) return task.turns;
+      return [{
+        index: 1,
+        title: task.title || 'Initial Task',
+        prompt: task.prompt || task.rootGoal || '',
+        status: task.status || 'completed',
+        startTime: task.startTime,
+        endTime: task.endTime,
+        duration: task.duration || '00m 00s',
+        detail: task.detail || '',
+        timeline: task.timeline || []
+      }];
     }
 
     function repoLabel(tObj) {
@@ -336,26 +384,6 @@
         return `${repo}:${tObj.branch}`;
       }
       return repo;
-    }
-
-    function eventTone(ev) {
-      const e = String(ev || '').toLowerCase();
-      if (e.includes('complete')) return 'text-emerald-500';
-      if (e.includes('stop') || e.includes('fail') || e.includes('error')) return 'text-red-400';
-      if (e.includes('shell') || e.includes('command')) return 'text-amber-500';
-      if (e.includes('file')) return 'text-zinc-300';
-      if (e.includes('sessionstart') || e === 'onstart') return 'text-zinc-400';
-      return 'text-zinc-500';
-    }
-
-    function stripDetail(detail) {
-      return String(detail || '').replace(/^(编辑文件|执行命令|操作文件|调用工具|会话启动，分析任务中\.\.\.|任务执行完成):\s*/, '');
-    }
-
-    function actionLine(tObj) {
-      const ev = tObj.lastHook || tObj.event || 'event';
-      const detail = stripDetail(tObj.detail) || '…';
-      return `$ ${ev}: ${detail}`;
     }
 
     function agentName(tObj) {
@@ -383,7 +411,7 @@
     function matchesFilter(tObj) {
       if (agentFilter !== 'all' && agentName(tObj) !== agentFilter) return false;
       if (!query) return true;
-      const hay = [tObj.title, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
+      const hay = [tObj.title, tObj.rootGoal, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
       return hay.includes(query);
     }
 
@@ -391,49 +419,85 @@
       return `<div class="border border-dashed border-line bg-card/40 px-3 py-6 text-center font-mono text-[11px] text-zinc-600">${esc(text)}</div>`;
     }
 
-    function cardHTML(tObj) {
-      const dur = tObj.status === 'running'
-        ? formatDurLong(Date.now() - (tObj.startTime || Date.now()))
-        : (tObj.duration || formatDurLong(durationMs(tObj)));
-      const failReason = tObj.detail || t('abortedDefault');
-      const accent = tObj.status === 'running'
-        ? 'border-l-amber-500'
-        : tObj.status === 'completed'
-          ? 'border-l-emerald-600'
-          : 'border-l-red-500';
-
-      const actionBar = tObj.status === 'running' ? `
-        <div class="font-mono text-[11px] tabular-nums text-zinc-400 bg-black/40 border border-line px-2 py-1 rounded truncate">
-          ${esc(actionLine(tObj))}
-        </div>` : '';
-
-      const footer = tObj.status === 'running' ? `
-        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
-          <span class="text-amber-500 live-timer" data-start="${tObj.startTime || Date.now()}">${dur}</span>
-          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
-        </div>` : tObj.status === 'completed' ? `
-        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
-          <span class="inline-flex items-center gap-1 text-emerald-500">${ICO_CHECK}<span>${esc(dur)}</span></span>
-          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
-        </div>` : `
-        <div class="font-mono text-[11px] text-red-300 bg-[#1c1214] border border-[#3f1d1d] px-2 py-1 rounded mb-2 line-clamp-2">${esc(failReason)}</div>
-        <div class="flex items-center justify-between font-mono text-[11px] tabular-nums">
-          <span class="text-red-400">${esc(dur)}</span>
-          <span class="text-zinc-600 truncate ml-2">${esc(tObj.id)}</span>
+    // 核心创新：生成高轮次微型刻度条 (Tick Sparkline Matrix)
+    function renderTickSparkline(runs) {
+      if (!runs || runs.length === 0) return '';
+      return `
+        <div class="bg-[#09090b] border border-[#1e1e22] rounded p-1.5 my-2">
+          <div class="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-1">
+            <span>RUN MATRIX (${runs.length})</span>
+            <span class="${runs[runs.length-1].status === 'running' ? 'text-amber-400' : 'text-zinc-500'}">
+              Run #${runs.length} ${runs[runs.length-1].status.toUpperCase()}
+            </span>
+          </div>
+          <div class="flex items-center gap-[2px] h-2.5 overflow-hidden">
+            ${runs.map(r => {
+              const color = r.status === 'running' 
+                ? 'bg-amber-400 animate-pulse' 
+                : r.status === 'failed' 
+                  ? 'bg-rose-500' 
+                  : 'bg-emerald-500/80 hover:bg-emerald-400';
+              return `<div title="Run #${r.index || r.runId}: ${r.status}" class="flex-1 h-full rounded-[1px] ${color} transition-colors"></div>`;
+            }).join('')}
+          </div>
         </div>`;
+    }
+
+    function cardHTML(tObj) {
+      const runs = getTaskRuns(tObj);
+      const latestRun = runs[runs.length - 1] || {};
+      const passedCount = runs.filter(r => r.status === 'completed').length;
+      const isRunning = tObj.status === 'running';
+
+      const curRunSec = isRunning && tObj.activeRunStart 
+        ? Math.max(0, Math.floor((Date.now() - tObj.activeRunStart) / 1000))
+        : (latestRun.endTime && latestRun.startTime ? Math.floor((latestRun.endTime - latestRun.startTime)/1000) : 0);
+
+      const lifetimeSec = (tObj.totalLifetime || 0) + (isRunning ? curRunSec : 0);
+
+      const accent = isRunning 
+        ? 'border-l-amber-500' 
+        : tObj.status === 'completed' 
+          ? 'border-l-emerald-600' 
+          : 'border-l-rose-500';
+
+      const sparklineHTML = renderTickSparkline(runs);
+
+      const latestAction = latestRun.prompt || tObj.detail || tObj.title || 'Processing...';
 
       return `
         <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} p-3 rounded text-[13px]"
           data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
-          <div class="flex items-start justify-between gap-2 mb-2">
+          
+          <div class="flex items-center justify-between font-mono text-[11px] mb-1.5">
             ${agentBadge(tObj.agent)}
             <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate">${esc(repoLabel(tObj))}</span>
           </div>
-          <h3 class="text-[13px] leading-snug text-zinc-100 line-clamp-2 mb-2">${esc(tObj.title || tObj.prompt || 'untitled session')}</h3>
-          <div class="space-y-2">
-            ${actionBar}
-            ${footer}
+
+          <!-- 会话主体根目标 -->
+          <h3 class="text-[13px] font-medium text-zinc-100 line-clamp-1 mb-1 leading-snug break-words">
+            ${esc(tObj.rootGoal || tObj.title || 'untitled workflow')}
+          </h3>
+
+          <!-- 微型刻度条 Sparkline -->
+          ${sparklineHTML}
+
+          <!-- 最新活跃 Run 动作 -->
+          <div class="text-zinc-200 text-xs mb-2 line-clamp-1 font-sans">
+            <span class="font-mono text-[11px] text-indigo-400 font-semibold">Run #${runs.length}:</span> ${esc(latestAction)}
           </div>
+
+          <!-- 底部复合耗时与状态 -->
+          <div class="flex items-center justify-between font-mono text-[10px] text-zinc-500 pt-1.5 border-t border-[#1e1e22]">
+            <span class="flex items-center gap-1.5 ${isRunning ? 'text-amber-400' : 'text-zinc-400'}">
+              <span class="live-run-timer" data-start="${tObj.activeRunStart || Date.now()}" data-running="${isRunning}">
+                ${formatSec(curRunSec)} (Run #${runs.length})
+              </span>
+              <span class="text-zinc-600">· tot ${formatSec(lifetimeSec)} · ${passedCount}/${runs.length} done</span>
+            </span>
+            <span class="truncate ml-2 text-zinc-600">${esc(tObj.id)}</span>
+          </div>
+
         </article>`;
     }
 
@@ -461,12 +525,12 @@
       const all = Array.from(tasksMap.values());
       const runningN = all.filter((tObj) => tObj.status === 'running').length;
       const done = all.filter((tObj) => tObj.status === 'completed');
-      const doneMs = done.map(durationMs).filter((n) => n > 0);
-      const avg = doneMs.length ? doneMs.reduce((a, b) => a + b, 0) / doneMs.length : 0;
+      const lifetimes = all.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
+      const avg = lifetimes.length ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
 
       document.getElementById('stat-running').textContent = runningN;
       document.getElementById('stat-completed').textContent = done.length;
-      document.getElementById('stat-avg').textContent = formatDurLong(avg);
+      document.getElementById('stat-avg').textContent = formatSec(avg);
       document.getElementById('count-running').textContent = buckets.running.length;
       document.getElementById('count-completed').textContent = buckets.completed.length;
       document.getElementById('count-failed').textContent = buckets.failed.length;
@@ -475,70 +539,145 @@
     }
 
     function tickTimers() {
-      document.querySelectorAll('.live-timer').forEach((el) => {
-        el.textContent = formatDurLong(Date.now() - parseInt(el.dataset.start, 10));
+      document.querySelectorAll('.live-run-timer').forEach((el) => {
+        if (el.dataset.running === 'true') {
+          const sec = Math.max(0, Math.floor((Date.now() - parseInt(el.dataset.start, 10)) / 1000));
+          const text = el.textContent;
+          const match = text.match(/\(Run #\d+\)/);
+          const runLabel = match ? ` ${match[0]}` : '';
+          el.textContent = `${formatSec(sec)}${runLabel}`;
+        }
       });
     }
 
     function openDrawer(id) {
       selectedId = id;
+      const task = tasksMap.get(id);
+      if (!task) return;
+
+      const runs = getTaskRuns(task);
+      selectedRunId = runs[runs.length - 1].index || runs.length; // 默认选中最新一轮
+
       document.getElementById('drawer').classList.add('open');
       document.getElementById('drawer-overlay').classList.add('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+      
       refreshDrawer();
     }
 
     function closeDrawer() {
       selectedId = null;
+      selectedRunId = null;
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'true');
     }
 
+    function populateRunDropdown(runs) {
+      const select = document.getElementById('run-dropdown-select');
+      select.innerHTML = '';
+
+      // 倒序展示：最新的 Run 排在最上面
+      const reversedRuns = [...runs].reverse();
+      reversedRuns.forEach(r => {
+        const rIndex = r.index || r.runId || 1;
+        const opt = document.createElement('option');
+        opt.value = rIndex;
+        const shortPrompt = (r.prompt || r.title || 'Task').slice(0, 32).replace(/\n/g, ' ');
+        opt.innerText = `Run #${rIndex} (${(r.status || 'DONE').toUpperCase()}) - ${shortPrompt}...`;
+        if (rIndex === selectedRunId) opt.selected = true;
+        select.appendChild(opt);
+      });
+
+      updateStepButtons(runs.length);
+    }
+
+    function updateStepButtons(totalRuns) {
+      document.getElementById('btn-prev-run').disabled = (selectedRunId <= 1);
+      document.getElementById('btn-next-run').disabled = (selectedRunId >= totalRuns);
+    }
+
+    function stepRun(delta) {
+      const task = tasksMap.get(selectedId);
+      if (!task) return;
+      const runs = getTaskRuns(task);
+      const target = selectedRunId + delta;
+      if (target >= 1 && target <= runs.length) {
+        selectedRunId = target;
+        document.getElementById('run-dropdown-select').value = target;
+        updateStepButtons(runs.length);
+        renderSelectedRunDetails(task, runs);
+      }
+    }
+
+    function onSelectRun(val) {
+      selectedRunId = parseInt(val, 10);
+      const task = tasksMap.get(selectedId);
+      if (!task) return;
+      const runs = getTaskRuns(task);
+      updateStepButtons(runs.length);
+      renderSelectedRunDetails(task, runs);
+    }
+
+    function renderSelectedRunDetails(task, runs) {
+      const run = runs.find(r => (r.index || r.runId) === selectedRunId) || runs[runs.length - 1];
+      if (!run) return;
+
+      const rIndex = run.index || run.runId || 1;
+      const isRunning = run.status === 'running';
+
+      document.getElementById('run-detail-title').innerText = `RUN #${rIndex} OF ${runs.length}`;
+      document.getElementById('run-detail-status').innerText = (run.status || 'COMPLETED').toUpperCase();
+      document.getElementById('run-detail-status').className = `font-mono text-[10px] px-1.5 rounded ${
+        isRunning 
+          ? 'bg-amber-950/60 text-amber-300 border border-amber-800/60' 
+          : run.status === 'failed'
+            ? 'bg-rose-950/60 text-rose-300 border border-rose-800/60'
+            : 'bg-zinc-800 text-zinc-400'
+      }`;
+
+      const runSec = isRunning && run.startTime 
+        ? Math.max(0, Math.floor((Date.now() - run.startTime) / 1000))
+        : (run.duration || '00m 00s');
+      document.getElementById('run-detail-dur').innerText = typeof runSec === 'number' ? formatSec(runSec) : runSec;
+
+      document.getElementById('run-detail-prompt').textContent = run.prompt || run.title || t('noPrompt');
+
+      const events = run.timeline || [];
+      document.getElementById('run-detail-event-count').innerText = `${events.length} breadcrumbs`;
+
+      const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
+      if (events.length === 0) {
+        breadcrumbBox.innerHTML = `<div class="text-zinc-600 font-mono text-[11px] py-2">${esc(t('noEvents'))}</div>`;
+      } else {
+        breadcrumbBox.innerHTML = events.map(e => `
+          <div class="flex items-start justify-between text-zinc-400 bg-[#09090b] px-2.5 py-1.5 rounded border border-[#1e1e22]">
+            <div class="min-w-0 pr-2">
+              <span class="text-zinc-300 font-semibold font-mono">$ ${esc(e.event || 'event')}</span>
+              <span class="text-zinc-400 ml-1.5 break-all">${esc(e.desc || '—')}</span>
+            </div>
+            <span class="text-[10px] text-zinc-600 font-mono shrink-0 tabular-nums">${esc(e.time || '--:--:--')}</span>
+          </div>
+        `).join('');
+      }
+    }
+
     function refreshDrawer() {
-      const tObj = tasksMap.get(selectedId);
-      if (!tObj) { closeDrawer(); return; }
-      document.getElementById('drawer-id').textContent = tObj.id;
-      document.getElementById('drawer-agent').innerHTML = agentBadge(tObj.agent);
-      document.getElementById('drawer-repo').textContent = repoLabel(tObj);
-      document.getElementById('drawer-prompt').textContent = tObj.prompt || tObj.title || t('noPrompt');
+      const task = tasksMap.get(selectedId);
+      if (!task) { closeDrawer(); return; }
 
-      const items = tObj.timeline || [];
-      document.getElementById('drawer-timeline').innerHTML = items.length
-        ? items.map((it, i) => {
-            const last = i === items.length - 1;
-            const tone = eventTone(it.event);
-            return `
-              <li class="relative pl-4 pb-3">
-                ${last ? '' : '<span class="absolute left-[3px] top-3 bottom-0 w-px bg-line"></span>'}
-                <span class="absolute left-0 top-1.5 w-1.5 h-1.5 rounded-full bg-zinc-600"></span>
-                <div class="flex items-baseline gap-2">
-                  <span class="font-mono text-[10px] tabular-nums text-zinc-600">${esc(it.time || '--:--:--')}</span>
-                  <span class="font-mono text-[11px] ${tone}">${esc(it.event || 'event')}</span>
-                </div>
-                <p class="mt-0.5 font-mono text-[11px] text-zinc-500 leading-relaxed">${esc(it.desc || '—')}</p>
-              </li>`;
-          }).join('')
-        : `<li class="font-mono text-[11px] text-zinc-600">${esc(t('noTimeline'))}</li>`;
+      const runs = getTaskRuns(task);
 
-      const statusLabel = tObj.status === 'running' ? t('statusRunning') : tObj.status === 'completed' ? t('statusCompleted') : t('statusFailed');
-      const statusCls = tObj.status === 'running' ? 'text-amber-500' : tObj.status === 'completed' ? 'text-emerald-500' : 'text-red-400';
-      const durDisplay = tObj.status === 'running'
-        ? `<span class="live-timer text-amber-500" data-start="${tObj.startTime || Date.now()}">${formatDurLong(Date.now() - (tObj.startTime || Date.now()))}</span>`
-        : `<span>${esc(tObj.duration || formatDurLong(durationMs(tObj)))}</span>`;
-      document.getElementById('drawer-metrics').innerHTML = `
-        <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerDuration'))}</div>
-          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${durDisplay}</div>
-        </div>
-        <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerHooks'))}</div>
-          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${items.length}</div>
-        </div>
-        <div class="bg-panel py-2.5">
-          <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerStatus'))}</div>
-          <div class="mt-0.5 font-mono text-[12px] ${statusCls}">${statusLabel}</div>
-        </div>`;
+      document.getElementById('drawer-agent').innerHTML = agentBadge(task.agent);
+      document.getElementById('drawer-repo').textContent = repoLabel(task);
+      document.getElementById('drawer-runs-badge').innerText = `${runs.length} Runs`;
+      document.getElementById('drawer-root-title').textContent = task.rootGoal || task.title || 'untitled workflow';
+      document.getElementById('drawer-session-id').innerText = `ID: ${task.id}`;
+      document.getElementById('drawer-total-duration').innerText = `Lifetime: ${formatSec(task.totalLifetime || 0)}`;
+      document.getElementById('drawer-runs-count').innerText = `Total Runs: ${runs.length}`;
+
+      populateRunDropdown(runs);
+      renderSelectedRunDetails(task, runs);
     }
 
     function setDaemon(online) {
@@ -574,80 +713,6 @@
       };
     }
 
-    async function postEvent(body) {
-      const res = await fetch('/api/event', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) throw new Error('event failed');
-    }
-
-    function applyLocal(taskPatch) {
-      const prev = tasksMap.get(taskPatch.id) || {
-        id: taskPatch.id,
-        agent: taskPatch.agent,
-        repo: taskPatch.repo,
-        title: taskPatch.title,
-        prompt: taskPatch.prompt,
-        status: 'running',
-        startTime: Date.now(),
-        timeline: [],
-      };
-      const now = new Date();
-      const hh = String(now.getHours()).padStart(2, '0');
-      const mm = String(now.getMinutes()).padStart(2, '0');
-      const ss = String(now.getSeconds()).padStart(2, '0');
-      prev.agent = taskPatch.agent || prev.agent;
-      prev.repo = taskPatch.repo || prev.repo;
-      if (taskPatch.title) prev.title = taskPatch.title;
-      if (taskPatch.prompt && !prev.prompt) prev.prompt = taskPatch.prompt;
-      prev.event = taskPatch.event;
-      prev.lastHook = taskPatch.event;
-      prev.detail = taskPatch.detail;
-      prev.status = taskPatch.status || prev.status;
-      if (taskPatch.status === 'completed' || taskPatch.status === 'failed') {
-        prev.endTime = Date.now();
-        prev.duration = formatDurLong(prev.endTime - prev.startTime);
-      }
-      prev.timeline = (prev.timeline || []).concat([{
-        time: `${hh}:${mm}:${ss}`,
-        event: taskPatch.event,
-        desc: taskPatch.detail,
-      }]);
-      tasksMap.set(prev.id, prev);
-      render();
-    }
-
-    async function dispatchMock() {
-      const spec = MOCKS[mockSeq % MOCKS.length];
-      mockSeq += 1;
-      const id = `mock-${Date.now().toString(36)}`;
-      const base = {
-        id,
-        agent: spec.agent,
-        repo: spec.repo,
-        title: spec.title,
-        prompt: spec.prompt,
-      };
-      const start = { ...base, event: 'sessionStart', detail: 'session start' };
-      const mid = { ...base, event: spec.event, detail: spec.detail };
-      try {
-        await postEvent(start);
-        await postEvent(mid);
-        if (spec.finish === 'complete') {
-          await postEvent({ ...base, event: 'agentCompletion', detail: 'agent completion' });
-        } else if (spec.finish === 'fail') {
-          await postEvent({ ...base, event: 'stop', detail: 'Aborted by user (SIGINT)' });
-        }
-      } catch (_) {
-        applyLocal({ ...start, status: 'running' });
-        applyLocal({ ...mid, status: 'running' });
-        if (spec.finish === 'complete') applyLocal({ ...base, event: 'agentCompletion', detail: 'agent completion', status: 'completed' });
-        if (spec.finish === 'fail') applyLocal({ ...base, event: 'stop', detail: 'Aborted by user (SIGINT)', status: 'failed' });
-      }
-    }
-
     async function clearCompleted() {
       try {
         await fetch('/api/tasks', { method: 'DELETE' });
@@ -677,10 +742,14 @@
       render();
     });
     document.getElementById('btn-lang').addEventListener('click', toggleLanguage);
-    document.getElementById('btn-mock').addEventListener('click', dispatchMock);
+    document.getElementById('btn-toggle-widescreen').addEventListener('click', toggleWidescreen);
     document.getElementById('btn-clear').addEventListener('click', clearCompleted);
     document.getElementById('drawer-close').addEventListener('click', closeDrawer);
     document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
+    document.getElementById('btn-prev-run').addEventListener('click', () => stepRun(-1));
+    document.getElementById('btn-next-run').addEventListener('click', () => stepRun(1));
+    document.getElementById('run-dropdown-select').addEventListener('change', (e) => onSelectRun(e.target.value));
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') closeDrawer();
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
