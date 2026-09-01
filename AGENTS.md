@@ -1,0 +1,24 @@
+# Agent Kanban Hub
+
+面向 AI Coding Agent 的多会话实时任务看板。Go 进程接收 Hook 上报，经 SSE 推送到嵌入的看板前端。
+
+## 每次改动必须提交
+
+- **任何代码、配置、文案改动完成后，必须立刻 `git commit`**，不得把未提交改动留在工作区。
+- 一次任务若包含多组独立改动，按逻辑拆成多次 commit，不要攒到最后一次性提交。
+- 提交信息用 1–2 句说明「为什么」，不要只罗列文件名。
+- 不要修改 git config；不要 `--amend`、force push、hard reset，除非用户明确要求。
+- 不要提交密钥、`.env`、凭证或本机私有路径。
+
+## 架构约定
+
+- 看板页面在 `static/index.html`，由 `main.go` 通过 `go:embed` 打进二进制。**改 HTML 后必须重启 `go run main.go` 才会生效。**
+- 实时通道：前端用原生 `EventSource('/api/stream')`；Hook 上报 `POST /api/event`；`DELETE /api/tasks` 只清已完成/失败任务。
+- Agent 过滤胶囊必须按当前任务里实际上报的 `agent` 字段动态生成，禁止写死 Cursor / Codex / Claude。
+- `scripts/reporter.py` 是 Cursor Hook 上报脚本；配置在 `configs/cursor-hooks.json`。
+
+## 前端
+
+- 暗色极客风格（Linear / Vercel）：`slate-950` 底、任务卡 `slate-900`。
+- 状态色：运行中 amber/cyan，完成 emerald，失败 rose。
+- 运行中卡片的秒表必须每秒递增；点击卡片打开右侧抽屉时间线。

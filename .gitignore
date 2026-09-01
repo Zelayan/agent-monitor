@@ -1,0 +1,16 @@
+# binaries
+/agent-kanban
+*.exe
+*.test
+/tmp/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# editor / os
+.DS_Store
+*.swp
+.idea/
+.vscode/

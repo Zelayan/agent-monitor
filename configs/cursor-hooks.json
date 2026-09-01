@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "python3 scripts/reporter.py --event sessionStart --agent 'Cursor Agent'" }],
+    "afterFileEdit": [{ "command": "python3 scripts/reporter.py --event afterFileEdit --agent 'Cursor Agent'" }],
+    "beforeShellExecution": [{ "command": "python3 scripts/reporter.py --event beforeShellExecution --agent 'Cursor Agent'" }],
+    "agentCompletion": [{ "command": "python3 scripts/reporter.py --event agentCompletion --agent 'Cursor Agent'" }]
+  }
+}

@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AGENT HUB · Multi-Agent Kanban</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Menlo', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            canvas: '#020617',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      background-color: #020617;
+      background-image:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(56, 189, 248, 0.08), transparent),
+        linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px);
+      background-size: auto, 48px 48px, 48px 48px;
+    }
+    .logo-mark {
+      background: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #22d3ee 100%);
+      box-shadow: 0 0 20px rgba(56, 189, 248, 0.35), inset 0 1px 0 rgba(255,255,255,0.25);
+    }
+    .pulse-dot {
+      box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+      animation: pulse-glow 1.8s ease-out infinite;
+    }
+    @keyframes pulse-glow {
+      0% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55); }
+      70% { box-shadow: 0 0 0 8px rgba(52, 211, 153, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+    }
+    .lane { max-height: calc(100vh - 11.5rem); }
+    .task-card { transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease; }
+    .task-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(100, 116, 139, 0.9);
+      box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.65);
+    }
+    .overlay {
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease;
+    }
+    .overlay.open { opacity: 1; pointer-events: auto; }
+    .drawer {
+      transform: translateX(100%);
+      transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+    }
+    .drawer.open { transform: translateX(0); }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    .filter-pill[aria-pressed="true"] {
+      background: rgba(14, 165, 233, 0.12);
+      border-color: rgba(56, 189, 248, 0.35);
+      color: #e0f2fe;
+    }
+  </style>
+</head>
+<body class="min-h-screen text-slate-100 font-sans antialiased tracking-tight">
+  <header class="sticky top-0 z-30 border-b border-slate-800/80 bg-slate-950/80 backdrop-blur-xl">
+    <div class="max-w-[1440px] mx-auto px-5 py-3.5 space-y-3">
+      <div class="flex flex-wrap items-center gap-4 justify-between">
+        <div class="flex items-center gap-3 min-w-0">
+          <div class="logo-mark w-8 h-8 rounded-lg flex items-center justify-center text-slate-950 font-bold text-sm">⚡</div>
+          <div class="leading-tight">
+            <div class="text-[13px] font-semibold tracking-[0.18em] text-slate-100">AGENT HUB</div>
+            <div class="text-[10px] font-mono text-slate-500">Multi-Agent Kanban</div>
+          </div>
+          <div id="daemon-status" class="ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+            <span class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+            Daemon Online (127.0.0.1:8000)
+          </div>
+        </div>
+        <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] font-mono">
+          <span class="text-amber-400">● 正在运行 <b id="stat-running" class="text-amber-300">0</b></span>
+          <span class="text-emerald-400">✔ 今日完成 <b id="stat-completed" class="text-emerald-300">0</b></span>
+          <span class="text-cyan-400">⏱️ 平均耗时 <b id="stat-avg" class="text-cyan-300">00m 00s</b></span>
+        </div>
+      </div>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="relative flex-1 min-w-[220px] max-w-md">
+          <span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs">⌕</span>
+          <input id="search-input" type="search" placeholder="搜索 Prompt / 仓库 / 分支 / Session ID"
+            class="w-full h-8 pl-8 pr-3 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-200 placeholder:text-slate-500 outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30">
+        </label>
+        <div id="agent-filters" class="flex items-center gap-1.5 flex-wrap" role="group" aria-label="Agent 来源过滤"></div>
+        <button id="btn-clear" type="button" class="h-8 px-3 rounded-lg bg-slate-900 border border-slate-800 text-[11px] text-slate-300 hover:bg-slate-800 hover:text-slate-100">
+          清空已完成
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-[1440px] mx-auto px-5 py-5">
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <section>
+        <h2 class="text-[11px] font-semibold font-mono text-amber-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
+          <span class="inline-flex items-center gap-2">
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-400"></span>
+            </span>
+            正在运行
+          </span>
+          <span id="count-running" class="text-amber-300/80">0</span>
+        </h2>
+        <div id="col-running" class="lane overflow-y-auto space-y-3 pr-1"></div>
+      </section>
+      <section>
+        <h2 class="text-[11px] font-semibold font-mono text-emerald-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
+          <span>✔ 已完成</span>
+          <span id="count-completed" class="text-emerald-300/80">0</span>
+        </h2>
+        <div id="col-completed" class="lane overflow-y-auto space-y-3 pr-1"></div>
+      </section>
+      <section>
+        <h2 class="text-[11px] font-semibold font-mono text-rose-400 uppercase tracking-[0.16em] pb-2 border-b border-slate-800 mb-3 flex items-center justify-between">
+          <span>⚠ 异常 / 中断</span>
+          <span id="count-failed" class="text-rose-300/80">0</span>
+        </h2>
+        <div id="col-failed" class="lane overflow-y-auto space-y-3 pr-1"></div>
+      </section>
+    </div>
+  </main>
+
+  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-sm"></div>
+  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-[440px] bg-slate-900 border-l border-slate-800 shadow-2xl flex flex-col" aria-hidden="true">
+    <div class="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-800">
+      <div class="min-w-0">
+        <div id="drawer-id" class="font-mono text-[11px] text-slate-400"></div>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <span id="drawer-agent"></span>
+          <span id="drawer-repo" class="font-mono text-[11px] text-slate-400"></span>
+        </div>
+      </div>
+      <button id="drawer-close" type="button" class="shrink-0 w-8 h-8 rounded-lg border border-slate-800 text-slate-400 hover:text-slate-100 hover:bg-slate-800">✕</button>
+    </div>
+    <div class="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      <section>
+        <h3 class="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-2">任务描述 / Prompt</h3>
+        <p id="drawer-prompt" class="text-sm leading-relaxed text-slate-200 whitespace-pre-wrap"></p>
+      </section>
+      <section>
+        <h3 class="text-[10px] font-mono uppercase tracking-widest text-slate-500 mb-3">⚡ Hook 生命周期</h3>
+        <ol id="drawer-timeline" class="relative space-y-0"></ol>
+      </section>
+    </div>
+    <div id="drawer-metrics" class="grid grid-cols-3 gap-px bg-slate-800 border-t border-slate-800 text-center"></div>
+  </aside>
+
+  <script>
+    const tasksMap = new Map();
+    let query = '';
+    let agentFilter = 'all';
+    let selectedId = null;
+    let eventSource = null;
+    let reconnectTimer = null;
+
+    const AGENT_STYLES = {
+      cursor: { label: 'Cursor Agent', cls: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
+      codex:  { label: 'Codex TUI',    cls: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+      claude: { label: 'Claude Code',  cls: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+      other:  { label: 'AI Agent',     cls: 'text-slate-300 bg-slate-500/10 border-slate-500/20' },
+    };
+
+    function esc(s) {
+      return String(s ?? '').replace(/[&<>"']/g, (c) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+      }[c]));
+    }
+
+    function agentKey(name) {
+      const a = String(name || '').toLowerCase();
+      if (a.includes('codex')) return 'codex';
+      if (a.includes('claude')) return 'claude';
+      if (a.includes('cursor')) return 'cursor';
+      return 'other';
+    }
+
+    function agentMeta(name) {
+      const key = agentKey(name);
+      const style = AGENT_STYLES[key];
+      return { key, label: name || style.label, cls: style.cls };
+    }
+
+    function agentBadge(name) {
+      const m = agentMeta(name);
+      return `<span class="inline-flex items-center px-1.5 py-0.5 rounded border text-[10px] font-mono ${m.cls}">[${esc(m.label)}]</span>`;
+    }
+
+    function formatDur(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+    }
+
+    function formatDurLong(ms) {
+      const s = Math.max(0, Math.floor(ms / 1000));
+      return `${String(Math.floor(s / 60)).padStart(2, '0')}m ${String(s % 60).padStart(2, '0')}s`;
+    }
+
+    function durationMs(t) {
+      if (t.endTime && t.startTime) return Math.max(0, t.endTime - t.startTime);
+      if (t.duration) {
+        const m = String(t.duration).match(/(\d+)\s*m.*?(\d+)\s*s/i);
+        if (m) return (Number(m[1]) * 60 + Number(m[2])) * 1000;
+      }
+      if (t.status === 'running' && t.startTime) return Date.now() - t.startTime;
+      return 0;
+    }
+
+    function isToday(ms) {
+      if (!ms) return false;
+      const d = new Date(ms);
+      const n = new Date();
+      return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
+    }
+
+    function repoLabel(t) {
+      const repo = t.repo || 'workspace';
+      if (t.branch && !String(repo).includes(t.branch) && !String(repo).includes(':')) {
+        return `${repo}:${t.branch}`;
+      }
+      return repo;
+    }
+
+    function eventMeta(ev) {
+      const e = String(ev || '').toLowerCase();
+      if (e.includes('sessionstart') || e === 'onstart') return { icon: '▶', color: 'text-cyan-400', dot: 'bg-cyan-400' };
+      if (e.includes('fileedit') || e.includes('afterfile')) return { icon: '✎', color: 'text-sky-400', dot: 'bg-sky-400' };
+      if (e.includes('shell') || e.includes('command')) return { icon: '⚙', color: 'text-amber-400', dot: 'bg-amber-400' };
+      if (e.includes('complete')) return { icon: '✔', color: 'text-emerald-400', dot: 'bg-emerald-400' };
+      if (e.includes('stop') || e.includes('fail') || e.includes('error')) return { icon: '✕', color: 'text-rose-400', dot: 'bg-rose-400' };
+      return { icon: '●', color: 'text-slate-400', dot: 'bg-slate-500' };
+    }
+
+    function diffSummary(t) {
+      const items = t.timeline || [];
+      let plus = 0, minus = 0, files = 0, cmds = 0;
+      items.forEach((it) => {
+        const ev = `${it.event || ''} ${it.desc || ''}`;
+        const m = ev.match(/\+(\d+)\s*[\/,]\s*-(\d+)/);
+        if (m) { plus += Number(m[1]); minus += Number(m[2]); }
+        if (/fileedit|afterfile|编辑文件|操作文件|file_path/i.test(ev)) files += 1;
+        if (/shell|command|执行命令/i.test(ev)) cmds += 1;
+      });
+      if (plus || minus) return `<span class="text-emerald-400">+${plus}</span> <span class="text-slate-600">/</span> <span class="text-rose-400">-${minus}</span> <span class="text-slate-500">行</span>`;
+      if (files || cmds) {
+        return `<span class="text-emerald-400">+${files} files</span> <span class="text-slate-600">/</span> <span class="text-rose-400">-${cmds} cmds</span>`;
+      }
+      return '';
+    }
+
+    function agentName(t) {
+      return String(t && t.agent || '').trim() || 'AI Agent';
+    }
+
+    // 过滤胶囊按当前任务里实际出现过的 Agent 动态生成，不再写死 Cursor/Codex/Claude
+    let lastFilterSignature = '';
+    function renderAgentFilters() {
+      const names = [...new Set([...tasksMap.values()].map(agentName))]
+        .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+      if (agentFilter !== 'all' && !names.includes(agentFilter)) {
+        agentFilter = 'all';
+      }
+      const signature = names.join('\0') + '|' + agentFilter;
+      if (signature === lastFilterSignature) return;
+      lastFilterSignature = signature;
+
+      const pill = 'filter-pill h-8 px-2.5 rounded-full border border-slate-800 text-[11px] font-medium';
+      const colorCls = {
+        cursor: 'text-sky-400/80 hover:text-sky-300',
+        codex: 'text-indigo-400/80 hover:text-indigo-300',
+        claude: 'text-amber-400/80 hover:text-amber-300',
+        other: 'text-slate-400 hover:text-slate-200',
+      };
+      const allBtn = `<button type="button" data-filter="all" aria-pressed="${agentFilter === 'all'}" class="${pill} text-slate-400 hover:text-slate-200">All</button>`;
+      const agentBtns = names.map((name) => {
+        const m = agentMeta(name);
+        return `<button type="button" data-filter="${esc(name)}" aria-pressed="${agentFilter === name}" class="${pill} ${colorCls[m.key]}">${esc(name)}</button>`;
+      }).join('');
+      document.getElementById('agent-filters').innerHTML = allBtn + agentBtns;
+    }
+
+    function matchesFilter(t) {
+      if (agentFilter !== 'all' && agentName(t) !== agentFilter) return false;
+      if (!query) return true;
+      const hay = [t.title, t.repo, t.branch, t.id, t.detail, t.agent].join(' ').toLowerCase();
+      return hay.includes(query);
+    }
+
+    function emptyState(text) {
+      return `<div class="rounded-xl border border-dashed border-slate-800 bg-slate-900/40 px-4 py-8 text-center text-xs text-slate-500">${esc(text)}</div>`;
+    }
+
+    function cardHTML(t) {
+      const accent = t.status === 'running' ? 'border-l-amber-400/80' : t.status === 'completed' ? 'border-l-emerald-400/70' : 'border-l-rose-400/70';
+      const action = t.lastHook || t.event || '';
+      const meta = eventMeta(action);
+      const dur = t.status === 'running'
+        ? formatDur(Date.now() - (t.startTime || Date.now()))
+        : (t.duration || formatDurLong(durationMs(t)));
+      const failReason = t.detail || '任务异常中断 / 用户 Ctrl+C (SIGINT)';
+      const rawDetail = t.detail || 'Processing...';
+      const actionLabel = rawDetail.toLowerCase().startsWith(String(action).toLowerCase())
+        ? rawDetail
+        : (action ? `${action}: ${rawDetail}` : rawDetail);
+      const diff = diffSummary(t);
+
+      const actionBar = t.status === 'running' ? `
+        <div class="text-[11px] font-mono text-slate-400 bg-slate-950/80 border border-slate-800/80 px-2 py-1.5 rounded-md mb-2 truncate">
+          <span class="${meta.color}">${meta.icon}</span>
+          <span>${esc(actionLabel)}</span>
+        </div>` : '';
+
+      const footer = t.status === 'running' ? `
+        <div class="flex items-center justify-between text-[11px] font-mono">
+          <span class="text-amber-400 inline-flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+            <span class="live-timer" data-start="${t.startTime || Date.now()}">${dur}</span>
+          </span>
+          <span class="text-slate-500">${esc(t.id)}</span>
+        </div>` : t.status === 'completed' ? `
+        ${diff ? `<div class="mb-2 font-mono text-[11px]">${diff}</div>` : ''}
+        <div class="flex items-center justify-between text-[11px] font-mono">
+          <span class="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">✔ ${esc(dur)}</span>
+          <span class="text-slate-500">${esc(t.id)}</span>
+        </div>` : `
+        <div class="text-[11px] text-rose-400 font-mono mb-1.5 line-clamp-2">${esc(failReason)}</div>
+        <div class="flex items-center justify-between text-[11px] font-mono">
+          <span class="text-rose-400">✕ ${esc(dur)}</span>
+          <span class="text-slate-500">${esc(t.id)}</span>
+        </div>`;
+
+      return `
+        <article class="task-card cursor-pointer bg-slate-900 border border-slate-800/80 border-l-2 ${accent} p-3.5 rounded-xl text-sm"
+          data-task-id="${esc(t.id)}" role="button" tabindex="0">
+          <div class="flex items-start justify-between gap-2 mb-2">
+            ${agentBadge(t.agent)}
+            <span class="font-mono text-[10px] text-slate-500 truncate">📁 ${esc(repoLabel(t))}</span>
+          </div>
+          <h3 class="font-medium text-slate-100 text-[13px] leading-snug line-clamp-2 mb-2 hover:text-sky-200">${esc(t.title || '未命名任务')}</h3>
+          ${actionBar}
+          ${footer}
+        </article>`;
+    }
+
+    function render() {
+      renderAgentFilters();
+      const buckets = { running: [], completed: [], failed: [] };
+      Array.from(tasksMap.values())
+        .filter(matchesFilter)
+        .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
+        .forEach((t) => {
+          const status = buckets[t.status] ? t.status : 'failed';
+          buckets[status].push(t);
+        });
+
+      const cr = document.getElementById('col-running');
+      const cc = document.getElementById('col-completed');
+      const cf = document.getElementById('col-failed');
+      cr.innerHTML = buckets.running.length ? buckets.running.map(cardHTML).join('') : emptyState('暂无进行中的会话');
+      cc.innerHTML = buckets.completed.length ? buckets.completed.map(cardHTML).join('') : emptyState('今日尚无完成任务');
+      cf.innerHTML = buckets.failed.length ? buckets.failed.map(cardHTML).join('') : emptyState('暂无异常或中断');
+
+      const all = Array.from(tasksMap.values());
+      const runningN = all.filter((t) => t.status === 'running').length;
+      const todayDone = all.filter((t) => t.status === 'completed' && isToday(t.endTime || t.startTime));
+      const doneMs = todayDone.map(durationMs).filter((n) => n > 0);
+      const avg = doneMs.length ? doneMs.reduce((a, b) => a + b, 0) / doneMs.length : 0;
+
+      document.getElementById('stat-running').textContent = runningN;
+      document.getElementById('stat-completed').textContent = todayDone.length;
+      document.getElementById('stat-avg').textContent = formatDurLong(avg);
+      document.getElementById('count-running').textContent = buckets.running.length;
+      document.getElementById('count-completed').textContent = buckets.completed.length;
+      document.getElementById('count-failed').textContent = buckets.failed.length;
+
+      if (selectedId) refreshDrawer();
+    }
+
+    function tickTimers() {
+      document.querySelectorAll('.live-timer').forEach((el) => {
+        el.textContent = formatDur(Date.now() - parseInt(el.dataset.start, 10));
+      });
+    }
+
+    function openDrawer(id) {
+      selectedId = id;
+      document.getElementById('drawer').classList.add('open');
+      document.getElementById('drawer-overlay').classList.add('open');
+      document.getElementById('drawer').setAttribute('aria-hidden', 'false');
+      refreshDrawer();
+    }
+
+    function closeDrawer() {
+      selectedId = null;
+      document.getElementById('drawer').classList.remove('open');
+      document.getElementById('drawer-overlay').classList.remove('open');
+      document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+    }
+
+    function refreshDrawer() {
+      const t = tasksMap.get(selectedId);
+      if (!t) { closeDrawer(); return; }
+      document.getElementById('drawer-id').textContent = t.id;
+      document.getElementById('drawer-agent').innerHTML = agentBadge(t.agent);
+      document.getElementById('drawer-repo').textContent = `📁 ${repoLabel(t)}`;
+      document.getElementById('drawer-prompt').textContent = t.title || '（无 Prompt）';
+
+      const items = t.timeline || [];
+      document.getElementById('drawer-timeline').innerHTML = items.length
+        ? items.map((it, i) => {
+            const meta = eventMeta(it.event);
+            const last = i === items.length - 1;
+            return `
+              <li class="relative pl-6 pb-4">
+                ${last ? '' : '<span class="absolute left-[5px] top-3 bottom-0 w-px bg-slate-800"></span>'}
+                <span class="absolute left-0 top-1.5 w-[11px] h-[11px] rounded-full ${meta.dot} ring-4 ring-slate-900"></span>
+                <div class="flex items-baseline gap-2">
+                  <span class="font-mono text-[10px] text-slate-500">[${esc(it.time || '--:--:--')}]</span>
+                  <span class="font-mono text-[11px] ${meta.color}">${esc(it.event || 'event')}</span>
+                </div>
+                <p class="mt-1 text-xs text-slate-400 leading-relaxed">${esc(it.desc || '—')}</p>
+              </li>`;
+          }).join('')
+        : '<li class="text-xs text-slate-500">暂无 Hook 事件</li>';
+
+      const statusLabel = t.status === 'running' ? '运行中' : t.status === 'completed' ? '已完成' : '异常 / 中断';
+      const statusCls = t.status === 'running' ? 'text-amber-400' : t.status === 'completed' ? 'text-emerald-400' : 'text-rose-400';
+      document.getElementById('drawer-metrics').innerHTML = `
+        <div class="bg-slate-900 py-3">
+          <div class="text-[10px] font-mono text-slate-500 uppercase">总耗时</div>
+          <div class="mt-1 font-mono text-xs text-slate-200">${esc(t.duration || formatDurLong(durationMs(t)))}</div>
+        </div>
+        <div class="bg-slate-900 py-3">
+          <div class="text-[10px] font-mono text-slate-500 uppercase">Hook 次数</div>
+          <div class="mt-1 font-mono text-xs text-slate-200">${items.length}</div>
+        </div>
+        <div class="bg-slate-900 py-3">
+          <div class="text-[10px] font-mono text-slate-500 uppercase">最终状态</div>
+          <div class="mt-1 font-mono text-xs ${statusCls}">${statusLabel}</div>
+        </div>`;
+    }
+
+    function setDaemon(online) {
+      const el = document.getElementById('daemon-status');
+      if (online) {
+        el.className = 'ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
+        el.innerHTML = '<span class="pulse-dot w-1.5 h-1.5 rounded-full bg-emerald-400"></span>Daemon Online (127.0.0.1:8000)';
+      } else {
+        el.className = 'ml-2 inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20';
+        el.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>Daemon Offline';
+      }
+    }
+
+    function connect() {
+      if (eventSource) {
+        eventSource.onerror = null;
+        eventSource.close();
+      }
+      eventSource = new EventSource('/api/stream');
+      eventSource.onopen = () => setDaemon(true);
+      eventSource.onmessage = (e) => {
+        try {
+          const task = JSON.parse(e.data);
+          if (task && task.id) {
+            tasksMap.set(task.id, task);
+            render();
+          }
+        } catch (_) { /* ignore malformed frames */ }
+      };
+      eventSource.onerror = () => {
+        setDaemon(false);
+        eventSource.close();
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    }
+
+    async function clearCompleted() {
+      await fetch('/api/tasks', { method: 'DELETE' });
+      for (const [id, t] of tasksMap) {
+        if (t.status !== 'running') tasksMap.delete(id);
+      }
+      if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+      render();
+    }
+
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      query = e.target.value.trim().toLowerCase();
+      render();
+    });
+    document.getElementById('agent-filters').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-filter]');
+      if (!btn) return;
+      agentFilter = btn.dataset.filter;
+      lastFilterSignature = '';
+      render();
+    });
+    document.getElementById('btn-clear').addEventListener('click', clearCompleted);
+    document.getElementById('drawer-close').addEventListener('click', closeDrawer);
+    document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeDrawer();
+      if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
+        e.preventDefault();
+        document.getElementById('search-input').focus();
+      }
+    });
+    document.addEventListener('click', (e) => {
+      const card = e.target.closest('[data-task-id]');
+      if (card) openDrawer(card.dataset.taskId);
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest('[data-task-id]');
+      if (!card) return;
+      e.preventDefault();
+      openDrawer(card.dataset.taskId);
+    });
+
+    setInterval(tickTimers, 1000);
+    render();
+    connect();
+  </script>
+</body>
+</html>
