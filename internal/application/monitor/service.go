@@ -63,19 +63,21 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error
 	t.ApplyEvent(p, nowMs, nowStr)
 
 	taskJSON, err := json.Marshal(t)
+	taskID := t.ID
+	taskCopy := t.Clone()
 	s.mu.Unlock()
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	// 异步持久化
+	// 异步持久化：写入不可变快照字节切片，彻底消除数据竞争
 	if s.repo != nil {
-		go func(target *task.Task) {
-			if err := s.repo.Save(target); err != nil {
-				log.Printf("[Application] Error saving task %s: %v", target.ID, err)
+		go func(id string, data []byte) {
+			if err := s.repo.SaveRaw(id, data); err != nil {
+				log.Printf("[Application] Error saving task %s: %v", id, err)
 			}
-		}(t)
+		}(taskID, taskJSON)
 	}
 
 	// 广播事件
@@ -83,17 +85,19 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error
 		s.hub.Broadcast(string(taskJSON))
 	}
 
-	return t, nil
+	return taskCopy, nil
 }
 
-// GetAllTasks 返回当前所有任务列表。
+// GetAllTasks 返回当前所有任务的独立只读深拷贝副本。
 func (s *MonitorService) GetAllTasks() []*task.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	list := make([]*task.Task, 0, len(s.tasks))
 	for _, t := range s.tasks {
-		list = append(list, t)
+		if t != nil {
+			list = append(list, t.Clone())
+		}
 	}
 	return list
 }

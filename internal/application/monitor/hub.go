@@ -59,7 +59,10 @@ func (h *Hub) Unsubscribe(ch chan string) {
 	h.rmClient <- ch
 }
 
-// Broadcast 向所有连接的客户端广播消息。
+// Broadcast 向所有连接的客户端广播消息（非阻塞，防止队列积压阻塞调用者）。
 func (h *Hub) Broadcast(msg string) {
-	h.broadcast <- msg
+	select {
+	case h.broadcast <- msg:
+	default:
+	}
 }

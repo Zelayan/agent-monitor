@@ -30,6 +30,10 @@ func (m *memoryRepo) Save(t *task.Task) error {
 	return nil
 }
 
+func (m *memoryRepo) SaveRaw(id string, data []byte) error {
+	return nil
+}
+
 func (m *memoryRepo) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

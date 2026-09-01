@@ -683,6 +683,16 @@
         </article>`;
     }
 
+    let renderPending = false;
+    function scheduleRender() {
+      if (renderPending) return;
+      renderPending = true;
+      requestAnimationFrame(() => {
+        renderPending = false;
+        render();
+      });
+    }
+
     function render() {
       renderAgentFilters();
       const buckets = { running: [], completed: [], failed: [] };
@@ -997,13 +1007,13 @@
             });
             if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
             updateBatchUI();
-            render();
+            scheduleRender();
             return;
           }
           // 普通任务增量更新或全量快照
           if (data && data.id) {
             tasksMap.set(data.id, data);
-            render();
+            scheduleRender();
           }
         } catch (_) { /* ignore malformed frames */ }
       };

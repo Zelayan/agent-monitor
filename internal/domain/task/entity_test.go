@@ -73,25 +73,47 @@ func TestTask_LifecycleAndDomainRules(t *testing.T) {
 			t.Errorf("expected timeline deduplication, len was %d, now %d", initialTimelineLen, len(task.Runs[0].Timeline))
 		}
 
-	// 4. Start turn 2
-	p4 := EventPayload{
-		ID:        "sess-domain-1",
-		Agent:     "ZCode",
-		Event:     "UserPromptSubmit",
-		Prompt:    "继续执行单元测试",
-		Timestamp: 1020,
+		// 4. Start turn 2
+		p4 := EventPayload{
+			ID:        "sess-domain-1",
+			Agent:     "ZCode",
+			Event:     "UserPromptSubmit",
+			Prompt:    "继续执行单元测试",
+			Timestamp: 1020,
+		}
+		task.ApplyEvent(p4, 1020000, "10:00:20")
+		if len(task.Runs) != 2 || task.TotalRuns != 2 {
+			t.Fatalf("expected 2 runs, got %d", len(task.Runs))
+		}
+		if task.Status != "running" || task.Runs[1].Status != "running" {
+			t.Fatalf("expected turn 2 running")
+		}
+		if task.Runs[1].Title != "继续执行单元测试" {
+			t.Errorf("expected run 2 title '继续执行单元测试', got %q", task.Runs[1].Title)
+		}
+
+		// 5. Test transient tool failure (should NOT terminate task)
+		pFail := EventPayload{
+			ID:        "sess-domain-1",
+			Event:     "PostToolUseFailure",
+			Detail:    "grep exit code 1",
+			Timestamp: 1025,
+		}
+		task.ApplyEvent(pFail, 1025000, "10:00:25")
+		if task.Status != "running" || task.Runs[1].Status != "running" {
+			t.Fatalf("transient tool failure should keep task in running state, got task.Status=%s", task.Status)
+		}
+
+		// 6. Test Task Clone deep copy
+		clone := task.Clone()
+		if clone.ID != task.ID || len(clone.Runs) != len(task.Runs) {
+			t.Fatalf("clone failed to copy properties")
+		}
+		clone.Runs[0].Title = "Modified in clone"
+		if task.Runs[0].Title == "Modified in clone" {
+			t.Fatalf("clone was not a deep copy")
+		}
 	}
-	task.ApplyEvent(p4, 1020000, "10:00:20")
-	if len(task.Runs) != 2 || task.TotalRuns != 2 {
-		t.Fatalf("expected 2 runs, got %d", len(task.Runs))
-	}
-	if task.Status != "running" || task.Runs[1].Status != "running" {
-		t.Fatalf("expected turn 2 running")
-	}
-	if task.Runs[1].Title != "继续执行单元测试" {
-		t.Errorf("expected run 2 title '继续执行单元测试', got %q", task.Runs[1].Title)
-	}
-}
 
 func TestService_Helpers(t *testing.T) {
 	if !IsPlaceholderTitle("未命名") || !IsPlaceholderTitle("ZCode 任务") || !IsPlaceholderTitle("CLI Task 123") {

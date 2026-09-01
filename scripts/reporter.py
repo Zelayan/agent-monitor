@@ -221,11 +221,6 @@ def extract_ai_response(sess_id):
                         (f"%{sess_id}%",)
                     )
                     msg_row = cur.fetchone()
-                if not msg_row:
-                    cur.execute(
-                        "SELECT id FROM message WHERE json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1;"
-                    )
-                    msg_row = cur.fetchone()
                 if msg_row:
                     msg_id = msg_row[0]
                     cur.execute(

@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
+	"time"
 
 	"agent-monitor/internal/application/monitor"
 	"agent-monitor/internal/domain/task"
@@ -33,12 +35,31 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.HandleIndex)
 }
 
+func enableCORS(w http.ResponseWriter, r *http.Request) bool {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusNoContent)
+		return true
+	}
+	return false
+}
+
 // HandleEvent 处理 Hook POST 上报。
 func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
+	if enableCORS(w, r) {
+		return
+	}
+
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
+	// 限制请求体上限为 2MB，防止恶意/异常数据打崩内存
+	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 
 	var p task.EventPayload
 	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
@@ -58,6 +79,10 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 // HandleStream 提供 SSE 长连接流。
 func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
+	if enableCORS(w, r) {
+		return
+	}
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
@@ -67,12 +92,11 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	clientChan := h.hub.Subscribe()
 	defer h.hub.Unsubscribe(clientChan)
 
-	// 新连接先发送所有当前任务快照
+	// 1. 新连接先发送所有当前任务快照
 	tasks := h.svc.GetAllTasks()
 	for _, t := range tasks {
 		data, _ := json.Marshal(t)
@@ -80,11 +104,18 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher.Flush()
 
+	// 2. 15s 心跳 Ticker，防止云代理/反向代理（Nginx/Caddy/ALB）在无事件时空闲超时中断连接
+	ticker := time.NewTicker(15 * time.Second)
+	defer ticker.Stop()
+
 	notify := r.Context().Done()
 	for {
 		select {
 		case <-notify:
 			return
+		case <-ticker.C:
+			fmt.Fprintf(w, ": ping\n\n")
+			flusher.Flush()
 		case msg, ok := <-clientChan:
 			if !ok {
 				return
@@ -97,8 +128,11 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 // HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
+	if enableCORS(w, r) {
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 
 	if r.Method == http.MethodDelete {
 		var req monitor.DeleteTasksRequest
@@ -108,6 +142,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		}
 		// 2. 支持通过 JSON Body 传入指定要删除的 ids 列表
 		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			_ = json.NewDecoder(r.Body).Decode(&req)
 		}
 		// 3. 支持通过 URL Query ?ids=id1,id2
@@ -129,47 +164,14 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func splitAndTrim(s, sep string) []string {
-	parts := make([]string, 0)
-	for _, p := range json.RawMessage(s) { // fallback
-		_ = p
-	}
-	for _, raw := range []string{s} {
-		for _, part := range json.RawMessage(raw) {
-			_ = part
-		}
-	}
-	// standard split
-	for _, token := range stringsSplit(s, sep) {
-		token = trim(token)
+	var parts []string
+	for _, token := range strings.Split(s, sep) {
+		token = strings.TrimSpace(token)
 		if token != "" {
 			parts = append(parts, token)
 		}
 	}
 	return parts
-}
-
-func stringsSplit(s, sep string) []string {
-	var res []string
-	start := 0
-	for i := 0; i+len(sep) <= len(s); i++ {
-		if s[i:i+len(sep)] == sep {
-			res = append(res, s[start:i])
-			start = i + len(sep)
-			i += len(sep) - 1
-		}
-	}
-	res = append(res, s[start:])
-	return res
-}
-
-func trim(s string) string {
-	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t' || s[0] == '\n' || s[0] == '\r') {
-		s = s[1:]
-	}
-	for len(s) > 0 && (s[len(s)-1] == ' ' || s[len(s)-1] == '\t' || s[len(s)-1] == '\n' || s[len(s)-1] == '\r') {
-		s = s[:len(s)-1]
-	}
-	return s
 }
 
 // HandleIndex 渲染嵌入的前端 SPA 页面。

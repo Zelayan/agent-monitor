@@ -598,7 +598,18 @@ func ExtractAIResponseFromTranscripts(payload Payload, sessionID string) string 
 	return ""
 }
 
-// GetGitInfo 获取 Git 仓库名与分支名（具备快速超时与兜底）
+// 包级全局 HTTP Client，复用连接池，杜绝频繁 TCP 握手
+var defaultHTTPClient = &http.Client{
+	Timeout: 800 * time.Millisecond,
+	Transport: &http.Transport{
+		MaxIdleConns:        20,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableKeepAlives:   false,
+	},
+}
+
+// GetGitInfo 获取 Git 仓库名与分支名（轻量级文件解析优先，超时与兜底保护）
 func GetGitInfo(payload Payload) (string, string) {
 	cwd := ""
 	if len(payload.WorkspaceRoots) > 0 && payload.WorkspaceRoots[0] != "" {
@@ -615,10 +626,27 @@ func GetGitInfo(payload Payload) (string, string) {
 		cwd, _ = os.Getwd()
 	}
 
-	repo := "workspace"
+	repo := filepath.Base(cwd)
+	if repo == "" || repo == "." || repo == "/" {
+		repo = "workspace"
+	}
 	branch := "main"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	// 1. 尝试直接从 .git/HEAD 极速读取当前分支，避免任何外部进程派生开销 (<0.1ms)
+	headPath := filepath.Join(cwd, ".git", "HEAD")
+	if headData, err := os.ReadFile(headPath); err == nil {
+		headStr := strings.TrimSpace(string(headData))
+		if strings.HasPrefix(headStr, "ref: refs/heads/") {
+			branch = strings.TrimPrefix(headStr, "ref: refs/heads/")
+			return repo, branch
+		} else if len(headStr) >= 7 {
+			branch = headStr[:7] // Detached HEAD SHA
+			return repo, branch
+		}
+	}
+
+	// 2. 降级通过快速子进程探测
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 
 	cmdRepo := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
@@ -649,17 +677,13 @@ func SendEvent(serverURL string, report EventReport) {
 		return
 	}
 
-	client := &http.Client{
-		Timeout: 800 * time.Millisecond,
-	}
-
 	req, err := http.NewRequest("POST", serverURL, bytes.NewReader(data))
 	if err != nil {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := client.Do(req)
+	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
 		return
 	}

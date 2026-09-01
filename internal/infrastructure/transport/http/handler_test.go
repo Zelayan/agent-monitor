@@ -35,6 +35,10 @@ func (m *mockRepo) Save(t *task.Task) error {
 	return nil
 }
 
+func (m *mockRepo) SaveRaw(id string, data []byte) error {
+	return nil
+}
+
 func (m *mockRepo) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

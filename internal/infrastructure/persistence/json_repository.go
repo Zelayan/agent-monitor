@@ -89,19 +89,28 @@ func (r *JSONRepository) Save(t *task.Task) error {
 		return fmt.Errorf("invalid task to save")
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	data, err := json.MarshalIndent(t, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal task %s: %w", t.ID, err)
 	}
 
-	targetPath := r.taskPath(t.ID)
-	tmpPath := targetPath + fmt.Sprintf(".tmp-%d", os.Getpid())
+	return r.SaveRaw(t.ID, data)
+}
+
+// SaveRaw 将预序列化的不可变 JSON 字节切片原子写入文件。
+func (r *JSONRepository) SaveRaw(id string, data []byte) error {
+	if id == "" || len(data) == 0 {
+		return fmt.Errorf("invalid id or data to save")
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	targetPath := r.taskPath(id)
+	tmpPath := targetPath + fmt.Sprintf(".tmp-%d-%d", os.Getpid(), strings.Count(id, "_"))
 
 	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write tmp file for task %s: %w", t.ID, err)
+		return fmt.Errorf("failed to write tmp file for task %s: %w", id, err)
 	}
 
 	if err := os.Rename(tmpPath, targetPath); err != nil {

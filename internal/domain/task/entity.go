@@ -228,42 +228,94 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		})
 	}
 
-	// 状态流转判定
-	switch p.Event {
-	case "sessionStart", "onStart", "beforeSubmitPrompt", "UserPromptSubmit", "SessionStart":
-		curRun.Status = "running"
-		t.Status = "running"
-		t.ActiveRunStart = curRun.StartTime
-	case "agentCompletion", "onComplete", "complete", "Stop", "SessionEnd":
-		curRun.Status = "completed"
-		curRun.EndTime = nowMs
-		diffSec := (curRun.EndTime - curRun.StartTime) / 1000
-		if diffSec < 0 {
-			diffSec = 0
-		}
-		curRun.Duration = FormatDuration(diffSec)
-
-		t.Status = "completed"
-		t.EndTime = nowMs
-
-		// 重新计算全生命周期总执行秒数
-		var totalSec int64 = 0
-		for _, r := range t.Runs {
-			if r.EndTime > r.StartTime {
-				totalSec += (r.EndTime - r.StartTime) / 1000
+		// 状态流转判定
+		switch p.Event {
+		case "sessionStart", "onStart", "beforeSubmitPrompt", "UserPromptSubmit", "SessionStart":
+			curRun.Status = "running"
+			t.Status = "running"
+			t.ActiveRunStart = curRun.StartTime
+		case "agentCompletion", "onComplete", "complete", "Stop", "SessionEnd":
+			curRun.Status = "completed"
+			curRun.EndTime = nowMs
+			diffSec := (curRun.EndTime - curRun.StartTime) / 1000
+			if diffSec < 0 {
+				diffSec = 0
 			}
-		}
-		t.TotalLifetime = totalSec
-		t.Duration = FormatDuration(totalSec)
-		case "stop", "failed", "error", "toolFailure", "PostToolUseFailure":
+			curRun.Duration = FormatDuration(diffSec)
+
+			t.Status = "completed"
+			t.EndTime = nowMs
+
+			// 重新计算全生命周期总执行秒数
+			var totalSec int64 = 0
+			for _, r := range t.Runs {
+				if r.EndTime > r.StartTime {
+					totalSec += (r.EndTime - r.StartTime) / 1000
+				}
+			}
+			t.TotalLifetime = totalSec
+			t.Duration = FormatDuration(totalSec)
+		case "stop", "failed", "error":
+			// 会话级中断/崩溃
 			curRun.Status = "failed"
 			curRun.EndTime = nowMs
+			diffSec := (curRun.EndTime - curRun.StartTime) / 1000
+			if diffSec < 0 {
+				diffSec = 0
+			}
+			curRun.Duration = FormatDuration(diffSec)
+
 			t.Status = "failed"
 			t.EndTime = nowMs
+
+			var totalSec int64 = 0
+			for _, r := range t.Runs {
+				if r.EndTime > r.StartTime {
+					totalSec += (r.EndTime - r.StartTime) / 1000
+				}
+			}
+			t.TotalLifetime = totalSec
+			t.Duration = FormatDuration(totalSec)
+		case "toolFailure", "PostToolUseFailure":
+			// 单个工具执行异常（如 bash 非零退出），非致命中断，任务与 Run 保持 running
+			if curRun.Status == "" {
+				curRun.Status = "running"
+			}
+			if t.Status == "" {
+				t.Status = "running"
+			}
 		}
 
-	t.LastHook = p.Event
-	t.Detail = p.Detail
-	t.Turns = t.Runs                // 兼容 turns 别名
-	t.Timeline = curRun.Timeline    // 兼容顶层 timeline
+		t.LastHook = p.Event
+		t.Detail = p.Detail
+		t.Turns = t.Runs                // 兼容 turns 别名
+		t.Timeline = curRun.Timeline    // 兼容顶层 timeline
+	}
+
+// Clone 返回当前 Task 聚合根的独立深拷贝副本，确保并发安全。
+func (t *Task) Clone() *Task {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+
+	if t.Runs != nil {
+		cp.Runs = make([]Turn, len(t.Runs))
+		for i, run := range t.Runs {
+			runCp := run
+			if run.Timeline != nil {
+				runCp.Timeline = make([]TimelineItem, len(run.Timeline))
+				copy(runCp.Timeline, run.Timeline)
+			}
+			cp.Runs[i] = runCp
+		}
+		cp.Turns = cp.Runs
+	}
+
+	if t.Timeline != nil {
+		cp.Timeline = make([]TimelineItem, len(t.Timeline))
+		copy(cp.Timeline, t.Timeline)
+	}
+
+	return &cp
 }
