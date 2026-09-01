@@ -523,10 +523,13 @@
 
       const statusLabel = tObj.status === 'running' ? t('statusRunning') : tObj.status === 'completed' ? t('statusCompleted') : t('statusFailed');
       const statusCls = tObj.status === 'running' ? 'text-amber-500' : tObj.status === 'completed' ? 'text-emerald-500' : 'text-red-400';
+      const durDisplay = tObj.status === 'running'
+        ? `<span class="live-timer text-amber-500" data-start="${tObj.startTime || Date.now()}">${formatDurLong(Date.now() - (tObj.startTime || Date.now()))}</span>`
+        : `<span>${esc(tObj.duration || formatDurLong(durationMs(tObj)))}</span>`;
       document.getElementById('drawer-metrics').innerHTML = `
         <div class="bg-panel py-2.5">
           <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerDuration'))}</div>
-          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${esc(tObj.duration || formatDurLong(durationMs(tObj)))}</div>
+          <div class="mt-0.5 font-mono text-[12px] tabular-nums text-zinc-200">${durDisplay}</div>
         </div>
         <div class="bg-panel py-2.5">
           <div class="font-mono text-[10px] uppercase tracking-wide text-zinc-600">${esc(t('drawerHooks'))}</div>
