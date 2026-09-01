@@ -171,7 +171,7 @@ def get_git_info():
 
 repo, branch = get_git_info()
 
-# 统一事件名映射为看板识别的状态事件
+# 统一事件名映射为 Monitor 识别的状态事件
 mapped_event = event_name
 if event_name in ["beforeSubmitPrompt", "sessionStart"]:
     mapped_event = "sessionStart"
@@ -186,13 +186,13 @@ data = {
     "timestamp": int(time.time()),
     "detail": detail[:120],
 }
-# 仅在拿到真实 Prompt 时上报 title/prompt，占位标题由 Hub 生成并可被后续升级
+# 仅在拿到真实 Prompt 时上报 title/prompt，占位标题由 Monitor 生成并可被后续升级
 if title:
     data["title"] = title
 if prompt:
     data["prompt"] = prompt[:4000]
 
-# 异步/短超时上报至本地 Kanban Hub
+# 异步/短超时上报至本地 AGENT MONITOR
 try:
     req = urllib.request.Request(
         "http://127.0.0.1:8000/api/event",

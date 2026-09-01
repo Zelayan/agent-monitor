@@ -1,5 +1,6 @@
 # binaries
 /agent-kanban
+/agent-monitor
 *.exe
 *.test
 /tmp/

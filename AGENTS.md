@@ -1,6 +1,6 @@
-# Agent Kanban Hub
+# AGENT MONITOR
 
-面向 AI Coding Agent 的多会话实时任务看板。Go 进程接收 Hook 上报，经 SSE 推送到嵌入的看板前端。
+面向 AI Coding Agent 的多会话实时监视器。Go 进程接收 Hook 上报，经 SSE 推送到嵌入的 Monitor 前端。
 
 ## 每次改动必须提交
 
@@ -12,7 +12,7 @@
 
 ## 架构约定
 
-- 看板页面在 `static/index.html`，由 `main.go` 通过 `go:embed` 打进二进制。**改 HTML 后必须重启 `go run main.go` 才会生效。**
+- Monitor 页面在 `static/index.html`，由 `main.go` 通过 `go:embed` 打进二进制。**改 HTML 后必须重启 `go run main.go` 才会生效。**
 - 实时通道：前端用原生 `EventSource('/api/stream')`；Hook 上报 `POST /api/event`；`DELETE /api/tasks` 只清已完成/失败任务。
 - Agent 过滤胶囊必须按当前任务里实际上报的 `agent` 字段动态生成，禁止写死 Cursor / Codex / Claude。
 - `scripts/reporter.py` 是 Cursor Hook 上报脚本；配置在 `configs/cursor-hooks.json`。

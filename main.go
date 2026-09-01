@@ -1,4 +1,4 @@
-// Agent Kanban Hub：接收 Cursor Agent hook 上报，通过 SSE 推送到看板前端。
+// AGENT MONITOR：接收 Cursor Agent hook 上报，通过 SSE 推送到 Monitor 前端。
 package main
 
 import (
@@ -14,7 +14,7 @@ import (
 )
 
 //go:embed static/index.html
-var indexHTML []byte // 将看板页面嵌入二进制，无需额外静态文件
+var indexHTML []byte // 将 Monitor 页面嵌入二进制，无需额外静态文件
 
 // TimelineItem 记录任务时间轴上的单条事件。
 type TimelineItem struct {
@@ -23,7 +23,7 @@ type TimelineItem struct {
     Desc  string `json:"desc"`  // 事件描述
 }
 
-// Task 表示看板上的一个 Agent 任务。
+// Task 表示 Monitor 上的一个 Agent 任务。
 type Task struct {
     ID        string         `json:"id"`                 // 会话/任务 ID
     Agent     string         `json:"agent"`              // Agent 名称
@@ -135,7 +135,7 @@ func placeholderTitle(agent string) string {
     return agent + " 任务"
 }
 
-// handleEvent 接收 Hook 上报：创建或更新任务，并广播给所有看板客户端。
+// handleEvent 接收 Hook 上报：创建或更新任务，并广播给所有 Monitor 客户端。
 func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
     if r.Method != http.MethodPost {
         http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -200,7 +200,7 @@ func (h *Hub) handleEvent(w http.ResponseWriter, r *http.Request) {
         Desc:  p.Detail,
     })
 
-    // 按 Hook 事件名映射看板列：启动→运行中，完成→已完成，失败/中断→异常
+    // 按 Hook 事件名映射 Monitor 列：启动→运行中，完成→已完成，失败/中断→异常
     switch p.Event {
     case "sessionStart", "onStart":
         task.Status = "running"
@@ -246,7 +246,7 @@ func (h *Hub) handleStream(w http.ResponseWriter, r *http.Request) {
         h.rmClient <- clientChan
     }()
 
-    // 新连接先补齐快照，避免看板空白
+    // 新连接先补齐快照，避免 Monitor 空白
     h.mu.RLock()
     for _, t := range h.tasks {
         data, _ := json.Marshal(t)
@@ -308,7 +308,7 @@ func main() {
 
     mux := http.NewServeMux()
     mux.HandleFunc("/api/event", hub.handleEvent)   // Hook 上报入口
-    mux.HandleFunc("/api/stream", hub.handleStream) // 看板 SSE 推送
+    mux.HandleFunc("/api/stream", hub.handleStream) // Monitor SSE 推送
     mux.HandleFunc("/api/tasks", hub.handleTasks)   // 任务列表 / 清空已完成
     mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         if r.URL.Path != "/" {
@@ -320,8 +320,8 @@ func main() {
     })
 
     addr := ":" + port
-    fmt.Printf("\n⚡ Agent Kanban Hub running on http://127.0.0.1%s\n", addr)
-    fmt.Printf("   Web Dashboard: http://127.0.0.1%s/\n\n", addr)
+    fmt.Printf("\nAGENT MONITOR running on http://127.0.0.1%s\n", addr)
+    fmt.Printf("   Dashboard: http://127.0.0.1%s/\n\n", addr)
 
     if err := http.ListenAndServe(addr, mux); err != nil {
         log.Fatalf("Server failed: %v", err)
