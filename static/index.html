@@ -305,6 +305,31 @@
 
   </aside>
 
+  <!-- 自定义确认弹窗 Modal (Linear / Sentry 风格) -->
+  <div id="confirm-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs hidden" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
+    <div id="confirm-modal-card" class="w-full max-w-sm bg-[#0c0d0e] border border-[#27272a] rounded-lg shadow-2xl overflow-hidden transition-all duration-150">
+      <div class="p-4 space-y-3">
+        <div class="flex items-center gap-2.5">
+          <div id="confirm-modal-icon" class="w-7 h-7 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <h3 id="confirm-modal-title" class="font-mono text-xs font-semibold text-zinc-100 uppercase tracking-tight"></h3>
+        </div>
+        <p id="confirm-modal-message" class="text-xs text-zinc-300 leading-relaxed font-sans"></p>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-4 py-2.5 bg-[#111215] border-t border-[#27272a]">
+        <button id="confirm-modal-cancel" type="button" class="h-7 px-3 rounded border border-line text-xs font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors">
+        </button>
+        <button id="confirm-modal-ok" type="button" class="h-7 px-3 rounded text-xs font-mono font-medium text-white bg-rose-600 hover:bg-rose-500 active:bg-rose-700 transition-colors flex items-center gap-1.5 shadow-sm">
+        </button>
+      </div>
+    </div>
+  </div>
+
   <script>
     const I18N = {
       zh: {
@@ -327,6 +352,10 @@
         confirmDelSingle: '确认彻底删除此会话记录？',
         confirmDelAll: '危险：确认清空全部会话（包含正在运行中的任务）？',
         confirmDelBatch: '确认彻底删除选中的 {n} 项会话？',
+        modalConfirmTitle: '操作确认',
+        modalDangerTitle: '危险操作确认',
+        btnConfirm: '确认',
+        btnCancel: '取消',
         headerRunning: '活跃中 WORKFLOWS',
         headerCompleted: '就绪 / 已完成 SESSIONS',
         headerFailed: '异常 / 终止 TERMINATED',
@@ -369,6 +398,10 @@
         confirmDelSingle: 'Permanently delete this session record?',
         confirmDelAll: 'Warning: Permanently delete ALL sessions including active ones?',
         confirmDelBatch: 'Permanently delete {n} selected session(s)?',
+        modalConfirmTitle: 'Confirmation',
+        modalDangerTitle: 'Danger Confirmation',
+        btnConfirm: 'Confirm',
+        btnCancel: 'Cancel',
         headerRunning: 'ACTIVE WORKFLOWS',
         headerCompleted: 'IDLE / COMPLETED',
         headerFailed: 'TERMINATED / FAILED',
@@ -947,6 +980,56 @@
       }
     }
 
+    // 自定义确认弹窗 (Linear/Sentry 风格)
+    let confirmModalResolver = null;
+
+    function showConfirmModal({ title, message, confirmText, cancelText, danger = true } = {}) {
+      const modal = document.getElementById('confirm-modal');
+      const titleEl = document.getElementById('confirm-modal-title');
+      const msgEl = document.getElementById('confirm-modal-message');
+      const okBtn = document.getElementById('confirm-modal-ok');
+      const cancelBtn = document.getElementById('confirm-modal-cancel');
+      const iconEl = document.getElementById('confirm-modal-icon');
+
+      if (titleEl) titleEl.textContent = title || (danger ? t('modalDangerTitle') : t('modalConfirmTitle'));
+      if (msgEl) msgEl.textContent = message || '';
+      if (okBtn) okBtn.textContent = confirmText || t('btnConfirm');
+      if (cancelBtn) cancelBtn.textContent = cancelText || t('btnCancel');
+
+      if (okBtn) {
+        if (danger) {
+          okBtn.className = 'h-7 px-3 rounded text-xs font-mono font-medium text-white bg-rose-600 hover:bg-rose-500 active:bg-rose-700 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer';
+        } else {
+          okBtn.className = 'h-7 px-3 rounded text-xs font-mono font-medium text-white bg-zinc-700 hover:bg-zinc-600 active:bg-zinc-800 transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer';
+        }
+      }
+
+      if (iconEl) {
+        iconEl.className = danger
+          ? 'w-7 h-7 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center shrink-0'
+          : 'w-7 h-7 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0';
+      }
+
+      if (modal) modal.classList.remove('hidden');
+
+      return new Promise((resolve) => {
+        confirmModalResolver = resolve;
+        setTimeout(() => {
+          if (okBtn) okBtn.focus();
+        }, 30);
+      });
+    }
+
+    function closeConfirmModal(result) {
+      const modal = document.getElementById('confirm-modal');
+      if (modal) modal.classList.add('hidden');
+      if (confirmModalResolver) {
+        const resolve = confirmModalResolver;
+        confirmModalResolver = null;
+        resolve(Boolean(result));
+      }
+    }
+
     // 1. 清空已完成与失败任务
     async function clearFinishedTasks() {
       toggleClearDropdown(false);
@@ -963,7 +1046,14 @@
     // 2. 清空全部任务（包括正在运行的会话）
     async function clearAllTasks() {
       toggleClearDropdown(false);
-      if (!confirm(t('confirmDelAll'))) return;
+      const confirmed = await showConfirmModal({
+        title: t('modalDangerTitle'),
+        message: t('confirmDelAll'),
+        confirmText: t('btnConfirm'),
+        cancelText: t('btnCancel'),
+        danger: true
+      });
+      if (!confirmed) return;
       try {
         await fetch('/api/tasks?all=true', { method: 'DELETE' });
       } catch (_) { /* local fallback */ }
@@ -977,7 +1067,14 @@
     // 3. 删除单个特定会话（抽屉内触发）
     async function deleteSingleSession(id) {
       if (!id) return;
-      if (!confirm(t('confirmDelSingle'))) return;
+      const confirmed = await showConfirmModal({
+        title: t('modalConfirmTitle'),
+        message: t('confirmDelSingle'),
+        confirmText: t('btnConfirm'),
+        cancelText: t('btnCancel'),
+        danger: true
+      });
+      if (!confirmed) return;
       try {
         await fetch('/api/tasks', {
           method: 'DELETE',
@@ -1039,7 +1136,14 @@
     async function deleteSelectedBatch() {
       if (selectedTaskIds.size === 0) return;
       const ids = Array.from(selectedTaskIds);
-      if (!confirm(t('confirmDelBatch').replace('{n}', ids.length))) return;
+      const confirmed = await showConfirmModal({
+        title: t('modalDangerTitle'),
+        message: t('confirmDelBatch').replace('{n}', ids.length),
+        confirmText: t('btnConfirm'),
+        cancelText: t('btnCancel'),
+        danger: true
+      });
+      if (!confirmed) return;
       try {
         await fetch('/api/tasks', {
           method: 'DELETE',
@@ -1113,7 +1217,42 @@
       }
     });
 
+    // 模态框事件绑定
+    const modalEl = document.getElementById('confirm-modal');
+    if (modalEl) {
+      modalEl.addEventListener('click', (e) => {
+        if (e.target === modalEl) closeConfirmModal(false);
+      });
+    }
+    const modalCancelBtn = document.getElementById('confirm-modal-cancel');
+    if (modalCancelBtn) {
+      modalCancelBtn.addEventListener('click', () => closeConfirmModal(false));
+    }
+    const modalOkBtn = document.getElementById('confirm-modal-ok');
+    if (modalOkBtn) {
+      modalOkBtn.addEventListener('click', () => closeConfirmModal(true));
+    }
+
     document.addEventListener('keydown', (e) => {
+      const modal = document.getElementById('confirm-modal');
+      if (modal && !modal.classList.contains('hidden')) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeConfirmModal(false);
+          return;
+        }
+        if (e.key === 'Enter') {
+          if (document.activeElement === document.getElementById('confirm-modal-cancel')) {
+            e.preventDefault();
+            closeConfirmModal(false);
+          } else {
+            e.preventDefault();
+            closeConfirmModal(true);
+          }
+          return;
+        }
+        return;
+      }
       if (e.key === 'Escape') {
         if (isSelectMode) {
           toggleSelectMode(false);
