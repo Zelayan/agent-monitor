@@ -75,14 +75,45 @@ bin/agent-reporter --event sessionStart --agent 'Cursor Agent'
 
 *(也支持使用 `python3 scripts/reporter.py` 作为兼容方案)*
 
-其他 Agent（Codex / Claude 等）只要向 `/api/event` POST 同一份 JSON 即可，过滤胶囊会按实际上报的 `agent` 名称动态出现。
+## 接入 Claude Code (Anthropic 官方 CLI)
+
+Claude Code 原生支持 Hook 事件。将 `configs/claude-hooks.json` 配置写入工作区 `.claude/config.json` 或全局 `~/.claude/config.json`：
+
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [{ "hooks": [{ "type": "command", "command": "bin/agent-reporter --event SessionStart --agent 'Claude Code'" }] }],
+      "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "bin/agent-reporter --event UserPromptSubmit --agent 'Claude Code'" }] }],
+      "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bin/agent-reporter --event PreToolUse --agent 'Claude Code'" }] }],
+      "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": "bin/agent-reporter --event PostToolUseFailure --agent 'Claude Code'" }] }],
+      "Stop": [{ "hooks": [{ "type": "command", "command": "bin/agent-reporter --event Stop --agent 'Claude Code'" }] }]
+    }
+  }
+}
+```
+
+## 接入 Aider 终端 Agent
+
+Aider 可在工作区配置文件 `.aider.conf.yml`（或全局 `~/.aider.conf.yml`）中添加通知上报：
+
+```yaml
+notifications-command: "bin/agent-reporter --event agentCompletion --agent Aider"
+auto-commits: true
+```
+
+## 接入 Continue / Roo Code / Windsurf / 自定义 Agent
+
+- **Continue**：在 `~/.continue/config.json` 中配置自定义 telemetry endpoint（见 `configs/continue-config.json`）。
+- **通用 HTTP 上报**：任何 Agent / 脚本只需向 `POST http://127.0.0.1:8000/api/event` 发送 JSON，顶部过滤胶囊会**自动按实际上报的 agent 动态生成**。
 
 手动试一条：
 
 ```bash
 curl -s http://127.0.0.1:8000/api/event \
   -H 'Content-Type: application/json' \
-  -d '{"id":"task-demo","agent":"ZCode","repo":"agent-monitor:master","event":"sessionStart","title":"示例任务","detail":"会话启动"}'
+  -d '{"id":"task-demo","agent":"Claude Code","repo":"agent-monitor:master","event":"sessionStart","title":"示例任务","detail":"会话启动"}'
 ```
 
 ## HTTP API

@@ -1,0 +1,5 @@
+# Aider (.aider.conf.yml) 监视器集成配置
+# 运行 aider 时将自动上报会话启动与完成
+
+notifications-command: "bin/agent-reporter --event agentCompletion --agent Aider"
+auto-commits: true

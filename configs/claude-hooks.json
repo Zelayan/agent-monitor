@@ -1,0 +1,59 @@
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bin/agent-reporter --event SessionStart --agent 'Claude Code'"
+            }
+          ]
+        }
+      ],
+      "UserPromptSubmit": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bin/agent-reporter --event UserPromptSubmit --agent 'Claude Code'"
+            }
+          ]
+        }
+      ],
+      "PreToolUse": [
+        {
+          "matcher": ".*",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bin/agent-reporter --event PreToolUse --agent 'Claude Code'"
+            }
+          ]
+        }
+      ],
+      "PostToolUseFailure": [
+        {
+          "matcher": ".*",
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bin/agent-reporter --event PostToolUseFailure --agent 'Claude Code'"
+            }
+          ]
+        }
+      ],
+      "Stop": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "bin/agent-reporter --event Stop --agent 'Claude Code'"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

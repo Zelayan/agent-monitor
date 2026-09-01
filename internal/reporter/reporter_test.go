@@ -157,3 +157,28 @@ func TestParsePayload(t *testing.T) {
 		t.Errorf("Raw payload mismatch: %+v", rawPayload)
 	}
 }
+
+func TestDetectAgentName(t *testing.T) {
+	if name := DetectAgentName("CustomAgent", ""); name != "CustomAgent" {
+		t.Errorf("expected CustomAgent, got %s", name)
+	}
+	if name := DetectAgentName("", "PayloadAgent"); name != "PayloadAgent" {
+		t.Errorf("expected PayloadAgent, got %s", name)
+	}
+	// Test environment variable detection
+	t.Setenv("CLAUDE_SESSION_ID", "claude-123")
+	if name := DetectAgentName("", ""); name != "Claude Code" {
+		t.Errorf("expected Claude Code, got %s", name)
+	}
+}
+
+func TestExtractSessionID(t *testing.T) {
+	p := Payload{TaskID: "task-abc"}
+	if id := ExtractSessionID(p); id != "task-abc" {
+		t.Errorf("expected task-abc, got %s", id)
+	}
+	t.Setenv("CLAUDE_SESSION_ID", "claude-sess-99")
+	if id := ExtractSessionID(p); id != "claude-sess-99" {
+		t.Errorf("expected env priority claude-sess-99, got %s", id)
+	}
+}

@@ -61,6 +61,9 @@ type Config struct {
 // Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
 type Payload struct {
 	Raw            string                 `json:"raw,omitempty"`
+	ID             string                 `json:"id,omitempty"`
+	TaskID         string                 `json:"task_id,omitempty"`
+	TaskIDCamel    string                 `json:"taskId,omitempty"`
 	Agent          string                 `json:"agent,omitempty"`
 	HookEventName  string                 `json:"hook_event_name,omitempty"`
 	HookName       string                 `json:"hook_name,omitempty"`
@@ -85,6 +88,84 @@ type Payload struct {
 	Message        string                 `json:"message,omitempty"`
 	WorkspaceRoots []string               `json:"workspace_roots,omitempty"`
 	TranscriptPath string                 `json:"transcript_path,omitempty"`
+}
+
+// DetectAgentName 智能推断上报来源的 Agent 名称
+func DetectAgentName(cfgAgent, payloadAgent string) string {
+	if cfgAgent != "" {
+		return cfgAgent
+	}
+	if payloadAgent != "" {
+		return payloadAgent
+	}
+	if envAgent := os.Getenv("AGENT_NAME"); envAgent != "" {
+		return envAgent
+	}
+
+	execCmd := strings.ToLower(os.Getenv("_"))
+
+	// 1. Claude Code
+	if os.Getenv("CLAUDE_SESSION_ID") != "" || os.Getenv("CLAUDE_PROJECT_DIR") != "" || strings.Contains(execCmd, "claude") {
+		return "Claude Code"
+	}
+	// 2. ZCode
+	if os.Getenv("ZCODE_SESSION_ID") != "" || os.Getenv("ZCODE_PROJECT_DIR") != "" || strings.Contains(execCmd, "zcode") {
+		return "ZCode"
+	}
+	// 3. Aider
+	if os.Getenv("AIDER_SESSION_ID") != "" || strings.Contains(execCmd, "aider") {
+		return "Aider"
+	}
+	// 4. Trae
+	if os.Getenv("TRAE_PROJECT_DIR") != "" || os.Getenv("TRAE_SESSION_ID") != "" {
+		return "Trae"
+	}
+	// 5. Windsurf / Codeium Cascade
+	if os.Getenv("WINDSURF_PROJECT_DIR") != "" || os.Getenv("CODEIUM_PROJECT_DIR") != "" {
+		return "Windsurf"
+	}
+	// 6. Continue
+	if os.Getenv("CONTINUE_SESSION_ID") != "" || os.Getenv("CONTINUE_GLOBAL_DIR") != "" {
+		return "Continue"
+	}
+	// 7. Cursor
+	if os.Getenv("CURSOR_PROJECT_DIR") != "" || os.Getenv("CURSOR_TRANSCRIPT_PATH") != "" || strings.Contains(execCmd, "cursor") {
+		return "Cursor Agent"
+	}
+
+	return "AI Agent"
+}
+
+// ExtractSessionID 提取唯一的会话标识
+func ExtractSessionID(payload Payload) string {
+	for _, envK := range []string{
+		"ZCODE_SESSION_ID",
+		"CLAUDE_SESSION_ID",
+		"AIDER_SESSION_ID",
+		"TRAE_SESSION_ID",
+		"CONTINUE_SESSION_ID",
+		"AGENT_SESSION_ID",
+	} {
+		if v := os.Getenv(envK); v != "" {
+			return v
+		}
+	}
+
+	for _, v := range []string{
+		payload.ID,
+		payload.SessionID,
+		payload.SessionIDCamel,
+		payload.TaskID,
+		payload.TaskIDCamel,
+		payload.ConversationID,
+		payload.GenerationID,
+	} {
+		if v != "" {
+			return v
+		}
+	}
+
+	return fmt.Sprintf("sess-%d", time.Now().Unix())
 }
 
 // EventReport 向 Monitor 服务端 /api/event 提交的数据结构
@@ -127,21 +208,8 @@ func Run(cfg Config, inputReader io.Reader) {
 
 	payload := parsePayload(inputReader)
 
-	// 1. 确定 Agent 名称
-	agentName := cfg.Agent
-	if agentName == "" {
-		agentName = payload.Agent
-	}
-	if agentName == "" {
-		agentName = os.Getenv("AGENT_NAME")
-	}
-	if agentName == "" {
-		if os.Getenv("ZCODE_SESSION_ID") != "" || strings.Contains(strings.ToLower(os.Getenv("_")), "zcode") {
-			agentName = "ZCode"
-		} else {
-			agentName = "Cursor Agent"
-		}
-	}
+	// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
+	agentName := DetectAgentName(cfg.Agent, payload.Agent)
 
 	// 2. 确定 Hook 事件名
 	eventName := cfg.Event
@@ -159,28 +227,7 @@ func Run(cfg Config, inputReader io.Reader) {
 	}
 
 	// 3. 获取 Session ID
-	sessionID := os.Getenv("ZCODE_SESSION_ID")
-	if sessionID == "" {
-		sessionID = os.Getenv("CLAUDE_SESSION_ID")
-	}
-	if sessionID == "" {
-		sessionID = payload.ConversationID
-	}
-	if sessionID == "" {
-		sessionID = payload.GenerationID
-	}
-	if sessionID == "" {
-		sessionID = payload.SessionID
-	}
-	if sessionID == "" {
-		sessionID = payload.SessionIDCamel
-	}
-	if sessionID == "" {
-		sessionID = os.Getenv("AGENT_SESSION_ID")
-	}
-	if sessionID == "" {
-		sessionID = fmt.Sprintf("sess-%d", time.Now().Unix())
-	}
+	sessionID := ExtractSessionID(payload)
 
 	// 4. 事件过滤
 	toolName := payload.ToolName
@@ -513,7 +560,7 @@ func textFromTranscriptLine(obj map[string]interface{}) string {
 	return UnwrapUserQuery(strings.Join(chunks, "\n"))
 }
 
-// TranscriptCandidates 获取可能存在的 Transcript 文件路径
+// TranscriptCandidates 获取可能存在的 Transcript 文件路径（覆盖 Cursor、Claude Code 等）
 func TranscriptCandidates(payload Payload, sessionID string) []string {
 	var paths []string
 	if payload.TranscriptPath != "" {
@@ -524,7 +571,7 @@ func TranscriptCandidates(payload Payload, sessionID string) []string {
 	}
 
 	var roots []string
-	for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CLAUDE_PROJECT_DIR"} {
+	for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
 		if p := os.Getenv(envK); p != "" {
 			roots = append(roots, p)
 		}
@@ -538,9 +585,15 @@ func TranscriptCandidates(payload Payload, sessionID string) []string {
 				continue
 			}
 			slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
-			base := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
-			paths = append(paths, filepath.Join(base, sessionID+".jsonl"))
-			paths = append(paths, filepath.Join(base, sessionID+".txt"))
+			// Cursor transcripts
+			baseCursor := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
+			paths = append(paths, filepath.Join(baseCursor, sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(baseCursor, sessionID+".txt"))
+
+			// Claude Code transcripts
+			baseClaude := filepath.Join(home, ".claude", "projects", slug, "transcripts", sessionID)
+			paths = append(paths, filepath.Join(baseClaude, sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(root, ".claude", "transcripts", sessionID+".jsonl"))
 		}
 	}
 
