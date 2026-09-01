@@ -42,18 +42,36 @@ func TestTask_LifecycleAndDomainRules(t *testing.T) {
 		t.Errorf("expected RootGoal=%q, got %q", p2.Prompt, task.RootGoal)
 	}
 
-	// 3. Complete turn 1
-	p3 := EventPayload{
-		ID:        "sess-domain-1",
-		Agent:     "ZCode",
-		Event:     "agentCompletion",
-		Timestamp: 1010,
-		Detail:    "Finished turn 1",
-	}
-	task.ApplyEvent(p3, 1010000, "10:00:10")
-	if task.Status != "completed" || task.Runs[0].Status != "completed" {
-		t.Fatalf("expected completed status")
-	}
+		// 3. Complete turn 1 with AIResponse
+		p3 := EventPayload{
+			ID:         "sess-domain-1",
+			Agent:      "ZCode",
+			Event:      "agentCompletion",
+			Timestamp:  1010,
+			Detail:     "Finished turn 1",
+			AIResponse: "重构已完成，划分为了领域层、应用层与基础设施层。",
+		}
+		task.ApplyEvent(p3, 1010000, "10:00:10")
+		if task.Status != "completed" || task.Runs[0].Status != "completed" {
+			t.Fatalf("expected completed status")
+		}
+		if task.Runs[0].AIResponse != p3.AIResponse {
+			t.Errorf("expected AIResponse %q, got %q", p3.AIResponse, task.Runs[0].AIResponse)
+		}
+
+		// Test timeline deduplication
+		initialTimelineLen := len(task.Runs[0].Timeline)
+		duplicateEvent := EventPayload{
+			ID:        "sess-domain-1",
+			Agent:     "ZCode",
+			Event:     "agentCompletion",
+			Timestamp: 1010,
+			Detail:    "Finished turn 1",
+		}
+		task.ApplyEvent(duplicateEvent, 1010000, "10:00:10")
+		if len(task.Runs[0].Timeline) != initialTimelineLen {
+			t.Errorf("expected timeline deduplication, len was %d, now %d", initialTimelineLen, len(task.Runs[0].Timeline))
+		}
 
 	// 4. Start turn 2
 	p4 := EventPayload{

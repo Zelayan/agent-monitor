@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import sys, os, json, subprocess, urllib.request, argparse, time, re
+import sys, os, json, subprocess, urllib.request, argparse, time, re, sqlite3
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--event", default="")
@@ -44,6 +44,42 @@ session_id = (
 )
 if not session_id:
     session_id = f"sess-{int(time.time())}"
+
+
+def respond_and_exit(evt):
+    """响应 Hook 标准协议并退出。"""
+    if evt in ["beforeSubmitPrompt", "UserPromptSubmit"]:
+        print(json.dumps({"continue": True}))
+    elif evt in ["beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest"]:
+        print(json.dumps({"permission": "allow"}))
+    else:
+        print(json.dumps({}))
+    sys.exit(0)
+
+
+# 4. 彻底精简事件过滤：忽略无意义的底层只读工具、文件零散编辑和 PostToolUse 重复上报
+tool_name = payload.get("tool_name") or payload.get("tool") or ""
+is_failure = event_name in ["PostToolUseFailure", "toolFailure", "failed", "error"]
+
+# 忽略微粒度文件修改与纯读取/管理工具
+IGNORED_TOOLS = {
+    "Read", "read", "read_file", "Glob", "glob", "Grep", "grep", "grep_search", "file_search",
+    "TodoWrite", "TodoRead", "WebFetch", "WebSearch", "ReadSessionContext", "AskUserQuestion",
+    "SendMessage", "TaskOutput", "TaskStop", "CronCreate", "CronDelete", "CronList", "CronUpdate",
+    "EnterPlanMode", "ExitPlanMode", "Skill", "Edit", "Write", "edit_file", "write_file", "ApplyPatch"
+}
+
+if event_name in ["afterFileEdit"]:
+    respond_and_exit(event_name)
+
+if event_name in ["PreToolUse", "PostToolUse"]:
+    if not is_failure:
+        # 非失败情况下：忽略所有只读/内部工具及文件修改工具
+        if tool_name in IGNORED_TOOLS:
+            respond_and_exit(event_name)
+        # 避免 PreToolUse 与 PostToolUse 双重重复上报，仅在 PreToolUse 记录关键执行命令
+        if event_name == "PostToolUse":
+            respond_and_exit(event_name)
 
 
 def unwrap_user_query(text):
@@ -166,6 +202,78 @@ def extract_turn_info():
     return turn_count, current_prompt, first_prompt
 
 
+def extract_ai_response(sess_id):
+    """自动从本地数据库 (ZCode SQLite) 或 Transcript 文件提取最新的 AI 回复正文。"""
+    # 1. 尝试从 ZCode SQLite 数据库读取
+    db_path = os.path.expanduser("~/.zcode/cli/db/db.sqlite")
+    if os.path.exists(db_path):
+        try:
+            with sqlite3.connect(db_path) as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT id FROM message WHERE session_id = ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1;",
+                    (sess_id,)
+                )
+                msg_row = cur.fetchone()
+                if not msg_row:
+                    cur.execute(
+                        "SELECT id FROM message WHERE session_id LIKE ? AND json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1;",
+                        (f"%{sess_id}%",)
+                    )
+                    msg_row = cur.fetchone()
+                if not msg_row:
+                    cur.execute(
+                        "SELECT id FROM message WHERE json_extract(data, '$.role') = 'assistant' ORDER BY time_created DESC LIMIT 1;"
+                    )
+                    msg_row = cur.fetchone()
+                if msg_row:
+                    msg_id = msg_row[0]
+                    cur.execute(
+                        "SELECT data FROM part WHERE message_id = ? ORDER BY time_created ASC;",
+                        (msg_id,)
+                    )
+                    parts = cur.fetchall()
+                    text_pieces = []
+                    for (part_raw,) in parts:
+                        try:
+                            p_data = json.loads(part_raw)
+                            if p_data.get("type") == "text" and p_data.get("text"):
+                                text_pieces.append(p_data["text"].strip())
+                        except Exception:
+                            continue
+                    if text_pieces:
+                        return "\n\n".join(text_pieces)
+        except Exception:
+            pass
+
+    # 2. 尝试从 Cursor transcripts 读取
+    for path in transcript_candidates():
+        try:
+            if not os.path.exists(path):
+                continue
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            for line in reversed(lines):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except Exception:
+                    continue
+                if obj.get("role") == "assistant":
+                    content = obj.get("content") or obj.get("message", {}).get("content") or obj.get("text")
+                    if isinstance(content, str) and content.strip():
+                        return content.strip()
+                    elif isinstance(content, list):
+                        texts = [c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text"]
+                        if texts:
+                            return "\n\n".join(texts).strip()
+        except Exception:
+            pass
+    return ""
+
+
 def short_title(text):
     """清洗后取第一行，作短标题。"""
     if not text:
@@ -183,7 +291,6 @@ title = short_title(current_prompt) or short_title(first_prompt)
 
 # 动态提取操作细节
 detail = ""
-tool_name = payload.get("tool_name") or payload.get("tool") or ""
 tool_input = payload.get("tool_input") or payload.get("tool_args") or payload.get("parameters") or {}
 
 if "command" in payload:
@@ -191,17 +298,12 @@ if "command" in payload:
 elif tool_name in ["Bash", "bash", "execute_command"]:
     cmd = tool_input.get("command") if isinstance(tool_input, dict) else ""
     detail = f"执行命令: {cmd}" if cmd else "执行命令"
-elif tool_name in ["Edit", "Write", "edit_file", "write_file", "ApplyPatch"]:
-    fp = tool_input.get("file_path") or tool_input.get("path") if isinstance(tool_input, dict) else ""
-    detail = f"编辑文件: {fp}" if fp else f"文件操作: {tool_name}"
-elif tool_name:
-    detail = f"调用工具: {tool_name}"
-elif "file_path" in payload:
-    detail = f"编辑文件: {payload['file_path']}"
 elif event_name in ["beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit"]:
     detail = "会话启动，分析任务中..."
 elif event_name in ["stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop"]:
     detail = "任务执行完成"
+elif is_failure:
+    detail = payload.get("error") or payload.get("message") or f"工具执行失败: {tool_name}"
 
 
 def get_git_info():
@@ -229,13 +331,19 @@ elif event_name in ["PostToolUseFailure"]:
     mapped_event = "toolFailure"
 elif event_name in ["error", "failed"]:
     mapped_event = "failed"
-elif event_name in ["PreToolUse", "PostToolUse"]:
-    if "afterFileEdit" in event_name or tool_name in ["Edit", "Write"]:
-        mapped_event = "afterFileEdit"
-    elif "beforeShellExecution" in event_name or tool_name in ["Bash", "bash"]:
+elif event_name in ["PreToolUse", "beforeShellExecution"]:
+    if tool_name in ["Bash", "bash", "execute_command"] or "command" in payload:
         mapped_event = "beforeShellExecution"
     else:
         mapped_event = "toolUse"
+
+ai_response_text = ""
+if mapped_event == "agentCompletion":
+    ai_response_text = extract_ai_response(session_id)
+    if ai_response_text:
+        ai_summary = short_title(ai_response_text)
+        if ai_summary:
+            detail = f"AI 回复: {ai_summary}"
 
 data = {
     "id": session_id,
@@ -243,13 +351,15 @@ data = {
     "repo": f"{repo}:{branch}",
     "event": mapped_event,
     "timestamp": int(time.time()),
-    "detail": detail[:120],
+    "detail": detail[:160],
     "turn_index": turn_index,
 }
 if title:
     data["title"] = title
 if current_prompt:
     data["prompt"] = current_prompt[:4000]
+if ai_response_text:
+    data["ai_response"] = ai_response_text
 
 try:
     req = urllib.request.Request(
@@ -261,11 +371,5 @@ try:
 except Exception:
     pass
 
-if event_name in ["beforeSubmitPrompt", "UserPromptSubmit"]:
-    print(json.dumps({"continue": True}))
-elif event_name in ["beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest"]:
-    print(json.dumps({"permission": "allow"}))
-else:
-    print(json.dumps({}))
+respond_and_exit(event_name)
 
-sys.exit(0)

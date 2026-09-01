@@ -14,16 +14,17 @@ type TimelineItem struct {
 
 // Turn 表示单个会话内的独立一轮执行周期（Run 实体）。
 type Turn struct {
-	Index     int            `json:"index"`               // 轮次序号 1, 2, 3...
-	Prompt    string         `json:"prompt,omitempty"`   // 当轮 Prompt 正文
-	Title     string         `json:"title,omitempty"`    // 当轮标题
-	Status    string         `json:"status"`             // running / completed / failed
-	StartTime int64          `json:"startTime"`          // 当轮开始时间，Unix 毫秒
-	EndTime   int64          `json:"endTime,omitempty"`  // 当轮结束时间，Unix 毫秒
-	Duration  string         `json:"duration,omitempty"` // 当轮实际执行耗时
-	Detail    string         `json:"detail,omitempty"`   // 当轮最新操作描述
-	LastHook  string         `json:"lastHook,omitempty"` // 当轮最后一次 Hook 事件
-	Timeline  []TimelineItem `json:"timeline"`           // 当轮独立 Hook 轨迹
+	Index      int            `json:"index"`                // 轮次序号 1, 2, 3...
+	Prompt     string         `json:"prompt,omitempty"`    // 当轮 Prompt 正文
+	Title      string         `json:"title,omitempty"`     // 当轮标题
+	AIResponse string         `json:"aiResponse,omitempty"`// 当轮 AI 最终回复与总结
+	Status     string         `json:"status"`              // running / completed / failed
+	StartTime  int64          `json:"startTime"`           // 当轮开始时间，Unix 毫秒
+	EndTime    int64          `json:"endTime,omitempty"`   // 当轮结束时间，Unix 毫秒
+	Duration   string         `json:"duration,omitempty"`  // 当轮实际执行耗时
+	Detail     string         `json:"detail,omitempty"`    // 当轮最新操作描述
+	LastHook   string         `json:"lastHook,omitempty"`  // 当轮最后一次 Hook 事件
+	Timeline   []TimelineItem `json:"timeline"`            // 当轮独立 Hook 轨迹
 }
 
 // Task 表示 Monitor 上的一个 Agent 会话容器（聚合根 Workflow）。
@@ -53,16 +54,17 @@ type Task struct {
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID        string `json:"id"`                   // 会话/任务 ID，空则自动生成
-	Agent     string `json:"agent"`                // Agent 名称
-	Repo      string `json:"repo"`                 // 仓库信息
-	Branch    string `json:"branch"`               // 分支名
-	Event     string `json:"event"`                // hook 事件名，决定任务状态流转
-	Title     string `json:"title"`                // 任务标题
-	Prompt    string `json:"prompt"`               // 本轮 Prompt
-	Timestamp int64  `json:"timestamp"`            // Unix 秒；为 0 则用服务端当前时间
-	Detail    string `json:"detail"`               // 本次操作的简要说明
-	TurnIndex int    `json:"turn_index,omitempty"` // 上报指定的轮次（可选）
+	ID         string `json:"id"`                   // 会话/任务 ID，空则自动生成
+	Agent      string `json:"agent"`                // Agent 名称
+	Repo       string `json:"repo"`                 // 仓库信息
+	Branch     string `json:"branch"`               // 分支名
+	Event      string `json:"event"`                // hook 事件名，决定任务状态流转
+	Title      string `json:"title"`                // 任务标题
+	Prompt     string `json:"prompt"`               // 本轮 Prompt
+	AIResponse string `json:"ai_response,omitempty"`// 本轮 AI 总结与回复
+	Timestamp  int64  `json:"timestamp"`            // Unix 秒；为 0 则用服务端当前时间
+	Detail     string `json:"detail"`               // 本次操作的简要说明
+	TurnIndex  int    `json:"turn_index,omitempty"` // 上报指定的轮次（可选）
 }
 
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
@@ -179,6 +181,9 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 
 	curRun.LastHook = p.Event
 	curRun.Detail = p.Detail
+	if p.AIResponse != "" {
+		curRun.AIResponse = p.AIResponse
+	}
 	if curRun.Prompt == "" && p.Prompt != "" {
 		curRun.Prompt = p.Prompt
 	}
@@ -207,11 +212,21 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
-	curRun.Timeline = append(curRun.Timeline, TimelineItem{
-		Time:  nowStr,
-		Event: p.Event,
-		Desc:  p.Detail,
-	})
+	// 时间线防抖去重：避免连续追加完全相同的事件和说明
+	shouldAppend := true
+	if len(curRun.Timeline) > 0 {
+		last := curRun.Timeline[len(curRun.Timeline)-1]
+		if last.Event == p.Event && last.Desc == p.Detail {
+			shouldAppend = false
+		}
+	}
+	if shouldAppend {
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: p.Event,
+			Desc:  p.Detail,
+		})
+	}
 
 	// 状态流转判定
 	switch p.Event {

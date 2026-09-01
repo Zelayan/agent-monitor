@@ -290,7 +290,15 @@
 
       <div>
         <div class="font-mono text-[10px] text-zinc-500 uppercase" id="lbl-drawer-goal">PROMPT / GOAL FOR THIS RUN</div>
-        <p id="run-detail-prompt" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-48 overflow-y-auto bg-black/30 p-2.5 rounded border border-line"></p>
+        <p id="run-detail-prompt" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-40 overflow-y-auto bg-black/30 p-2.5 rounded border border-line"></p>
+      </div>
+
+      <!-- AI 回复与执行总结 (AI Response & Summary) -->
+      <div id="run-detail-ai-box">
+        <div class="font-mono text-[10px] text-zinc-500 uppercase flex items-center justify-between" id="lbl-drawer-ai">
+          AI RESPONSE & SUMMARY
+        </div>
+        <p id="run-detail-ai" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-[#1e1e22] font-sans"></p>
       </div>
 
       <!-- Sentry 风格 Hook 面包屑 (Lifecycle Hook Breadcrumbs) -->
@@ -361,7 +369,10 @@
         headerFailed: '异常 / 终止 TERMINATED',
         drawerContainer: '会话总容器 (WORKFLOW)',
         drawerGoal: '本轮任务 PROMPT / GOAL',
-        drawerTrace: '生命周期 HOOK 面包屑轨迹',
+        drawerAI: 'AI 执行总结与回复 (AI RESPONSE)',
+        noAIResponse: '(暂无 AI 回复记录)',
+        aiThinking: 'AI 正在执行与分析中...',
+        drawerTrace: '核心执行轨迹 (EXECUTION TRACE)',
         btnPrev: '◀ 上一轮',
         btnNext: '下一轮 ▶',
         widescreen: '宽屏',
@@ -407,7 +418,10 @@
         headerFailed: 'TERMINATED / FAILED',
         drawerContainer: 'SESSION CONTAINER (WORKFLOW)',
         drawerGoal: 'PROMPT / GOAL FOR THIS RUN',
-        drawerTrace: 'LIFECYCLE HOOK BREADCRUMBS',
+        drawerAI: 'AI RESPONSE & SUMMARY',
+        noAIResponse: '(no AI response recorded)',
+        aiThinking: 'AI is running and analyzing...',
+        drawerTrace: 'EXECUTION TRACE',
         btnPrev: '◀ Prev Run',
         btnNext: 'Next Run ▶',
         widescreen: 'Widescreen',
@@ -461,6 +475,8 @@
       document.getElementById('header-failed').textContent = t('headerFailed');
       document.getElementById('lbl-drawer-container').textContent = t('drawerContainer');
       document.getElementById('lbl-drawer-goal').textContent = t('drawerGoal');
+      const drawerAiEl = document.getElementById('lbl-drawer-ai');
+      if (drawerAiEl) drawerAiEl.textContent = t('drawerAI');
       document.getElementById('lbl-drawer-trace').textContent = t('drawerTrace');
       document.getElementById('btn-prev-run').textContent = t('btnPrev');
       document.getElementById('btn-next-run').textContent = t('btnNext');
@@ -615,7 +631,9 @@
 
       const sparklineHTML = renderTickSparkline(runs);
 
-      const latestAction = latestRun.prompt || tObj.detail || tObj.title || 'Processing...';
+      const latestAction = latestRun.aiResponse
+        ? latestRun.aiResponse.split('\n')[0].substring(0, 90)
+        : (latestRun.detail || latestRun.prompt || tObj.detail || tObj.title || 'Processing...');
 
       const isSelected = selectedTaskIds.has(tObj.id);
       const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
@@ -883,22 +901,54 @@
 
       document.getElementById('run-detail-prompt').textContent = run.prompt || run.title || t('noPrompt');
 
+      const aiEl = document.getElementById('run-detail-ai');
+      if (aiEl) {
+        if (run.aiResponse) {
+          aiEl.textContent = run.aiResponse;
+          aiEl.className = "text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-emerald-900/40 text-emerald-200/90 font-sans";
+        } else if (isRunning) {
+          aiEl.textContent = t('aiThinking');
+          aiEl.className = "text-xs text-amber-400/80 italic mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-amber-900/30 font-sans";
+        } else {
+          aiEl.textContent = t('noAIResponse');
+          aiEl.className = "text-xs text-zinc-500 italic mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-[#1e1e22] font-sans";
+        }
+      }
+
       const events = run.timeline || [];
-      document.getElementById('run-detail-event-count').innerText = `${events.length} breadcrumbs`;
+      document.getElementById('run-detail-event-count').innerText = `${events.length} events`;
 
       const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
       if (events.length === 0) {
         breadcrumbBox.innerHTML = `<div class="text-zinc-600 font-mono text-[11px] py-2">${esc(t('noEvents'))}</div>`;
       } else {
-        breadcrumbBox.innerHTML = events.map(e => `
-          <div class="flex items-start justify-between text-zinc-400 bg-[#09090b] px-2.5 py-1.5 rounded border border-[#1e1e22]">
-            <div class="min-w-0 pr-2">
-              <span class="text-zinc-300 font-semibold font-mono">$ ${esc(e.event || 'event')}</span>
-              <span class="text-zinc-400 ml-1.5 break-all">${esc(e.desc || '—')}</span>
+        breadcrumbBox.innerHTML = events.map(e => {
+          let tagClass = 'text-zinc-400 bg-zinc-800/80 border-zinc-700/60';
+          let tagText = e.event || 'EVENT';
+          if (e.event === 'beforeShellExecution') {
+            tagClass = 'text-indigo-300 bg-indigo-950/60 border-indigo-800/60';
+            tagText = 'EXEC';
+          } else if (e.event === 'agentCompletion') {
+            tagClass = 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60';
+            tagText = 'AI';
+          } else if (e.event === 'sessionStart') {
+            tagClass = 'text-zinc-300 bg-zinc-800/80 border-zinc-700/60';
+            tagText = 'START';
+          } else if (e.event === 'toolFailure' || e.event === 'failed') {
+            tagClass = 'text-rose-300 bg-rose-950/60 border-rose-800/60';
+            tagText = 'FAIL';
+          }
+
+          return `
+            <div class="flex items-start justify-between text-zinc-400 bg-[#09090b] px-2.5 py-1.5 rounded border border-[#1e1e22]">
+              <div class="min-w-0 pr-2 flex items-baseline gap-1.5">
+                <span class="font-mono text-[9px] px-1 py-0.5 rounded border font-semibold ${tagClass}">${esc(tagText)}</span>
+                <span class="text-zinc-300 text-xs break-all">${esc(e.desc || '—')}</span>
+              </div>
+              <span class="text-[10px] text-zinc-600 font-mono shrink-0 tabular-nums">${esc(e.time || '--:--:--')}</span>
             </div>
-            <span class="text-[10px] text-zinc-600 font-mono shrink-0 tabular-nums">${esc(e.time || '--:--:--')}</span>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       }
     }
 
