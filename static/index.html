@@ -28,8 +28,14 @@
   </script>
   <style>
     :root { color-scheme: dark; }
+    html, body {
+      overflow-x: hidden;
+      max-width: 100vw;
+    }
     body { background: #09090b; }
-    .lane { max-height: calc(100vh - 8.75rem); }
+    @media (min-width: 1024px) {
+      .lane { max-height: calc(100vh - 8.75rem); }
+    }
     .task-card { transition: border-color 0.12s ease, transform 0.1s ease; }
     .task-card:hover { border-color: #3f3f46; }
     .overlay {
@@ -57,38 +63,38 @@
     input[type="search"]::-webkit-search-cancel-button { display: none; }
   </style>
 </head>
-<body class="min-h-screen text-zinc-200 font-sans antialiased selection:bg-zinc-800">
+<body class="min-h-screen text-zinc-200 font-sans antialiased selection:bg-zinc-800 overflow-x-hidden">
 
   <!-- 1. 顶部导航与全局状态 -->
   <header class="sticky top-0 z-30 border-b border-line bg-panel">
-    <div class="max-w-[1440px] mx-auto px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="max-w-[1440px] mx-auto px-3 sm:px-4 py-2 sm:py-2.5 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
       
-      <div class="flex items-center gap-3">
-        <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+        <div class="flex items-center gap-1.5 sm:gap-2">
           <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
           <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100 uppercase">AGENT MONITOR</span>
         </div>
         <span class="text-zinc-700">/</span>
-        <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-zinc-500">
+        <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] tabular-nums text-zinc-500">
           <span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>
           127.0.0.1:8000
         </span>
       </div>
 
-      <div class="flex items-center gap-3 font-mono text-[11px] tabular-nums">
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 font-mono text-[10px] sm:text-[11px] tabular-nums">
         <span class="text-amber-500"><span id="lbl-stat-running" class="uppercase tracking-wide">ACTIVE:</span> <span id="stat-running">0</span></span>
         <span class="text-zinc-200"><span id="lbl-stat-completed" class="uppercase tracking-wide">IDLE/DONE:</span> <span id="stat-completed">0</span></span>
         <span class="text-zinc-500"><span id="lbl-stat-avg" class="uppercase tracking-wide">AVG_LIFETIME:</span> <span id="stat-avg">00m 00s</span></span>
       </div>
 
-      <div class="flex items-center gap-2 flex-1 min-w-[280px] justify-end">
-        <label class="relative flex-1 max-w-xs">
+      <div class="flex flex-wrap items-center gap-1.5 sm:gap-2 w-full md:w-auto md:flex-1 justify-start md:justify-end min-w-0">
+        <label class="relative flex-1 md:flex-initial min-w-[140px] max-w-full md:max-w-xs">
           <span class="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-zinc-600">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
           </span>
           <input id="search-input" type="search" placeholder="筛选会话"
-            class="w-full h-7 pl-7 pr-11 rounded bg-card border border-line text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
-          <kbd class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
+            class="w-full h-7 pl-7 pr-3 sm:pr-11 rounded bg-card border border-line text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
+          <kbd class="hidden sm:inline-block pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
         </label>
         <div id="agent-filters" class="flex items-center gap-1 flex-wrap" role="group" aria-label="Agent filter"></div>
         <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
@@ -103,7 +109,7 @@
   </header>
 
   <!-- 2. 看板三列主体 -->
-  <main class="max-w-[1440px] mx-auto px-4 py-3">
+  <main class="max-w-[1440px] mx-auto px-3 sm:px-4 py-3">
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
       
       <!-- 活跃中 (ACTIVE WORKFLOWS) -->
@@ -115,7 +121,7 @@
           </span>
           <span id="count-running" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-running" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
+        <div id="col-running" class="lane overflow-y-visible lg:overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
 
       <!-- 已完结/就绪 (IDLE / COMPLETED SESSIONS) -->
@@ -127,7 +133,7 @@
           </span>
           <span id="count-completed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-completed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
+        <div id="col-completed" class="lane overflow-y-visible lg:overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
 
       <!-- 异常/终止 (TERMINATED / FAILED) -->
@@ -139,7 +145,7 @@
           </span>
           <span id="count-failed" class="font-mono text-[11px] tabular-nums text-zinc-500">0</span>
         </h2>
-        <div id="col-failed" class="lane overflow-y-auto space-y-2 pr-0.5"></div>
+        <div id="col-failed" class="lane overflow-y-visible lg:overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
 
     </div>
@@ -147,7 +153,7 @@
 
   <!-- 3. 企业级多轮工作流抽屉 (支持宽屏/全屏展开与 Run 步进器) -->
   <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/60"></div>
-  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line flex flex-col p-5 overflow-y-auto" aria-hidden="true">
+  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line flex flex-col p-3.5 sm:p-5 overflow-y-auto" aria-hidden="true">
     
     <!-- 抽屉顶部 Bar -->
     <div class="flex items-center justify-between gap-2 pb-3 border-b border-line">
@@ -157,7 +163,7 @@
         <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
       <div class="flex items-center gap-1.5">
-        <button id="btn-toggle-widescreen" type="button" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 flex items-center gap-1">
+        <button id="btn-toggle-widescreen" type="button" class="hidden md:flex px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 items-center gap-1">
           <svg id="icon-expand" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
           <span id="lbl-widescreen">宽屏</span>
         </button>
@@ -168,10 +174,10 @@
     </div>
 
     <!-- 会话整体容器 (SESSION CONTAINER) -->
-    <div class="mt-4 pb-4 border-b border-[#1e1e22]">
+    <div class="mt-3 sm:mt-4 pb-3 sm:pb-4 border-b border-[#1e1e22]">
       <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
-      <h2 id="drawer-root-title" class="text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
-      <div class="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-[11px] text-zinc-500 mt-2">
+      <h2 id="drawer-root-title" class="text-xs sm:text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
+      <div class="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 font-mono text-[10px] sm:text-[11px] text-zinc-500 mt-2">
         <span id="drawer-session-id">ID: -</span>
         <span id="drawer-total-duration">Lifetime: -</span>
         <span id="drawer-runs-count">Total Runs: -</span>
@@ -179,27 +185,27 @@
     </div>
 
     <!-- 工业级核心组件：Run 步进器与自定义下拉切换器 (Linear/Sentry Run Switcher) -->
-    <div class="mt-4 flex items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
-      <div class="flex items-center gap-1.5">
-        <button id="btn-prev-run" type="button" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+    <div class="mt-3 sm:mt-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
+      <div class="flex items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
+        <button id="btn-prev-run" type="button" class="flex-1 sm:flex-initial px-2.5 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
           ◀ Prev Run
         </button>
-        <button id="btn-next-run" type="button" class="px-2 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
+        <button id="btn-next-run" type="button" class="flex-1 sm:flex-initial px-2.5 py-1 bg-[#18181b] hover:bg-zinc-800 border border-line rounded font-mono text-[11px] text-zinc-300 transition-colors disabled:opacity-30">
           Next Run ▶
         </button>
       </div>
 
       <!-- 自定义暗色 Dropdown 下拉选择器 -->
-      <div class="relative flex items-center gap-2 min-w-0" id="run-dropdown-container">
+      <div class="relative flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto min-w-0" id="run-dropdown-container">
         <span class="font-mono text-[10px] text-zinc-500 shrink-0 uppercase select-none tracking-wider">JUMP TO:</span>
         
-        <div class="relative">
+        <div class="relative flex-1 sm:flex-initial">
           <button 
             id="run-dropdown-trigger" 
             type="button" 
             aria-haspopup="listbox" 
             aria-expanded="false" 
-            class="group flex items-center gap-2 bg-[#18181b] hover:bg-[#202024] active:bg-[#151518] border border-line hover:border-zinc-500 text-zinc-200 font-mono text-[11px] px-2.5 py-1 rounded transition-colors duration-150 outline-none max-w-[260px] cursor-pointer"
+            class="group flex items-center justify-between sm:justify-start gap-2 bg-[#18181b] hover:bg-[#202024] active:bg-[#151518] border border-line hover:border-zinc-500 text-zinc-200 font-mono text-[11px] px-2.5 py-1 rounded transition-colors duration-150 outline-none w-full sm:max-w-[260px] cursor-pointer"
           >
             <span id="run-trigger-badge" class="inline-flex items-center gap-1.5 shrink-0">
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
@@ -216,7 +222,7 @@
             id="run-dropdown-menu" 
             role="listbox" 
             tabindex="-1"
-            class="hidden absolute right-0 top-full mt-1.5 w-72 sm:w-80 bg-[#121316]/98 backdrop-blur-md border border-[#27272a] rounded-lg shadow-2xl p-1 z-50 max-h-64 overflow-y-auto focus:outline-none"
+            class="hidden absolute right-0 top-full mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-2.5rem)] bg-[#121316]/98 backdrop-blur-md border border-[#27272a] rounded-lg shadow-2xl p-1 z-50 max-h-64 overflow-y-auto focus:outline-none"
           >
             <div id="run-dropdown-options" class="space-y-0.5"></div>
           </div>
@@ -225,7 +231,7 @@
     </div>
 
     <!-- 选中的 Run 执行明细 -->
-    <div class="mt-4 bg-card border border-line rounded-md p-4 space-y-3 flex-1 flex flex-col">
+    <div class="mt-3 sm:mt-4 bg-card border border-line rounded-md p-3 sm:p-4 space-y-3 flex-1 flex flex-col">
       <div class="flex items-center justify-between pb-2 border-b border-[#1e1e22]">
         <div class="flex items-center gap-2">
           <span id="run-detail-title" class="font-mono text-xs font-semibold text-zinc-200">RUN #1 DETAILS</span>
@@ -236,7 +242,7 @@
 
       <div>
         <div class="font-mono text-[10px] text-zinc-500 uppercase" id="lbl-drawer-goal">PROMPT / GOAL FOR THIS RUN</div>
-        <p id="run-detail-prompt" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap max-h-48 overflow-y-auto bg-black/30 p-2.5 rounded border border-line"></p>
+        <p id="run-detail-prompt" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-48 overflow-y-auto bg-black/30 p-2.5 rounded border border-line"></p>
       </div>
 
       <!-- Sentry 风格 Hook 面包屑 (Lifecycle Hook Breadcrumbs) -->
@@ -518,14 +524,14 @@
           </div>
 
           <!-- 底部复合耗时与状态 -->
-          <div class="flex items-center justify-between font-mono text-[10px] text-zinc-500 pt-1.5 border-t border-[#1e1e22]">
-            <span class="flex items-center gap-1.5 ${isRunning ? 'text-amber-400' : 'text-zinc-400'}">
-              <span class="live-run-timer" data-start="${tObj.activeRunStart || Date.now()}" data-running="${isRunning}">
+          <div class="flex flex-wrap sm:flex-nowrap items-center justify-between gap-y-1 font-mono text-[10px] text-zinc-500 pt-1.5 border-t border-[#1e1e22] min-w-0">
+            <span class="flex items-center gap-1.5 ${isRunning ? 'text-amber-400' : 'text-zinc-400'} min-w-0 flex-1 truncate">
+              <span class="live-run-timer shrink-0" data-start="${tObj.activeRunStart || Date.now()}" data-running="${isRunning}">
                 ${formatSec(curRunSec)} (Run #${runs.length})
               </span>
-              <span class="text-zinc-600">· tot ${formatSec(lifetimeSec)} · ${passedCount}/${runs.length} done</span>
+              <span class="text-zinc-600 truncate">· tot ${formatSec(lifetimeSec)} · ${passedCount}/${runs.length} done</span>
             </span>
-            <span class="truncate ml-2 text-zinc-600">${esc(tObj.id)}</span>
+            <span class="truncate ml-1.5 text-zinc-600 shrink-0">${esc(tObj.id)}</span>
           </div>
 
         </article>`;
