@@ -57,12 +57,20 @@ go install github.com/Zelayan/agent-monitor/cmd/reporter@latest
 
 ### 方式三：Docker 容器运行
 
+推送 `v*` Tag 后，linux/amd64 与 linux/arm64 镜像会同时发布到 GHCR 与 Docker Hub（`latest` 与对应版本号）。
+
 ```bash
-# 启动持久化监控容器
+# GitHub Container Registry
 docker run -d --name agent-monitor \
   -p 8000:8000 \
   -v $(pwd)/data:/app/data \
   ghcr.io/zelayan/agent-monitor:latest
+
+# 或 Docker Hub
+docker run -d --name agent-monitor \
+  -p 8000:8000 \
+  -v $(pwd)/data:/app/data \
+  zelayan/agent-monitor:latest
 ```
 
 ### 方式四：源码本地构建
