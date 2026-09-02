@@ -196,13 +196,14 @@ agent-reporter config
 {
   "require_tag": "#task",
   "server_url": "http://127.0.0.1:8000/api/event",
+  "api_key": "your-secret-api-key",
   "disabled": false
 }
 ```
 
 ### Priority Hierarchy:
-1. **CLI Flag**: `--require-tag` / `--server`
-2. **Environment Variables**: `AGENT_MONITOR_REQUIRE_TAG` / `AGENT_MONITOR_URL`
+1. **CLI Flag**: `--require-tag` / `--server` / `--api-key`
+2. **Environment Variables**: `AGENT_MONITOR_REQUIRE_TAG` / `AGENT_MONITOR_URL` / `AGENT_MONITOR_API_KEY`
 3. **Project Config**: `<workspace>/.agent-monitor.json`
 4. **Global Config**: `~/.agent-monitor/config.json`
 
@@ -211,5 +212,6 @@ agent-reporter config
   - Only prompts containing the tag will be reported to Agent Monitor.
   - Set to `""` in project-level `.agent-monitor.json` to force monitoring all sessions in that specific workspace.
 - **`server_url`**: Set a local or remote monitor server URL (e.g. `"http://192.168.1.100:8000/api/event"`).
+- **`api_key`**: Secret token for authenticating events sent to protected monitor servers.
 - **`disabled`**: Temporarily pause monitoring without removing any hooks (`true` / `false`).
 

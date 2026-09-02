@@ -136,10 +136,41 @@ export AGENT_MONITOR_URL="http://192.168.1.100:8000"
 # export AGENT_MONITOR_URL="https://192.168.1.100"
 ```
 
+---
+
+## 6. 远端安全：启用 API Key 访问控制
+
+当将 Agent Monitor 部署于公网 VPS 或团队共享局域网时，强烈建议启用 **API Key 访问控制**，防止未授权访问或恶意删除：
+
+### 1. 服务端启用鉴权
+在启动 `agent-monitor` 时设置环境变量或命令行标志：
+```bash
+# 方式一：环境变量
+export AGENT_MONITOR_API_KEY="your-strong-secret-token"
+agent-monitor
+
+# 方式二：命令行参数
+agent-monitor --api-key "your-strong-secret-token"
+```
+
+### 2. 客户端 Reporter 配置 Token
+在本地开发机上通过配置继承或环境变量配置相同的 API Key：
+```bash
+# 写入全局配置
+agent-reporter init-config --url "http://192.168.1.100:8000/api/event" --api-key "your-strong-secret-token"
+
+# 或通过环境变量
+export AGENT_MONITOR_API_KEY="your-strong-secret-token"
+```
+
+### 3. 前端 Web 看板填入 Token
+在浏览器访问看板时，点击右上角的 **🔑 鉴权设置** 图标，填入对应的 API Key 并保存。密钥将保存在当前浏览器的 `localStorage` 中，后续 SSE 实时流和任务管理将自动携带 Token。
+
 测试联通性：
 ```bash
 curl -X POST "$AGENT_MONITOR_URL/api/event" \
   -H "Content-Type: application/json" \
-  -d '{"id":"ping-test","event":"SessionStart","agent":"Ping","title":"Remote Connectivity Test"}'
+  -H "Authorization: Bearer your-strong-secret-token" \
+  -d '{\"id\":\"ping-test\",\"event\":\"SessionStart\",\"agent\":\"Ping\",\"title\":\"Remote Connectivity Test\"}'
 ```
 远端仪表盘若实时显示 `Remote Connectivity Test` 任务卡片，即表示远端协同监控已成功建立！

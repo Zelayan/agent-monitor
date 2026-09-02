@@ -55,6 +55,8 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 - **🛡️ 毫秒级 Fail-Safe 拦截铁律**：`agent-reporter` 拦截器遇任何故障、网络超时或宕机均在毫秒内静默放行（`continue: true`），**绝不阻断日常编码**。
 - **🌐 100% 离线内嵌**：通过 `go:embed` 将前端页面、离线样式、JS 运行时与本地字体完整编译进二进制，内网或脱机环境开箱即用。
 - **🖥️ PWA 桌面独立应用**：内置 Web App Manifest 与 Service Worker，支持桌面安装为无浏览器边框的沉浸式黑底客户端。
+- **🔔 桌面原生通知（Web Notifications）**：任务从运行到完成或异常中断时向操作系统发送原生桌面弹窗，点击即可快速唤起并展开该任务详情。
+- **🔒 API Key 访问控制**：支持通过 `AGENT_MONITOR_API_KEY`（或 `--api-key`）开启轻量鉴权，防范公网/局域网未授权写入与误清空。
 - **⏱️ 多轮 Run 会话矩阵（Multi-Turn Timeline）**：自动聚合单会话内的多轮交互，按轮次隔离耗时，清晰还原工具调用（Bash、Edit、Read 等）的完整树状轨迹。
 - **🔍 智能多 Agent 动态嗅探**：通过会话上下文与环境变量自适应推断来源（Claude Code、Cursor、ZCode、Aider、Trae 等），无需繁琐手工配置。
 
@@ -118,9 +120,9 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 如果你希望**全局默认只监控重要任务（如带有 `#task` 的 Prompt），忽略日常随意闲聊**，或者针对**核心业务项目开启全量追踪**：
 
-- **初始化全局配置**：
+- **初始化全局配置（可同时配置 API Key）**：
   ```bash
-  agent-reporter init-config --tag "#task"
+  agent-reporter init-config --tag "#task" --api-key "your-secret-token"
   ```
 - **针对当前项目定制覆盖**（在当前项目根目录生成 `.agent-monitor.json`）：
   ```bash
@@ -131,7 +133,7 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
   agent-reporter config
   ```
 
-配置优先级遵循就近原则：**命令行参数 > 环境变量 > 项目配置 (`.agent-monitor.json`) > 全局配置 (`~/.agent-monitor/config.json`)**。详细说明见 **[🔌 Agent 集成与配置手册](docs/AGENT_INTEGRATION.md)**。
+配置优先级遵循就近原则：**命令行参数 > 环境变量 (`AGENT_MONITOR_API_KEY` 等) > 项目配置 (`.agent-monitor.json`) > 全局配置 (`~/.agent-monitor/config.json`)**。详细说明见 **[🔌 Agent 集成与配置手册](docs/AGENT_INTEGRATION.md)**。
 
 ---
 
@@ -139,10 +141,10 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 | Method | Endpoint | 用途 | 说明 |
 | :--- | :--- | :--- | :--- |
-| `POST` | `/api/event` | Hook 事件上报 | 接收各 Agent 触发的生命周期事件（JSON 格式） |
-| `GET` | `/api/stream` | SSE 实时事件流 | Server-Sent Events，向前端实时推送状态广播 |
+| `POST` | `/api/event` | Hook 事件上报 | 接收各 Agent 触发的生命周期事件（支持 `Authorization: Bearer <key>`） |
+| `GET` | `/api/stream` | SSE 实时事件流 | Server-Sent Events（支持 `?token=<key>` 或 Header 鉴权） |
 | `GET` | `/api/tasks` | 获取所有任务 | 返回当前内存/磁盘上的全量会话聚合数据 |
-| `DELETE` | `/api/tasks` | 清空历史任务 | 清理所有已完成与闲置的会话 |
+| `DELETE` | `/api/tasks` | 清空历史任务 | 支持 `?all=true` 或指定 `ids` 列表批量删除 |
 | `GET` | `/manifest.json` | PWA 清单 | 提供应用元数据与离线图标描述 |
 
 ---
