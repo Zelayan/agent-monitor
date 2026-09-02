@@ -122,25 +122,104 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	return task
 }
 
+// IsStartHook 判断事件是否为一轮对话的开端（新 Prompt / 会话启动）。
+func IsStartHook(event string) bool {
+	switch event {
+	case "sessionStart", "onStart", "beforeSubmitPrompt", "UserPromptSubmit", "SessionStart":
+		return true
+	default:
+		return false
+	}
+}
+
 // ShouldStartNewTurn 判断是否应该为当前 Task 开启新的一轮（Run）。
 func (t *Task) ShouldStartNewTurn(p EventPayload) bool {
 	if len(t.Runs) == 0 {
 		return true
 	}
 	curRun := &t.Runs[len(t.Runs)-1]
-	isStartEvent := (p.Event == "sessionStart" || p.Event == "beforeSubmitPrompt" || p.Event == "UserPromptSubmit" || p.Event == "SessionStart")
 
-	if isStartEvent && (curRun.Status == "completed" || curRun.Status == "failed") {
+	// 工具 / 完成类事件绝不能靠虚高的 turn_index 拆出新轮，否则会出现
+	// 「中间一轮卡在 running、后续轮次已 completed」的空洞矩阵。
+	if !IsStartHook(p.Event) {
+		return false
+	}
+	if curRun.Status == "completed" || curRun.Status == "failed" {
 		return true
 	}
+
+	// 首轮刚创建（NewTask 后立刻 ApplyEvent 同一条事件，或 sessionStart 后第一条 Prompt）
+	// 仍属于填充当前轮，不能被虚高 turn_index 拆开。
+	if t.isInitializingFirstRun(curRun, p) {
+		return false
+	}
+
 	if p.TurnIndex > t.TotalRuns {
+		return true
+	}
+	// stop 丢失时 turn_index 可能仍不准，但新 Prompt 正文已变，视为用户开启了下一轮。
+	if p.Prompt != "" && curRun.Prompt != "" && p.Prompt != curRun.Prompt {
 		return true
 	}
 	return false
 }
 
-// StartNewTurn 为会话开启新的一轮执行周期。
-func (t *Task) StartNewTurn(p EventPayload, nowMs int64) {
+func (t *Task) isInitializingFirstRun(curRun *Turn, p EventPayload) bool {
+	if t.TotalRuns != 1 || curRun == nil {
+		return false
+	}
+	if len(curRun.Timeline) > 0 {
+		return false
+	}
+	return curRun.Prompt == "" || p.Prompt == "" || curRun.Prompt == p.Prompt
+}
+
+// closeAs 将仍在执行的一轮收口为终态，并写入耗时。已结束的轮次不会被覆盖。
+func (r *Turn) closeAs(status string, nowMs int64) {
+	if r == nil {
+		return
+	}
+	if r.Status == "completed" || r.Status == "failed" {
+		return
+	}
+	r.Status = status
+	r.EndTime = nowMs
+	diffSec := (r.EndTime - r.StartTime) / 1000
+	if diffSec < 0 {
+		diffSec = 0
+	}
+	r.Duration = FormatDuration(diffSec)
+}
+
+func (t *Task) recountLifetime() {
+	var totalSec int64
+	for _, r := range t.Runs {
+		if r.EndTime > r.StartTime {
+			totalSec += (r.EndTime - r.StartTime) / 1000
+		}
+	}
+	t.TotalLifetime = totalSec
+	t.Duration = FormatDuration(totalSec)
+}
+
+// StartNewTurn 为会话开启新的一轮执行周期。若上一轮仍在 running，先将其收口，避免矩阵出现空洞。
+func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
+	if len(t.Runs) > 0 {
+		prev := &t.Runs[len(t.Runs)-1]
+		if prev.Status == "running" || prev.Status == "" {
+			prev.closeAs("completed", nowMs)
+			if nowStr == "" {
+				nowStr = time.Unix(nowMs/1000, 0).Format("15:04:05")
+			}
+			prev.Timeline = append(prev.Timeline, TimelineItem{
+				Time:  nowStr,
+				Event: "runSuperseded",
+				Desc:  "下一轮已开始，本轮自动收口",
+			})
+			t.recountLifetime()
+		}
+	}
+
 	newIdx := t.TotalRuns + 1
 	newTitle := p.Title
 	if !IsRealTitle(newTitle) {
@@ -173,7 +252,7 @@ func (t *Task) StartNewTurn(p EventPayload, nowMs int64) {
 // ApplyEvent 将 Hook 上报事件应用到当前 Task 聚合根并更新状态机。
 func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 	if t.ShouldStartNewTurn(p) {
-		t.StartNewTurn(p, nowMs)
+		t.StartNewTurn(p, nowMs, nowStr)
 	}
 
 	curRunIdx := len(t.Runs) - 1
@@ -236,47 +315,16 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Status = "running"
 		t.ActiveRunStart = curRun.StartTime
 	case "agentCompletion", "onComplete", "complete", "Stop", "stop", "SessionEnd", "sessionEnd":
-		curRun.Status = "completed"
-		curRun.EndTime = nowMs
-		diffSec := (curRun.EndTime - curRun.StartTime) / 1000
-		if diffSec < 0 {
-			diffSec = 0
-		}
-		curRun.Duration = FormatDuration(diffSec)
-
+		curRun.closeAs("completed", nowMs)
 		t.Status = "completed"
 		t.EndTime = nowMs
-
-		// 重新计算全生命周期总执行秒数
-		var totalSec int64 = 0
-		for _, r := range t.Runs {
-			if r.EndTime > r.StartTime {
-				totalSec += (r.EndTime - r.StartTime) / 1000
-			}
-		}
-		t.TotalLifetime = totalSec
-		t.Duration = FormatDuration(totalSec)
+		t.recountLifetime()
 	case "failed", "error":
 		// 会话级中断/崩溃（Cursor stop 的 aborted/error 由上报器映射为 failed）
-		curRun.Status = "failed"
-		curRun.EndTime = nowMs
-		diffSec := (curRun.EndTime - curRun.StartTime) / 1000
-		if diffSec < 0 {
-			diffSec = 0
-		}
-		curRun.Duration = FormatDuration(diffSec)
-
+		curRun.closeAs("failed", nowMs)
 		t.Status = "failed"
 		t.EndTime = nowMs
-
-		var totalSec int64 = 0
-		for _, r := range t.Runs {
-			if r.EndTime > r.StartTime {
-				totalSec += (r.EndTime - r.StartTime) / 1000
-			}
-		}
-		t.TotalLifetime = totalSec
-		t.Duration = FormatDuration(totalSec)
+		t.recountLifetime()
 	case "toolFailure", "PostToolUseFailure", "postToolUseFailure":
 		// 单个工具执行异常（如 bash 非零退出），非致命中断，任务与 Run 保持 running
 		if curRun.Status == "" {

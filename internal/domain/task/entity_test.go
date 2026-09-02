@@ -204,3 +204,129 @@ func TestTask_CursorAfterAgentResponseAndStopDedupsAIReply(t *testing.T) {
 		t.Fatalf("stop should still complete the run, got task=%s run=%s", task.Status, task.Runs[0].Status)
 	}
 }
+
+func TestTask_DoesNotSplitFirstRunOnInflatedTurnIndex(t *testing.T) {
+	p := EventPayload{
+		ID:        "sess-init",
+		Event:     "sessionStart",
+		Prompt:    "第一轮问题",
+		TurnIndex: 3,
+	}
+	task := NewTask(p, 1000000)
+	task.ApplyEvent(p, 1000000, "10:00:00")
+	if len(task.Runs) != 1 {
+		t.Fatalf("first event must stay on run 1, got %d runs", len(task.Runs))
+	}
+	if task.Runs[0].Status != "running" {
+		t.Fatalf("run 1 status = %s", task.Runs[0].Status)
+	}
+}
+
+func TestTask_ToolEventCannotJumpTurn(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-tool",
+		Event:  "sessionStart",
+		Prompt: "问 A",
+	}, 1000000)
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-tool",
+		Event:     "sessionStart",
+		Prompt:    "问 A",
+		TurnIndex: 1,
+		Detail:    "start",
+	}, 1000000, "10:00:00")
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-tool",
+		Event:     "beforeShellExecution",
+		Detail:    "ls",
+		TurnIndex: 3,
+	}, 1005000, "10:00:05")
+	if len(task.Runs) != 1 {
+		t.Fatalf("tool event must not open a new run, got %d", len(task.Runs))
+	}
+	if task.Runs[0].Status != "running" {
+		t.Fatalf("run status = %s", task.Runs[0].Status)
+	}
+}
+
+func TestTask_NewPromptWhileRunningClosesPrevious(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-gap",
+		Event:  "sessionStart",
+		Prompt: "问 A",
+	}, 1000000)
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-gap",
+		Event:     "sessionStart",
+		Prompt:    "问 A",
+		TurnIndex: 1,
+		Detail:    "start",
+	}, 1000000, "10:00:00")
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-gap",
+		Event:     "beforeShellExecution",
+		Detail:    "grep",
+		TurnIndex: 1,
+	}, 1010000, "10:00:10")
+
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-gap",
+		Event:     "sessionStart",
+		Prompt:    "问 B",
+		TurnIndex: 2,
+		Detail:    "next prompt",
+	}, 1020000, "10:00:20")
+
+	if len(task.Runs) != 2 {
+		t.Fatalf("expected 2 runs, got %d", len(task.Runs))
+	}
+	if task.Runs[0].Status != "completed" {
+		t.Fatalf("run 1 should be auto-closed, got %s", task.Runs[0].Status)
+	}
+	if task.Runs[0].Duration == "" {
+		t.Fatalf("auto-closed run should record duration")
+	}
+	if task.Runs[1].Status != "running" || task.Runs[1].Prompt != "问 B" {
+		t.Fatalf("run 2 should be running with new prompt, status=%s prompt=%q", task.Runs[1].Status, task.Runs[1].Prompt)
+	}
+
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-gap",
+		Event:     "agentCompletion",
+		Detail:    "done",
+		TurnIndex: 3,
+	}, 1030000, "10:00:30")
+	if task.Status != "completed" {
+		t.Fatalf("task should complete, got %s", task.Status)
+	}
+	if task.Runs[0].Status != "completed" || task.Runs[1].Status != "completed" {
+		t.Fatalf("no run should remain running, got %s / %s", task.Runs[0].Status, task.Runs[1].Status)
+	}
+}
+
+func TestTask_NewPromptWithoutTurnIndexStillAdvances(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-prompt",
+		Event:  "sessionStart",
+		Prompt: "问 A",
+	}, 1000000)
+	task.ApplyEvent(EventPayload{
+		ID:     "sess-prompt",
+		Event:  "sessionStart",
+		Prompt: "问 A",
+		Detail: "start",
+	}, 1000000, "10:00:00")
+	task.ApplyEvent(EventPayload{
+		ID:     "sess-prompt",
+		Event:  "UserPromptSubmit",
+		Prompt: "问 B",
+		Detail: "follow-up",
+	}, 1020000, "10:00:20")
+
+	if len(task.Runs) != 2 {
+		t.Fatalf("expected 2 runs from changed prompt, got %d", len(task.Runs))
+	}
+	if task.Runs[0].Status != "completed" || task.Runs[1].Status != "running" {
+		t.Fatalf("previous run should close, got %s / %s", task.Runs[0].Status, task.Runs[1].Status)
+	}
+}

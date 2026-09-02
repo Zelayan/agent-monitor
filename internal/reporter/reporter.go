@@ -591,10 +591,8 @@ func ExtractTurnInfo(payload Payload, sessionID string, turnArg int) (int, strin
 		}
 	}
 
-	if directPrompt != "" {
-		if len(allPrompts) == 0 || allPrompts[len(allPrompts)-1] != directPrompt {
-			allPrompts = append(allPrompts, directPrompt)
-		}
+	if directPrompt != "" && !containsPrompt(allPrompts, directPrompt) {
+		allPrompts = append(allPrompts, directPrompt)
 	}
 
 	turnCount := len(allPrompts)
@@ -638,7 +636,7 @@ func readUserPrompts(path string) []string {
 			continue
 		}
 		text := textFromTranscriptLine(obj)
-		if text != "" {
+		if text != "" && (len(prompts) == 0 || prompts[len(prompts)-1] != text) {
 			prompts = append(prompts, text)
 		}
 	}
@@ -649,7 +647,44 @@ func textFromTranscriptLine(obj map[string]interface{}) string {
 	if role, _ := obj["role"].(string); role != "user" {
 		return ""
 	}
-	return UnwrapUserQuery(contentTextFromObj(obj))
+	raw := contentTextFromObj(obj)
+	if !isCountableUserPrompt(raw) {
+		return ""
+	}
+	return UnwrapUserQuery(raw)
+}
+
+func containsPrompt(prompts []string, prompt string) bool {
+	for _, existing := range prompts {
+		if existing == prompt {
+			return true
+		}
+	}
+	return false
+}
+
+// isCountableUserPrompt 过滤 transcript 里不当作「用户新一轮」的注入消息
+//（附件、工作区快照等），避免 turn_index 虚高把仍在 running 的一轮顶掉。
+func isCountableUserPrompt(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return false
+	}
+	if strings.Contains(raw, "<user_query>") {
+		return UnwrapUserQuery(raw) != ""
+	}
+	for _, tag := range []string{
+		"<attached_files>",
+		"<agent_transcript>",
+		"<git_status>",
+		"<open_and_recently_viewed_files>",
+		"<user_info>",
+	} {
+		if strings.Contains(raw, tag) {
+			return false
+		}
+	}
+	return true
 }
 
 func contentTextFromObj(obj map[string]interface{}) string {

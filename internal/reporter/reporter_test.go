@@ -281,3 +281,26 @@ func TestExtractAIResponseFromCursorTranscript(t *testing.T) {
 		t.Errorf("turn/prompt = %d %q", turns, curr)
 	}
 }
+
+func TestExtractTurnInfo_DoesNotInflateWithAttachmentsOrDuplicatePrompt(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/sess.jsonl"
+	content := `{"role":"user","message":{"content":[{"type":"text","text":"<user_query>分析适配</user_query>"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<attached_files>\nfoo.go\n</attached_files>"}]}}
+{"role":"user","message":{"content":[{"type":"text","text":"<user_query>分析适配</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"先看 Hook 协议。"}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	turns, curr, _ := ExtractTurnInfo(Payload{
+		TranscriptPath: path,
+		Prompt:         "<user_query>分析适配</user_query>",
+	}, "sess", 0)
+	if turns != 1 {
+		t.Errorf("turns = %d; want 1 (attachments and duplicate payload must not inflate)", turns)
+	}
+	if curr != "分析适配" {
+		t.Errorf("current prompt = %q", curr)
+	}
+}
