@@ -3,6 +3,7 @@ package reporter
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -388,5 +389,61 @@ func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
 		}
 		if ctrl.Reason != "Manually aborted from dashboard" {
 			t.Fatalf("expected ctrl.Reason 'Manually aborted from dashboard', got %q", ctrl.Reason)
+		}
+	}
+
+	func TestMultiTurnRequireTagSessionTracking(t *testing.T) {
+		sessionID := "sess-multiturn-tag-test"
+		cleanID := strings.ReplaceAll(sessionID, "/", "_")
+		trackFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
+		promptsFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+		_ = os.Remove(trackFile)
+		_ = os.Remove(promptsFile)
+		defer func() {
+			_ = os.Remove(trackFile)
+			_ = os.Remove(promptsFile)
+		}()
+
+		// 1. Turn 1 携带 #task
+		p1 := Payload{
+			Prompt: "#task 帮我重构代码",
+		}
+		turn1, curr1, first1 := ExtractTurnInfo(p1, sessionID, 0)
+		if turn1 != 1 || curr1 != "#task 帮我重构代码" || first1 != "#task 帮我重构代码" {
+			t.Fatalf("unexpected turn 1: turn=%d curr=%q first=%q", turn1, curr1, first1)
+		}
+
+		cfg := GlobalConfig{RequireTag: "#task"}
+		if !cfg.MatchesRequireTag(curr1, first1, ShortTitle(curr1)) {
+			t.Fatalf("turn 1 should match require_tag #task")
+		}
+		markSessionTracked(sessionID, first1)
+
+		// 验证已经标记
+		if !isSessionTracked(sessionID) {
+			t.Fatalf("session should be tracked after turn 1")
+		}
+
+		// 2. Turn 2 不携带 #task（普通追问）
+		p2 := Payload{
+			Prompt: "再帮我写一个测试用例",
+		}
+		turn2, curr2, first2 := ExtractTurnInfo(p2, sessionID, 0)
+		if turn2 != 2 {
+			t.Fatalf("expected turn 2 count = 2, got %d", turn2)
+		}
+		if curr2 != "再帮我写一个测试用例" {
+			t.Fatalf("expected curr2 to be turn 2 prompt, got %q", curr2)
+		}
+		if first2 != "#task 帮我重构代码" {
+			t.Fatalf("expected first2 to remember first prompt '#task 帮我重构代码', got %q", first2)
+		}
+
+		// 验证即使当前轮 Prompt 没有 #task，因为 firstPrompt 有 #task，依然命中标签规则
+		if !cfg.MatchesRequireTag(curr2, first2, ShortTitle(curr2)) {
+			t.Fatalf("turn 2 should match require_tag because firstPrompt has #task")
+		}
+		if !isSessionTracked(sessionID) {
+			t.Fatalf("session should still be tracked in turn 2")
 		}
 	}

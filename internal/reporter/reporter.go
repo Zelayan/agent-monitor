@@ -373,17 +373,72 @@ func isSessionTracked(sessionID string) bool {
 	return err == nil
 }
 
-func markSessionTracked(sessionID string) {
+func markSessionTracked(sessionID, firstPrompt string) {
 	p := sessionTrackedFile(sessionID)
 	if p != "" {
-		_ = os.WriteFile(p, []byte("1"), 0644)
+		_ = os.WriteFile(p, []byte(firstPrompt), 0644)
 	}
+}
+
+func getSessionTrackedPrompt(sessionID string) string {
+	p := sessionTrackedFile(sessionID)
+	if p == "" {
+		return ""
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 func unmarkSessionTracked(sessionID string) {
 	p := sessionTrackedFile(sessionID)
 	if p != "" {
 		_ = os.Remove(p)
+	}
+}
+
+func sessionPromptsFile(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	cleanID := strings.ReplaceAll(sessionID, "/", "_")
+	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+}
+
+func readSessionPrompts(sessionID string) []string {
+	p := sessionPromptsFile(sessionID)
+	if p == "" {
+		return nil
+	}
+	data, err := os.ReadFile(p)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	var prompts []string
+	if err := json.Unmarshal(data, &prompts); err == nil {
+		return prompts
+	}
+	return nil
+}
+
+func recordSessionPrompt(sessionID, prompt string) {
+	prompt = strings.TrimSpace(prompt)
+	if sessionID == "" || prompt == "" {
+		return
+	}
+	existing := readSessionPrompts(sessionID)
+	for _, prev := range existing {
+		if prev == prompt {
+			return
+		}
+	}
+	existing = append(existing, prompt)
+	if data, err := json.Marshal(existing); err == nil {
+		p := sessionPromptsFile(sessionID)
+		_ = os.WriteFile(p, data, 0644)
 	}
 }
 
@@ -484,7 +539,7 @@ func Run(cfg Config, inputReader io.Reader) {
 		if strings.TrimSpace(effectiveCfg.RequireTag) != "" {
 			hasTag := effectiveCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
 			if hasTag {
-				markSessionTracked(sessionID)
+				markSessionTracked(sessionID, firstPrompt)
 			} else {
 				// 未命中标签，检查此前是否已被激活（多轮历史）
 				if !isSessionTracked(sessionID) {
@@ -547,11 +602,6 @@ func Run(cfg Config, inputReader io.Reader) {
 
 		// 10. 先补报失败队列，再发当前事件；接收服务端返回的控制决策
 		_, ctrl := DeliverEventWithAction(cfg.ServerURL, cfg.APIKey, data)
-
-		// 10.1 若为会话终止或收口事件，清理临时追踪标记
-		if eventName == "Stop" || eventName == "stop" || eventName == "SessionEnd" || eventName == "sessionEnd" {
-			unmarkSessionTracked(sessionID)
-		}
 
 		// 11. 根据控制决策输出响应协议（支持从 Web 看板反向中断/拒绝）
 		RespondWithAction(eventName, agentName, ctrl)
@@ -754,8 +804,18 @@ func ExtractTurnInfo(payload Payload, sessionID string, turnArg int) (int, strin
 		}
 	}
 
-	if directPrompt != "" && !containsPrompt(allPrompts, directPrompt) {
-		allPrompts = append(allPrompts, directPrompt)
+	// 合并会话本地持久化已记录的 Prompt 历史（针对无本地 transcript 文件的 Agent，如 ZCode / Codex CLI 等）
+	if len(allPrompts) == 0 && sessionID != "" {
+		allPrompts = readSessionPrompts(sessionID)
+	}
+
+	if directPrompt != "" {
+		if !containsPrompt(allPrompts, directPrompt) {
+			allPrompts = append(allPrompts, directPrompt)
+		}
+		if sessionID != "" {
+			recordSessionPrompt(sessionID, directPrompt)
+		}
 	}
 
 	turnCount := len(allPrompts)
@@ -771,6 +831,13 @@ func ExtractTurnInfo(payload Payload, sessionID string, turnArg int) (int, strin
 	if len(allPrompts) > 0 {
 		currentPrompt = allPrompts[len(allPrompts)-1]
 		firstPrompt = allPrompts[0]
+	}
+
+	// 兜底补齐：如果 firstPrompt 丢失（例如后续轮次或单条工具事件没有历史 prompt），从已激活的追踪记录恢复首轮 prompt
+	if (firstPrompt == "" || firstPrompt == currentPrompt) && sessionID != "" {
+		if savedFirst := getSessionTrackedPrompt(sessionID); savedFirst != "" {
+			firstPrompt = savedFirst
+		}
 	}
 
 	return turnCount, currentPrompt, firstPrompt
