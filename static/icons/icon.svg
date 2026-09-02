@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="112" fill="#0c0d0e"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="none" stroke="#27272a" stroke-width="12"/>
+  
+  <!-- Terminal Prompt & Pulse Indicator -->
+  <g transform="translate(96, 140)">
+    <!-- Prompt symbol >_ -->
+    <path d="M 32 48 L 112 116 L 32 184" fill="none" stroke="#38bdf8" stroke-width="28" stroke-linecap="round" stroke-linejoin="round"/>
+    <line x1="148" y1="184" x2="232" y2="184" stroke="#a1a1aa" stroke-width="28" stroke-linecap="round"/>
+    
+    <!-- Heartbeat / Telemetry Pulse -->
+    <path d="M 16 260 L 96 260 L 132 200 L 176 310 L 220 230 L 256 260 L 320 260" fill="none" stroke="#10b981" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+</svg>

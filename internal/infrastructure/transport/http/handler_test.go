@@ -140,6 +140,12 @@ func TestHandler_StaticFS(t *testing.T) {
 		"static/vendor/test.js": &fstest.MapFile{
 			Data: []byte("console.log('offline');"),
 		},
+		"static/manifest.json": &fstest.MapFile{
+			Data: []byte(`{"name":"AGENT MONITOR"}`),
+		},
+		"static/sw.js": &fstest.MapFile{
+			Data: []byte(`// sw`),
+		},
 	}
 
 	handler := NewHandler(svc, hub, staticHTML).WithStaticFS(mockFS)
@@ -155,5 +161,21 @@ func TestHandler_StaticFS(t *testing.T) {
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("console.log('offline');")) {
 		t.Fatalf("unexpected static content: %s", w.Body.String())
+	}
+
+	// Test Manifest
+	reqManifest := httptest.NewRequest(http.MethodGet, "/manifest.json", nil)
+	wManifest := httptest.NewRecorder()
+	mux.ServeHTTP(wManifest, reqManifest)
+	if wManifest.Code != http.StatusOK || !bytes.Contains(wManifest.Body.Bytes(), []byte("AGENT MONITOR")) {
+		t.Fatalf("expected 200 for /manifest.json, got %d", wManifest.Code)
+	}
+
+	// Test Service Worker
+	reqSW := httptest.NewRequest(http.MethodGet, "/sw.js", nil)
+	wSW := httptest.NewRecorder()
+	mux.ServeHTTP(wSW, reqSW)
+	if wSW.Code != http.StatusOK || !bytes.Contains(wSW.Body.Bytes(), []byte("// sw")) {
+		t.Fatalf("expected 200 for /sw.js, got %d", wSW.Code)
 	}
 }

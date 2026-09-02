@@ -40,6 +40,8 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/event", h.HandleEvent)
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
+	mux.HandleFunc("/manifest.json", h.HandleManifest)
+	mux.HandleFunc("/sw.js", h.HandleServiceWorker)
 	if h.staticFS != nil {
 		mux.Handle("/static/", http.FileServer(http.FS(h.staticFS)))
 	}
@@ -193,4 +195,30 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write(h.staticHTML)
+}
+
+// HandleManifest 返回 PWA Web App Manifest。
+func (h *Handler) HandleManifest(w http.ResponseWriter, r *http.Request) {
+	if h.staticFS != nil {
+		data, err := fs.ReadFile(h.staticFS, "static/manifest.json")
+		if err == nil {
+			w.Header().Set("Content-Type", "application/manifest+json; charset=utf-8")
+			w.Write(data)
+			return
+		}
+	}
+	http.NotFound(w, r)
+}
+
+// HandleServiceWorker 返回 PWA Service Worker 脚本。
+func (h *Handler) HandleServiceWorker(w http.ResponseWriter, r *http.Request) {
+	if h.staticFS != nil {
+		data, err := fs.ReadFile(h.staticFS, "static/sw.js")
+		if err == nil {
+			w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+			w.Write(data)
+			return
+		}
+	}
+	http.NotFound(w, r)
 }
