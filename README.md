@@ -62,16 +62,21 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ### 内网 / 离线安装
 
-发布包是纯静态二进制，安装过程不需要 Go 模块代理。把 `install.sh` 和对应平台的 `tar.gz` 一起拷进内网（之后的 GitHub Release 压缩包内也会带上安装脚本）：
+把 GitHub Release 里的 **`agent-monitor_<version>_linux-offline.tar.gz`** 拷进内网（一份包含 `install.sh`、amd64 与 arm64）。发版流水线会和其它平台包一起挂上：
 
 ```bash
-# 本地压缩包，零外网
-./install.sh ./agent-monitor_v1.0.0-beta.3_linux_amd64.tar.gz
+./install.sh ./agent-monitor_v1.0.0-beta.3_linux-offline.tar.gz
+```
 
-# 已解压目录，或本机 make build 产出的 bin/
+单架构包 `agent-monitor_*_linux_amd64.tar.gz` / `linux_arm64.tar.gz` 同样可以离线安装。已解压目录或本机 `make build` 的 `bin/`：
+
+```bash
 ./install.sh ./bin
+```
 
-# 内网 HTTP 镜像（不访问 GitHub API，需指定版本）
+内网 HTTP 镜像（不访问 GitHub API，需指定版本）：
+
+```bash
 VERSION=v1.0.0-beta.3 BASE_URL=https://files.corp.local/agent-monitor ./install.sh
 ```
 

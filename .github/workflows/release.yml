@@ -89,6 +89,32 @@ jobs:
             fi
           done
 
+          # Linux 离线包：一份含 install.sh + amd64/arm64，内网拷贝这一个文件即可
+          OFFLINE_NAME="agent-monitor_${VERSION}_linux-offline"
+          OFFLINE_DIR="dist/${OFFLINE_NAME}"
+          mkdir -p "${OFFLINE_DIR}/linux-amd64" "${OFFLINE_DIR}/linux-arm64"
+          cp "dist/agent-monitor_${VERSION}_linux_amd64/agent-monitor" \
+             "dist/agent-monitor_${VERSION}_linux_amd64/agent-reporter" \
+             "${OFFLINE_DIR}/linux-amd64/"
+          cp "dist/agent-monitor_${VERSION}_linux_arm64/agent-monitor" \
+             "dist/agent-monitor_${VERSION}_linux_arm64/agent-reporter" \
+             "${OFFLINE_DIR}/linux-arm64/"
+          cp README.md install.sh "${OFFLINE_DIR}/"
+          cp -r configs "${OFFLINE_DIR}/"
+          chmod +x "${OFFLINE_DIR}/install.sh"
+          cat > "${OFFLINE_DIR}/OFFLINE.txt" <<EOF
+Linux offline bundle (amd64 + arm64). No GitHub or Go proxy required.
+
+  tar -xzf ${OFFLINE_NAME}.tar.gz
+  cd ${OFFLINE_NAME}
+  ./install.sh .
+
+Or pass the archive directly:
+
+  ./install.sh ./${OFFLINE_NAME}.tar.gz
+EOF
+          tar -czf "release-assets/${OFFLINE_NAME}.tar.gz" -C dist "${OFFLINE_NAME}"
+
       - name: Generate Checksums
         run: |
           cd release-assets

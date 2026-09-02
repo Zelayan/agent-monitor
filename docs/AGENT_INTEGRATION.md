@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 On Linux this also enables the `agent-monitor` systemd user service. If `http://127.0.0.1:8000/` is down, start it with `systemctl --user start agent-monitor` (or run `agent-monitor` in the foreground). Do not wrap the install script in `sudo`.
 
-Air-gapped / intranet hosts: do not curl GitHub. Copy `install.sh` together with the platform `tar.gz` and run `./install.sh ./agent-monitor_*_<os>_<arch>.tar.gz`. A directory that already contains `agent-monitor` and `agent-reporter` also works: `./install.sh ./bin`.
+Air-gapped / intranet hosts: do not curl GitHub. Copy the Release asset `agent-monitor_*_linux-offline.tar.gz` and run `./install.sh ./agent-monitor_*_linux-offline.tar.gz`. A directory that already contains `agent-monitor` and `agent-reporter` also works: `./install.sh ./bin`.
 
 Alternatively, if Go is installed:
 ```bash

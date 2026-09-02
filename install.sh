@@ -6,7 +6,7 @@ set -e
 # 支持系统: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64)
 #
 # 在线:   ./install.sh
-# 离线:   ./install.sh ./agent-monitor_v1.0.0-beta.3_linux_amd64.tar.gz
+# 离线:   ./install.sh ./agent-monitor_v1.0.0-beta.3_linux-offline.tar.gz
 # 目录:   ./install.sh ./bin
 # 镜像:   VERSION=v1.0.0-beta.3 BASE_URL=https://files.corp.local/am ./install.sh
 # ==========================================================
@@ -19,6 +19,7 @@ usage() {
 Usage:
   install.sh                              Download latest GitHub Release
   install.sh /path/to/package.tar.gz      Offline archive (no network)
+                                          Linux: agent-monitor_*_linux-offline.tar.gz
   install.sh /path/to/dir                 Directory with agent-monitor + agent-reporter
 
 Environment:
@@ -72,15 +73,21 @@ trap cleanup EXIT
 
 locate_payload() {
   local root="$1"
-  if [ -f "${root}/agent-monitor" ] && [ -f "${root}/agent-reporter" ]; then
-    printf '%s\n' "${root}"
-    return 0
-  fi
-  local d
+  local d candidates=()
+  candidates+=("${root}")
+  candidates+=("${root}/linux-${ARCH}")
+  candidates+=("${root}/linux_${ARCH}")
+  candidates+=("${root}/linux/${ARCH}")
   for d in "${root}"/*/; do
     [ -d "${d}" ] || continue
-    if [ -f "${d}agent-monitor" ] && [ -f "${d}agent-reporter" ]; then
-      printf '%s\n' "${d%/}"
+    candidates+=("${d%/}")
+    candidates+=("${d%/}/linux-${ARCH}")
+    candidates+=("${d%/}/linux_${ARCH}")
+    candidates+=("${d%/}/linux/${ARCH}")
+  done
+  for d in "${candidates[@]}"; do
+    if [ -f "${d}/agent-monitor" ] && [ -f "${d}/agent-reporter" ]; then
+      printf '%s\n' "${d}"
       return 0
     fi
   done
