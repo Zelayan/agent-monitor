@@ -1,5 +1,9 @@
 # AGENT MONITOR
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub Release](https://img.shields.io/github/v/release/Zelayan/agent-monitor?include_prereleases&color=emerald)](https://github.com/Zelayan/agent-monitor/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Zelayan/agent-monitor)](https://goreportcard.com/report/github.com/Zelayan/agent-monitor)
+
 面向 AI Coding Agent（Claude Code、ZCode、Cursor Agent、Aider、Windsurf 等）的暗色工具台实时监视器。
 
 Agent 通过 Hook 零延迟上报事件，页面基于原生 SSE 极速刷新三列任务看板（Running、Completed、Failed / Aborted）。点击卡片即可在侧边抽屉中实时追踪多轮 Prompt、AI 回复与微秒级 Hook 执行轨迹。
@@ -206,3 +210,8 @@ Makefile                 构建与跨平台编译脚本
 ```
 
 改 `static/index.html` 后必须重启 `go run main.go`，嵌入内容只在编译时打进二进制。
+
+## 开源协议
+
+本项目采用 [MIT License](LICENSE) 开源协议。
+
