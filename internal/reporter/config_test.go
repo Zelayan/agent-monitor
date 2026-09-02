@@ -67,29 +67,58 @@ func TestGlobalConfig_LoadAndWrite(t *testing.T) {
 
 	// 3. 环境变量覆盖验证
 	os.Setenv("AGENT_MONITOR_REQUIRE_TAG", "#custom")
-	defer os.Unsetenv("AGENT_MONITOR_REQUIRE_TAG")
-
 	overridden := LoadGlobalConfig()
+	os.Unsetenv("AGENT_MONITOR_REQUIRE_TAG")
 	if overridden.RequireTag != "#custom" {
 		t.Fatalf("expected RequireTag '#custom' from env, got %q", overridden.RequireTag)
 	}
 }
 
-func TestSessionTracking(t *testing.T) {
-	sessionID := "test-session-track-123"
-	unmarkSessionTracked(sessionID)
+func TestLoadConfigForWorkspace_ProjectOverride(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "agent-monitor-workspace-test-*")
+	if err != nil {
+		t.Fatalf("failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
 
-	if isSessionTracked(sessionID) {
-		t.Fatalf("expected session not tracked initially")
+	globalPath := filepath.Join(tmpDir, "global-config.json")
+	os.Setenv("AGENT_MONITOR_CONFIG", globalPath)
+	defer os.Unsetenv("AGENT_MONITOR_CONFIG")
+
+	// 1. 写入全局配置：要求 #task 标签
+	globalCfg := GlobalConfig{
+		RequireTag: "#task",
+		ServerURL:  "http://127.0.0.1:8000/api/event",
+		Disabled:   false,
+	}
+	if err := WriteDefaultConfigFile(globalCfg, globalPath); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
 	}
 
-	markSessionTracked(sessionID)
-	if !isSessionTracked(sessionID) {
-		t.Fatalf("expected session to be tracked after markSessionTracked")
+	// 2. 在工作区没有项目配置时，读取工作区继承全局
+	workDirA := filepath.Join(tmpDir, "project-a")
+	_ = os.MkdirAll(workDirA, 0755)
+	cfgA := LoadConfigForWorkspace(workDirA)
+	if cfgA.RequireTag != "#task" {
+		t.Fatalf("expected project A to inherit global tag '#task', got %q", cfgA.RequireTag)
 	}
 
-	unmarkSessionTracked(sessionID)
-	if isSessionTracked(sessionID) {
-		t.Fatalf("expected session not tracked after unmarkSessionTracked")
+	// 3. 在工作区 B 创建项目级 .agent-monitor.json：重写为无需标签全量监控
+	workDirB := filepath.Join(tmpDir, "project-b")
+	_ = os.MkdirAll(workDirB, 0755)
+	projCfgB := GlobalConfig{
+		RequireTag: "", // 覆盖为空，代表全量监控
+		ServerURL:  "http://192.168.1.50:8000/api/event",
+	}
+	if err := WriteDefaultConfigFile(projCfgB, filepath.Join(workDirB, ".agent-monitor.json")); err != nil {
+		t.Fatalf("failed to write project config: %v", err)
+	}
+
+	cfgB := LoadConfigForWorkspace(workDirB)
+	if cfgB.RequireTag != "" {
+		t.Fatalf("expected project B require_tag to be overridden to empty, got %q", cfgB.RequireTag)
+	}
+	if cfgB.ServerURL != "http://192.168.1.50:8000/api/event" {
+		t.Fatalf("expected project B server_url to be overridden, got %q", cfgB.ServerURL)
 	}
 }

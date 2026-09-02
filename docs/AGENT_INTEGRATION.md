@@ -172,23 +172,26 @@ curl -s -X DELETE 'http://127.0.0.1:8000/api/tasks?ids=ping-test'
 
 ---
 
-## 6. Global Unified Configuration & Session Filtering
+## 6. Global & Project-Level Configuration & Session Filtering
 
-Instead of exporting environment variables in multiple shells or editing individual workspace configs, you can manage all reporting behavior in a single global configuration file:
+Instead of exporting environment variables in multiple shells or editing individual workspace configs, you can manage reporting behavior through unified configuration files:
 
-👉 **`~/.agent-monitor/config.json`**
+- **Global Config**: `~/.agent-monitor/config.json` (User-wide default baseline)
+- **Project-Level Config**: `<project-root>/.agent-monitor.json` (Overrides global settings for the specific workspace)
 
 ### Quick Setup:
-Initialize the global config with a single command:
 ```bash
-# Only intercept tasks containing #task in their prompt
+# 1. Initialize global configuration (e.g. require #task by default across all projects)
 agent-reporter init-config --tag "#task"
 
-# Or view currently active global configuration
+# 2. Or initialize project-level override (.agent-monitor.json in current directory)
+agent-reporter init-config --local --tag "" # monitor all sessions without tag in this project
+
+# 3. View currently effective configuration for the current directory
 agent-reporter config
 ```
 
-### Configuration Format (`~/.agent-monitor/config.json`):
+### Configuration Format (`~/.agent-monitor/config.json` or `<project>/.agent-monitor.json`):
 ```json
 {
   "require_tag": "#task",
@@ -197,10 +200,16 @@ agent-reporter config
 }
 ```
 
+### Priority Hierarchy:
+1. **CLI Flag**: `--require-tag` / `--server`
+2. **Environment Variables**: `AGENT_MONITOR_REQUIRE_TAG` / `AGENT_MONITOR_URL`
+3. **Project Config**: `<workspace>/.agent-monitor.json`
+4. **Global Config**: `~/.agent-monitor/config.json`
+
 ### Key Options:
 - **`require_tag`**: e.g. `"#task"` (or comma-separated `"#task,#todo"`).
   - Only prompts containing the tag will be reported to Agent Monitor.
-  - Non-tagged casual chats are silently bypassed in nanoseconds (`exit 0`), keeping your dashboard clean.
-- **`server_url`**: Set a remote monitor server IP globally (e.g. `"http://192.168.1.100:8000/api/event"`).
-- **`disabled`**: Temporarily pause all monitoring without removing any hooks (`true` / `false`).
+  - Set to `""` in project-level `.agent-monitor.json` to force monitoring all sessions in that specific workspace.
+- **`server_url`**: Set a local or remote monitor server URL (e.g. `"http://192.168.1.100:8000/api/event"`).
+- **`disabled`**: Temporarily pause monitoring without removing any hooks (`true` / `false`).
 

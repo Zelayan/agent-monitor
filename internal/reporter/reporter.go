@@ -316,28 +316,28 @@ func unmarkSessionTracked(sessionID string) {
 
 // Run 执行完整的 Reporter 逻辑
 func Run(cfg Config, inputReader io.Reader) {
-	// 0. 加载全局统一配置 (~/.agent-monitor/config.json) 与环境变量合并
-	globalCfg := LoadGlobalConfig()
-	if globalCfg.Disabled {
+	payload := parsePayload(inputReader)
+
+	// 0. 解析工作区根目录，加载分层配置：全局 ~/.agent-monitor/config.json <- 项目级 .agent-monitor.json <- 环境变量
+	workspaceRoot := ResolveWorkspaceRoot(payload)
+	effectiveCfg := LoadConfigForWorkspace(workspaceRoot)
+	if effectiveCfg.Disabled {
 		RespondAndExit(cfg.Event)
 		return
 	}
 
 	if cfg.ServerURL == "" {
-		if globalCfg.ServerURL != "" {
-			cfg.ServerURL = globalCfg.ServerURL
+		if effectiveCfg.ServerURL != "" {
+			cfg.ServerURL = effectiveCfg.ServerURL
 		} else {
 			cfg.ServerURL = "http://127.0.0.1:8000/api/event"
 		}
 	}
 
-	effectiveRequireTag := cfg.RequireTag
-	if effectiveRequireTag == "" {
-		effectiveRequireTag = globalCfg.RequireTag
+	// 命令行显式传入的参数具有最高优先级
+	if cfg.RequireTag != "" {
+		effectiveCfg.RequireTag = cfg.RequireTag
 	}
-	globalCfg.RequireTag = effectiveRequireTag
-
-	payload := parsePayload(inputReader)
 
 	// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
 	agentName := DetectAgentName(cfg.Agent, payload.Agent)
@@ -404,8 +404,8 @@ func Run(cfg Config, inputReader io.Reader) {
 		}
 
 		// 5.1 标签规则过滤 (如 require_tag: "#task")
-		if strings.TrimSpace(globalCfg.RequireTag) != "" {
-			hasTag := globalCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
+		if strings.TrimSpace(effectiveCfg.RequireTag) != "" {
+			hasTag := effectiveCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
 			if hasTag {
 				markSessionTracked(sessionID)
 			} else {
@@ -893,24 +893,26 @@ var defaultHTTPClient = &http.Client{
 	},
 }
 
-// GetGitInfo 获取 Git 仓库名与分支名（轻量级文件解析优先，超时与兜底保护）
-func GetGitInfo(payload Payload) (string, string) {
-	cwd := ""
+// ResolveWorkspaceRoot 解析当前执行环境对应的工作区根目录
+func ResolveWorkspaceRoot(payload Payload) string {
 	if len(payload.WorkspaceRoots) > 0 && payload.WorkspaceRoots[0] != "" {
-		cwd = payload.WorkspaceRoots[0]
-	} else if payload.Cwd != "" {
-		cwd = payload.Cwd
-	} else {
-		for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR"} {
-			if v := os.Getenv(envK); v != "" {
-				cwd = v
-				break
-			}
+		return payload.WorkspaceRoots[0]
+	}
+	if payload.Cwd != "" {
+		return payload.Cwd
+	}
+	for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
+		if v := os.Getenv(envK); v != "" {
+			return v
 		}
 	}
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
+	cwd, _ := os.Getwd()
+	return cwd
+}
+
+// GetGitInfo 获取 Git 仓库名与分支名（轻量级文件解析优先，超时与兜底保护）
+func GetGitInfo(payload Payload) (string, string) {
+	cwd := ResolveWorkspaceRoot(payload)
 
 	repo := filepath.Base(cwd)
 	if repo == "" || repo == "." || repo == "/" {

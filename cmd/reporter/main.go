@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/Zelayan/agent-monitor/internal/reporter"
 )
@@ -17,7 +18,8 @@ func main() {
 			initFs := flag.NewFlagSet("init-config", flag.ExitOnError)
 			tagFlag := initFs.String("tag", "#task", "Filter tag required in prompt (e.g. #task)")
 			urlFlag := initFs.String("url", "http://127.0.0.1:8000/api/event", "Monitor server URL")
-			pathFlag := initFs.String("path", "", "Custom target config path (default: ~/.agent-monitor/config.json)")
+			pathFlag := initFs.String("path", "", "Custom target config path")
+			localFlag := initFs.Bool("local", false, "Create project-level config (.agent-monitor.json) in current directory")
 			_ = initFs.Parse(os.Args[2:])
 
 			cfg := reporter.GlobalConfig{
@@ -27,24 +29,42 @@ func main() {
 			}
 			target := *pathFlag
 			if target == "" {
-				target = reporter.DefaultConfigPath()
+				if *localFlag {
+					cwd, _ := os.Getwd()
+					target = filepath.Join(cwd, ".agent-monitor.json")
+				} else {
+					target = reporter.DefaultConfigPath()
+				}
 			}
 			if err := reporter.WriteDefaultConfigFile(cfg, target); err != nil {
 				fmt.Fprintf(os.Stderr, "Error creating config file %s: %v\n", target, err)
 				os.Exit(1)
 			}
-			fmt.Printf("✓ Successfully created global config: %s\n", target)
+			scope := "global"
+			if *localFlag || target != reporter.DefaultConfigPath() {
+				scope = "project"
+			}
+			fmt.Printf("✓ Successfully created %s config: %s\n", scope, target)
 			fmt.Printf("  Filter Tag: %s (only prompts containing %q will be monitored)\n", cfg.RequireTag, cfg.RequireTag)
 			fmt.Printf("  Server URL: %s\n", cfg.ServerURL)
 			return
 
 		case "config":
-			cfgPath := reporter.DefaultConfigPath()
-			cfg := reporter.LoadGlobalConfig()
-			fmt.Printf("Global Config File: %s\n", cfgPath)
-			fmt.Printf("  Require Tag: %q\n", cfg.RequireTag)
-			fmt.Printf("  Server URL:  %q\n", cfg.ServerURL)
-			fmt.Printf("  Disabled:    %v\n", cfg.Disabled)
+			cwd, _ := os.Getwd()
+			projPath := reporter.FindProjectConfigFile(cwd)
+			globalPath := reporter.DefaultConfigPath()
+			effectiveCfg := reporter.LoadConfigForWorkspace(cwd)
+
+			fmt.Printf("Effective Config for current directory (%s):\n", cwd)
+			if projPath != "" {
+				fmt.Printf("  Project Config: %s (Active)\n", projPath)
+			} else {
+				fmt.Printf("  Project Config: none\n")
+			}
+			fmt.Printf("  Global Config:  %s\n", globalPath)
+			fmt.Printf("  Require Tag:    %q\n", effectiveCfg.RequireTag)
+			fmt.Printf("  Server URL:     %q\n", effectiveCfg.ServerURL)
+			fmt.Printf("  Disabled:       %v\n", effectiveCfg.Disabled)
 			return
 		}
 	}
