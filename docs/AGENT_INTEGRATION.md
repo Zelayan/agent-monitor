@@ -242,9 +242,10 @@ agent-reporter config
 4. **Global Config**: `~/.agent-monitor/config.json`
 
 ### Key Options:
-- **`require_tag`**: e.g. `"#task"` (or comma-separated `"#task,#todo"`).
-  - Only prompts containing the tag will be reported to Agent Monitor.
-  - Set to `""` in project-level `.agent-monitor.json` to force monitoring all sessions in that specific workspace.
+- **`require_tag`**: Default: `"#task"` (or comma-separated `"#task,#todo"`).
+  - Out of the box, only prompts containing `#task` are reported to Agent Monitor.
+  - Once a session's first turn matches `#task`, all subsequent multi-turn follow-ups are automatically tracked without repeating the tag.
+  - Set to `""` in project-level `.agent-monitor.json` or `export AGENT_MONITOR_REQUIRE_TAG=""` to force monitoring all sessions without any tags in that specific workspace.
 - **`server_url`**: Set a local or remote monitor server URL (e.g. `"http://192.168.1.100:8000/api/event"`).
 - **`api_key`**: Secret token for authenticating events sent to protected monitor servers.
 - **`disabled`**: Temporarily pause monitoring without removing any hooks (`true` / `false`).

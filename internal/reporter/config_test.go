@@ -192,3 +192,29 @@ func TestLoadConfigForWorkspace_ProjectOverride(t *testing.T) {
 			t.Fatalf("expected env APIKey 'env-top-secret', got %q", loadedEnv.APIKey)
 		}
 	}
+
+	func TestGlobalConfig_DefaultRequireTag(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "agent-monitor-default-tag-*")
+		if err != nil {
+			t.Fatalf("failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		nonexistent := filepath.Join(tmpDir, "nonexistent.json")
+		os.Setenv("AGENT_MONITOR_CONFIG", nonexistent)
+		defer os.Unsetenv("AGENT_MONITOR_CONFIG")
+		os.Unsetenv("AGENT_MONITOR_REQUIRE_TAG")
+
+		// 1. 无配置文件无环境变量时，默认过滤 #task
+		cfg := LoadConfigForWorkspace(tmpDir)
+		if cfg.RequireTag != DefaultRequireTag {
+			t.Fatalf("expected default RequireTag '#task', got %q", cfg.RequireTag)
+		}
+
+		// 2. 环境变量显式配置为空字符串时，应该覆盖为全量放行
+		os.Setenv("AGENT_MONITOR_REQUIRE_TAG", "")
+		cfgEnv := LoadConfigForWorkspace(tmpDir)
+		if cfgEnv.RequireTag != "" {
+			t.Fatalf("expected empty RequireTag when AGENT_MONITOR_REQUIRE_TAG='', got %q", cfgEnv.RequireTag)
+		}
+	}

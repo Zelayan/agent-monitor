@@ -7,9 +7,12 @@ import (
 	"strings"
 )
 
+// DefaultRequireTag 定义开箱即用默认过滤标签
+const DefaultRequireTag = "#task"
+
 // GlobalConfig 表示全局与项目级通用配置结构
 type GlobalConfig struct {
-	RequireTag  string   `json:"require_tag,omitempty"`  // 过滤标签（如 "#task" 或 "#task,#todo"；设为 "" 可强制全量）
+	RequireTag  string   `json:"require_tag,omitempty"`  // 过滤标签（默认 "#task"；设为 "" 可强制全量放行）
 	ServerURL   string   `json:"server_url,omitempty"`   // 监控服务 API 地址
 	Disabled    bool     `json:"disabled,omitempty"`     // 是否禁用监控
 	FilterRepos []string `json:"filter_repos,omitempty"` // 仅监控的仓库名白名单（可选）
@@ -47,84 +50,117 @@ func FindProjectConfigFile(workspaceRoot string) string {
 }
 
 // LoadConfigForWorkspace 支持分层合并配置：
-// 1. 全局配置 ~/.agent-monitor/config.json
-// 2. 项目级配置 <workspace>/.agent-monitor.json（覆盖全局）
-// 3. 环境变量（覆盖文件配置）
+// 1. 默认值：require_tag 默认为 "#task"
+// 2. 全局配置 ~/.agent-monitor/config.json
+// 3. 项目级配置 <workspace>/.agent-monitor.json（覆盖全局）
+// 4. 环境变量（覆盖文件配置）
 func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
-	var cfg GlobalConfig
+	cfg := GlobalConfig{
+		RequireTag: DefaultRequireTag,
+	}
 
 	// 1. 读取全局配置
 	globalPath := DefaultConfigPath()
+	var globalData []byte
 	if globalPath != "" {
 		if data, err := os.ReadFile(globalPath); err == nil && len(data) > 0 {
-			_ = json.Unmarshal(data, &cfg)
+			globalData = data
 		} else {
 			home, _ := os.UserHomeDir()
 			if home != "" {
 				altPath := filepath.Join(home, ".config", "agent-monitor", "config.json")
 				if altData, altErr := os.ReadFile(altPath); altErr == nil && len(altData) > 0 {
-					_ = json.Unmarshal(altData, &cfg)
+					globalData = altData
+				}
+			}
+		}
+	}
+	if len(globalData) > 0 {
+		var globalMap map[string]interface{}
+		if err := json.Unmarshal(globalData, &globalMap); err == nil {
+			if tagVal, ok := globalMap["require_tag"].(string); ok {
+				cfg.RequireTag = tagVal
+			} else if tagList, ok := globalMap["require_tag"].([]interface{}); ok {
+				var tags []string
+				for _, item := range tagList {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						tags = append(tags, strings.TrimSpace(s))
+					}
+				}
+				cfg.RequireTag = strings.Join(tags, ",")
+			}
+			if urlVal, ok := globalMap["server_url"].(string); ok && urlVal != "" {
+				cfg.ServerURL = urlVal
+			}
+			if disVal, ok := globalMap["disabled"].(bool); ok {
+				cfg.Disabled = disVal
+			}
+			if keyVal, ok := globalMap["api_key"].(string); ok && keyVal != "" {
+				cfg.APIKey = keyVal
+			}
+		}
+	}
+
+	// 2. 查找并合并项目级配置文件（可覆盖全局 require_tag / server_url / disabled / api_key）
+	projPath := FindProjectConfigFile(workspaceRoot)
+	if projPath != "" {
+		if data, err := os.ReadFile(projPath); err == nil && len(data) > 0 {
+			var projCfg map[string]interface{}
+			if err := json.Unmarshal(data, &projCfg); err == nil {
+				if tagVal, ok := projCfg["require_tag"].(string); ok {
+					cfg.RequireTag = tagVal
+				} else if tagList, ok := projCfg["require_tag"].([]interface{}); ok {
+					var tags []string
+					for _, item := range tagList {
+						if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+							tags = append(tags, strings.TrimSpace(s))
+						}
+					}
+					cfg.RequireTag = strings.Join(tags, ",")
+				}
+				if urlVal, ok := projCfg["server_url"].(string); ok && urlVal != "" {
+					cfg.ServerURL = urlVal
+				}
+				if disVal, ok := projCfg["disabled"].(bool); ok {
+					cfg.Disabled = disVal
+				}
+				if keyVal, ok := projCfg["api_key"].(string); ok && keyVal != "" {
+					cfg.APIKey = keyVal
 				}
 			}
 		}
 	}
 
-		// 2. 查找并合并项目级配置文件（可覆盖全局 require_tag / server_url / disabled / api_key）
-		projPath := FindProjectConfigFile(workspaceRoot)
-		if projPath != "" {
-			if data, err := os.ReadFile(projPath); err == nil && len(data) > 0 {
-				var projCfg map[string]interface{}
-				if err := json.Unmarshal(data, &projCfg); err == nil {
-					if tagVal, ok := projCfg["require_tag"].(string); ok {
-						cfg.RequireTag = tagVal
-					} else if tagList, ok := projCfg["require_tag"].([]interface{}); ok {
-						var tags []string
-						for _, item := range tagList {
-							if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-								tags = append(tags, strings.TrimSpace(s))
-							}
-						}
-						cfg.RequireTag = strings.Join(tags, ",")
-					}
-					if urlVal, ok := projCfg["server_url"].(string); ok && urlVal != "" {
-						cfg.ServerURL = urlVal
-					}
-					if disVal, ok := projCfg["disabled"].(bool); ok {
-						cfg.Disabled = disVal
-					}
-					if keyVal, ok := projCfg["api_key"].(string); ok && keyVal != "" {
-						cfg.APIKey = keyVal
-					}
-				}
-			}
-		}
-
-		// 3. 环境变量最高层级覆盖
-		if envTag := os.Getenv("AGENT_MONITOR_REQUIRE_TAG"); envTag != "" {
-			cfg.RequireTag = envTag
-		}
-		if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
-			cfg.ServerURL = envURL
-		} else if envServer := os.Getenv("MONITOR_SERVER_URL"); envServer != "" {
-			cfg.ServerURL = envServer
-		}
-		if envKey := os.Getenv("AGENT_MONITOR_API_KEY"); envKey != "" {
-			cfg.APIKey = envKey
-		} else if envKeyAlt := os.Getenv("MONITOR_API_KEY"); envKeyAlt != "" {
-			cfg.APIKey = envKeyAlt
-		}
-		if envDisabled := os.Getenv("AGENT_MONITOR_DISABLED"); envDisabled == "1" || strings.ToLower(envDisabled) == "true" {
-			cfg.Disabled = true
-		}
+	// 3. 环境变量最高层级覆盖
+	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
+		cfg.RequireTag = envTag
+	}
+	if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
+		cfg.ServerURL = envURL
+	} else if envServer := os.Getenv("MONITOR_SERVER_URL"); envServer != "" {
+		cfg.ServerURL = envServer
+	}
+	if envKey := os.Getenv("AGENT_MONITOR_API_KEY"); envKey != "" {
+		cfg.APIKey = envKey
+	} else if envKeyAlt := os.Getenv("MONITOR_API_KEY"); envKeyAlt != "" {
+		cfg.APIKey = envKeyAlt
+	}
+	if envDisabled := os.Getenv("AGENT_MONITOR_DISABLED"); envDisabled == "1" || strings.ToLower(envDisabled) == "true" {
+		cfg.Disabled = true
+	}
 
 	return cfg
 }
 
-// LoadGlobalConfig 读取并解析全局配置文件；若文件不存在则返回默认空配置，绝不报错
+// LoadGlobalConfig 读取并解析全局配置文件；若文件不存在则返回默认配置（require_tag 默认为 "#task"），绝不报错
 func LoadGlobalConfig() GlobalConfig {
+	cfg := GlobalConfig{
+		RequireTag: DefaultRequireTag,
+	}
+
 	path := DefaultConfigPath()
 	if path == "" {
-		return GlobalConfig{}
+		return cfg
 	}
 
 	data, err := os.ReadFile(path)
@@ -139,7 +175,6 @@ func LoadGlobalConfig() GlobalConfig {
 		}
 	}
 
-	var cfg GlobalConfig
 	if len(data) > 0 {
 		var rawMap map[string]interface{}
 		if err := json.Unmarshal(data, &rawMap); err == nil {
@@ -154,38 +189,38 @@ func LoadGlobalConfig() GlobalConfig {
 				}
 				cfg.RequireTag = strings.Join(tags, ",")
 			}
-				if urlVal, ok := rawMap["server_url"].(string); ok {
-					cfg.ServerURL = urlVal
-				}
-				if disVal, ok := rawMap["disabled"].(bool); ok {
-					cfg.Disabled = disVal
-				}
-				if keyVal, ok := rawMap["api_key"].(string); ok {
-					cfg.APIKey = keyVal
-				}
+			if urlVal, ok := rawMap["server_url"].(string); ok {
+				cfg.ServerURL = urlVal
+			}
+			if disVal, ok := rawMap["disabled"].(bool); ok {
+				cfg.Disabled = disVal
+			}
+			if keyVal, ok := rawMap["api_key"].(string); ok {
+				cfg.APIKey = keyVal
 			}
 		}
-
-		// 环境变量层级覆盖（优先级高于文件）
-		if envTag := os.Getenv("AGENT_MONITOR_REQUIRE_TAG"); envTag != "" {
-			cfg.RequireTag = envTag
-		}
-		if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
-			cfg.ServerURL = envURL
-		} else if envServer := os.Getenv("MONITOR_SERVER_URL"); envServer != "" {
-			cfg.ServerURL = envServer
-		}
-		if envKey := os.Getenv("AGENT_MONITOR_API_KEY"); envKey != "" {
-			cfg.APIKey = envKey
-		} else if envKeyAlt := os.Getenv("MONITOR_API_KEY"); envKeyAlt != "" {
-			cfg.APIKey = envKeyAlt
-		}
-		if envDisabled := os.Getenv("AGENT_MONITOR_DISABLED"); envDisabled == "1" || strings.ToLower(envDisabled) == "true" {
-			cfg.Disabled = true
-		}
-
-		return cfg
 	}
+
+	// 环境变量层级覆盖（优先级高于文件）
+	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
+		cfg.RequireTag = envTag
+	}
+	if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
+		cfg.ServerURL = envURL
+	} else if envServer := os.Getenv("MONITOR_SERVER_URL"); envServer != "" {
+		cfg.ServerURL = envServer
+	}
+	if envKey := os.Getenv("AGENT_MONITOR_API_KEY"); envKey != "" {
+		cfg.APIKey = envKey
+	} else if envKeyAlt := os.Getenv("MONITOR_API_KEY"); envKeyAlt != "" {
+		cfg.APIKey = envKeyAlt
+	}
+	if envDisabled := os.Getenv("AGENT_MONITOR_DISABLED"); envDisabled == "1" || strings.ToLower(envDisabled) == "true" {
+		cfg.Disabled = true
+	}
+
+	return cfg
+}
 
 	// MatchesRequireTag 检查文本是否命中任一配置的 require_tag（如 "#task"）
 	func (c *GlobalConfig) MatchesRequireTag(texts ...string) bool {

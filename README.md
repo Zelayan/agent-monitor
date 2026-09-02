@@ -130,24 +130,24 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ---
 
-## 🎯 全局与项目级配置（支持精准标签过滤）
+## 🎯 全局与项目级配置（开箱即用默认过滤 `#task`）
 
-如果你希望**全局默认只监控重要任务（如带有 `#task` 的 Prompt），忽略日常随意闲聊**，或者针对**核心业务项目开启全量追踪**：
+系统开箱即用**默认只记录带有 `#task` 的任务 Prompt**，自动忽略日常随意闲聊（一旦首轮命中 `#task`，后续多轮追问全程自动追踪，无需重复打标签）。如果希望针对**核心业务项目开启全量追踪（不打标签也记录）**：
 
+- **针对当前项目开启全量监控**（在当前项目根目录生成 `.agent-monitor.json` 覆盖全局）：
+  ```bash
+  agent-reporter init-config --local --tag "" # 当前项目强制全量监控，无需打 #task
+  ```
 - **初始化全局配置（可同时配置 API Key）**：
   ```bash
   agent-reporter init-config --tag "#task" --api-key "your-secret-token"
-  ```
-- **针对当前项目定制覆盖**（在当前项目根目录生成 `.agent-monitor.json`）：
-  ```bash
-  agent-reporter init-config --local --tag "" # 当前项目强制全量监控，无需打 #task
   ```
 - **查看当前生效配置**：
   ```bash
   agent-reporter config
   ```
 
-配置优先级遵循就近原则：**命令行参数 > 环境变量 (`AGENT_MONITOR_API_KEY` 等) > 项目配置 (`.agent-monitor.json`) > 全局配置 (`~/.agent-monitor/config.json`)**。详细说明见 **[🔌 Agent 集成与配置手册](docs/AGENT_INTEGRATION.md)**。
+配置优先级遵循就近原则：**命令行参数 > 环境变量 (`AGENT_MONITOR_REQUIRE_TAG` 等) > 项目配置 (`.agent-monitor.json`) > 全局配置 (`~/.agent-monitor/config.json`)**。详细说明见 **[🔌 Agent 集成与配置手册](docs/AGENT_INTEGRATION.md)**。
 
 ---
 

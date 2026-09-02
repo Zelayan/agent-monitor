@@ -468,7 +468,11 @@ func Run(cfg Config, inputReader io.Reader) {
 
 		// 命令行显式传入的参数具有最高优先级
 		if cfg.RequireTag != "" {
-			effectiveCfg.RequireTag = cfg.RequireTag
+			if cfg.RequireTag == "none" || cfg.RequireTag == "all" || cfg.RequireTag == "*" || cfg.RequireTag == `""` {
+				effectiveCfg.RequireTag = ""
+			} else {
+				effectiveCfg.RequireTag = cfg.RequireTag
+			}
 		}
 
 		// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
