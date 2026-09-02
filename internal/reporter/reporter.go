@@ -50,6 +50,12 @@ var IgnoredTools = map[string]bool{
 	"ApplyPatch":         true,
 }
 
+const (
+	maxAIResponseBytes = 64 * 1024
+	spoolFlushLimit    = 16
+	maxSpoolFileBytes  = 2 << 20
+)
+
 // Config 封装 CLI 传入参数与运行配置
 type Config struct {
 	Event     string
@@ -313,6 +319,7 @@ func Run(cfg Config, inputReader io.Reader) {
 	isFailure := IsFailureEvent(eventName)
 
 	if shouldDropEvent(eventName) {
+		flushSpool(cfg.ServerURL, spoolFlushLimit)
 		RespondAndExit(eventName)
 		return
 	}
@@ -320,16 +327,19 @@ func Run(cfg Config, inputReader io.Reader) {
 	if isPreOrPostToolUse(eventName) {
 		if !isFailure {
 			if IgnoredTools[toolName] {
+				flushSpool(cfg.ServerURL, spoolFlushLimit)
 				RespondAndExit(eventName)
 				return
 			}
 			if eventName == "PostToolUse" || eventName == "postToolUse" {
+				flushSpool(cfg.ServerURL, spoolFlushLimit)
 				RespondAndExit(eventName)
 				return
 			}
 			// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
 			// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
 			if eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
+				flushSpool(cfg.ServerURL, spoolFlushLimit)
 				RespondAndExit(eventName)
 				return
 			}
@@ -352,13 +362,15 @@ func Run(cfg Config, inputReader io.Reader) {
 	// 8. 映射事件名称
 	mappedEvent := MapHookEvent(eventName, toolName, payload)
 
-	// 9. AI 回复：优先 Cursor afterAgentResponse.text，否则倒序读 transcript
+	// 9. AI 回复：只在 afterAgentResponse 读取。stop 再扫 transcript 会挤占 800ms POST 预算，
+	// 导致完成事件发不出去；正文已由 afterAgentResponse 写入同一 Run。
 	aiResponseText := strings.TrimSpace(payload.Text)
-	if (mappedEvent == "agentCompletion" || eventName == "afterAgentResponse") && aiResponseText == "" {
+	if eventName == "afterAgentResponse" && aiResponseText == "" {
 		aiResponseText = ExtractAIResponseFromTranscripts(payload, sessionID)
 	}
-	// 只有 afterAgentResponse 把摘要写进时间线；stop/agentCompletion 保持「任务执行完成」，
-	// 避免 Cursor 连打两个 hook 时面包屑出现两条一模一样的「AI 回复」。
+	if len(aiResponseText) > maxAIResponseBytes {
+		aiResponseText = aiResponseText[:maxAIResponseBytes]
+	}
 	if aiResponseText != "" && eventName == "afterAgentResponse" {
 		aiSummary := ShortTitle(aiResponseText)
 		if aiSummary != "" {
@@ -389,8 +401,8 @@ func Run(cfg Config, inputReader io.Reader) {
 		data.AIResponse = aiResponseText
 	}
 
-	// 10. 发送 HTTP POST 请求上报
-	SendEvent(cfg.ServerURL, data)
+	// 10. 先补报失败队列，再发当前事件；Monitor 宕机时落盘，绝不阻断 Hook
+	DeliverEvent(cfg.ServerURL, data)
 
 	// 11. 正常响应 Hook 协议
 	RespondAndExit(eventName)
@@ -473,8 +485,10 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 		return "执行命令"
 	}
 	switch eventName {
-	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
+	case "sessionStart", "SessionStart":
 		return "会话启动，分析任务中..."
+	case "beforeSubmitPrompt", "UserPromptSubmit":
+		return "用户提交 Prompt"
 	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
 		if IsFatalTerminal(payload) {
 			if payload.ErrorMessage != "" {
@@ -872,23 +886,126 @@ func GetGitInfo(payload Payload) (string, string) {
 	return repo, branch
 }
 
-// SendEvent 异步向 Monitor 发送事件
-func SendEvent(serverURL string, report EventReport) {
+// DeliverEvent 先补报本地 spool，再发送当前事件。Monitor 不可达时落盘，保证下次 Hook 能按序补报。
+func DeliverEvent(serverURL string, report EventReport) {
+	flushSpool(serverURL, spoolFlushLimit)
+	if !SendEvent(serverURL, report) {
+		enqueueSpool(report)
+	}
+}
+
+func spoolFile() string {
+	if v := strings.TrimSpace(os.Getenv("AGENT_REPORTER_SPOOL")); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return filepath.Join(os.TempDir(), "agent-reporter-spool.jsonl")
+	}
+	return filepath.Join(home, ".agent-monitor", "spool.jsonl")
+}
+
+func enqueueSpool(report EventReport) {
 	data, err := json.Marshal(report)
 	if err != nil {
 		return
 	}
+	path := spoolFile()
+	if info, err := os.Stat(path); err == nil && info.Size() >= maxSpoolFileBytes {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	_, _ = f.Write(append(data, '\n'))
+}
+
+func flushSpool(serverURL string, limit int) {
+	if limit <= 0 {
+		limit = spoolFlushLimit
+	}
+	path := spoolFile()
+	sending := path + ".sending"
+	if err := os.Rename(path, sending); err != nil {
+		return
+	}
+	raw, err := os.ReadFile(sending)
+	if err != nil {
+		_ = os.Rename(sending, path)
+		return
+	}
+	_ = os.Remove(sending)
+
+	var pending [][]byte
+	for _, line := range bytes.Split(raw, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		pending = append(pending, line)
+	}
+
+	for i, line := range pending {
+		if i >= limit {
+			appendSpoolLines(pending[i:])
+			return
+		}
+		var report EventReport
+		if err := json.Unmarshal(line, &report); err != nil {
+			continue
+		}
+		if !SendEvent(serverURL, report) {
+			appendSpoolLines(pending[i:])
+			return
+		}
+	}
+}
+
+func appendSpoolLines(lines [][]byte) {
+	if len(lines) == 0 {
+		return
+	}
+	path := spoolFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	for _, line := range lines {
+		if len(line) == 0 {
+			continue
+		}
+		_, _ = f.Write(line)
+		_, _ = f.Write([]byte("\n"))
+	}
+}
+
+// SendEvent 向 Monitor 发送单条事件，成功返回 true。失败由调用方 spool，绝不 panic。
+func SendEvent(serverURL string, report EventReport) bool {
+	data, err := json.Marshal(report)
+	if err != nil {
+		return false
+	}
 
 	req, err := http.NewRequest("POST", serverURL, bytes.NewReader(data))
 	if err != nil {
-		return
+		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
-		return
+		return false
 	}
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -110,6 +111,9 @@ func TestExtractDetail(t *testing.T) {
 	aiPayload := Payload{Text: "**Agent Monitor 已在 8000 端口启动。**"}
 	if d := ExtractDetail(aiPayload, "afterAgentResponse", "", false); d != "AI 回复: **Agent Monitor 已在 8000 端口启动。**" {
 		t.Errorf("ExtractDetail(afterAgentResponse) = %q", d)
+	}
+	if d := ExtractDetail(Payload{}, "beforeSubmitPrompt", "", false); d != "用户提交 Prompt" {
+		t.Errorf("ExtractDetail(beforeSubmitPrompt) = %q", d)
 	}
 	if d := ExtractDetail(Payload{}, "stop", "", false); d != "任务执行完成" {
 		t.Errorf("ExtractDetail(stop) = %q", d)
@@ -302,5 +306,42 @@ func TestExtractTurnInfo_DoesNotInflateWithAttachmentsOrDuplicatePrompt(t *testi
 	}
 	if curr != "分析适配" {
 		t.Errorf("current prompt = %q", curr)
+	}
+}
+
+func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
+	spool := filepath.Join(t.TempDir(), "spool.jsonl")
+	t.Setenv("AGENT_REPORTER_SPOOL", spool)
+
+	down := EventReport{ID: "sess-spool", Event: "afterAgentResponse", Detail: "AI 回复: done", Timestamp: 1}
+	DeliverEvent("http://127.0.0.1:1", down)
+	raw, err := os.ReadFile(spool)
+	if err != nil {
+		t.Fatalf("expected spool file: %v", err)
+	}
+	if !strings.Contains(string(raw), "afterAgentResponse") {
+		t.Fatalf("spool = %s", raw)
+	}
+
+	var got []EventReport
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var report EventReport
+		json.NewDecoder(r.Body).Decode(&report)
+		got = append(got, report)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	next := EventReport{ID: "sess-spool", Event: "sessionStart", Detail: "用户提交 Prompt", Timestamp: 2}
+	DeliverEvent(server.URL, next)
+
+	if len(got) != 2 {
+		t.Fatalf("replayed %d events, want 2 (spooled completion then current)", len(got))
+	}
+	if got[0].Event != "afterAgentResponse" || got[1].Event != "sessionStart" {
+		t.Fatalf("order = %s then %s", got[0].Event, got[1].Event)
+	}
+	if _, err := os.Stat(spool); !os.IsNotExist(err) {
+		t.Fatalf("spool should be drained, stat err=%v", err)
 	}
 }
