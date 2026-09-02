@@ -1,13 +1,13 @@
 # Agent Integration Manual (For AI Coding Agents)
 
-This document is specifically structured for **AI Coding Agents** (such as Claude Code, Cursor Agent, ZCode, Aider, Windsurf, Trae, Continue) to automatically inspect their host environment and self-configure lifecycle hooks to report session events into **Agent Monitor**.
+This document is specifically structured for **AI Coding Agents** (currently officially supporting **Cursor Agent** and **ZCode**; others like Claude Code, Aider, Windsurf, Trae, Continue are in progress) to automatically inspect their host environment and self-configure lifecycle hooks to report session events into **Agent Monitor**.
 
 ---
 
 ## 1. Goal & Requirements
 When a user asks you to *"integrate Agent Monitor"* or *"configure monitoring hooks"*, follow the steps below sequentially:
 1. Ensure the `agent-reporter` CLI binary is installed and executable in PATH.
-2. Determine which AI Coding Agent you currently are.
+2. Determine which AI Coding Agent you currently are (Officially Supported: **Cursor**, **ZCode**).
 3. Automatically create or update the appropriate workspace/global hook configuration file.
 4. Send a test ping to verify connectivity with `http://127.0.0.1:8000/api/event`.
 
@@ -41,47 +41,21 @@ go install github.com/Zelayan/agent-monitor/cmd/reporter@latest
 ## 3. Step 2: Identify Your Agent Environment
 
 Inspect your active environment variables to determine your agent type:
-- If `CLAUDE_SESSION_ID` or `CLAUDE_PROJECT_DIR` is set $\rightarrow$ **Claude Code**
-- If `ZCODE_SESSION_ID` or `ZCODE_PROJECT_DIR` is set $\rightarrow$ **ZCode**
-- If `CURSOR_PROJECT_DIR` or `.cursor/` exists $\rightarrow$ **Cursor Agent**
-- If `AIDER_SESSION_ID` or running inside Aider $\rightarrow$ **Aider**
-- If `WINDSURF_PROJECT_DIR` or `CODEIUM_PROJECT_DIR` is set $\rightarrow$ **Windsurf**
-- If `TRAE_PROJECT_DIR` is set $\rightarrow$ **Trae**
-- Otherwise $\rightarrow$ **Custom / General Agent**
+- **Officially Supported**:
+  - If `CURSOR_PROJECT_DIR` or `.cursor/` exists $\rightarrow$ **Cursor Agent** (✅ Production Ready)
+  - If `ZCODE_SESSION_ID` or `ZCODE_PROJECT_DIR` is set $\rightarrow$ **ZCode** (✅ Production Ready)
+- **Pending / Roadmap (Under Development)**:
+  - If `CLAUDE_SESSION_ID` or `CLAUDE_PROJECT_DIR` is set $\rightarrow$ **Claude Code** (⏳ In Progress)
+  - If `AIDER_SESSION_ID` or running inside Aider $\rightarrow$ **Aider** (⏳ In Progress)
+  - If `WINDSURF_PROJECT_DIR` or `CODEIUM_PROJECT_DIR` is set $\rightarrow$ **Windsurf** (⏳ In Progress)
+  - If `TRAE_PROJECT_DIR` is set $\rightarrow$ **Trae** (⏳ In Progress)
+  - Otherwise $\rightarrow$ **Custom / General Agent**
 
 ---
 
 ## 4. Step 3: Self-Configuration Recipes
 
-### Recipe A: If you are Claude Code
-Create or merge into `.claude/config.json` (or `~/.claude/config.json`):
-
-```json
-{
-  "hooks": {
-    "enabled": true,
-    "events": {
-      "SessionStart": [
-        { "hooks": [{ "type": "command", "command": "agent-reporter --event SessionStart --agent 'Claude Code'" }] }
-      ],
-      "UserPromptSubmit": [
-        { "hooks": [{ "type": "command", "command": "agent-reporter --event UserPromptSubmit --agent 'Claude Code'" }] }
-      ],
-      "PreToolUse": [
-        { "matcher": ".*", "hooks": [{ "type": "command", "command": "agent-reporter --event PreToolUse --agent 'Claude Code'" }] }
-      ],
-      "PostToolUseFailure": [
-        { "matcher": ".*", "hooks": [{ "type": "command", "command": "agent-reporter --event PostToolUseFailure --agent 'Claude Code'" }] }
-      ],
-      "Stop": [
-        { "hooks": [{ "type": "command", "command": "agent-reporter --event Stop --agent 'Claude Code'" }] }
-      ]
-    }
-  }
-}
-```
-
-### Recipe B: If you are Cursor Agent
+### Recipe A: If you are Cursor Agent (✅ Production Ready)
 Create or merge into `.cursor/hooks.json` (or `~/.cursor/hooks.json`):
 
 ```json
@@ -104,7 +78,7 @@ Create or merge into `.cursor/hooks.json` (or `~/.cursor/hooks.json`):
 
 Use official Cursor hook names (`stop`, not `agentCompletion`). Project hooks run from the repo root; user hooks (`~/.cursor/hooks.json`) should use an absolute path to `agent-reporter`. Do not install the same events at both project and user level, or each event will fire twice.
 
-### Recipe C: If you are ZCode
+### Recipe B: If you are ZCode (✅ Production Ready)
 Create or merge into `.zcode/config.json`:
 
 ```json
@@ -132,17 +106,52 @@ Create or merge into `.zcode/config.json`:
 }
 ```
 
-### Recipe D: If you are Aider
-Create or merge into `.aider.conf.yml`:
+### Recipe C: Other Agents (⏳ Pending / Experimental)
 
+<details>
+<summary><b>Claude Code (Preview)</b></summary>
+
+Create or merge into `.claude/config.json` (or `~/.claude/config.json`):
+```json
+{
+  "hooks": {
+    "enabled": true,
+    "events": {
+      "SessionStart": [
+        { "hooks": [{ "type": "command", "command": "agent-reporter --event SessionStart --agent 'Claude Code'" }] }
+      ],
+      "UserPromptSubmit": [
+        { "hooks": [{ "type": "command", "command": "agent-reporter --event UserPromptSubmit --agent 'Claude Code'" }] }
+      ],
+      "PreToolUse": [
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "agent-reporter --event PreToolUse --agent 'Claude Code'" }] }
+      ],
+      "PostToolUseFailure": [
+        { "matcher": ".*", "hooks": [{ "type": "command", "command": "agent-reporter --event PostToolUseFailure --agent 'Claude Code'" }] }
+      ],
+      "Stop": [
+        { "hooks": [{ "type": "command", "command": "agent-reporter --event Stop --agent 'Claude Code'" }] }
+      ]
+    }
+  }
+}
+```
+</details>
+
+<details>
+<summary><b>Aider (Preview)</b></summary>
+
+Create or merge into `.aider.conf.yml`:
 ```yaml
 notifications-command: "agent-reporter --event agentCompletion --agent Aider"
 auto-commits: true
 ```
+</details>
 
-### Recipe E: If you are Continue
+<details>
+<summary><b>Continue (Preview)</b></summary>
+
 Add to `~/.continue/config.json`:
-
 ```json
 {
   "analytics": {
@@ -151,6 +160,7 @@ Add to `~/.continue/config.json`:
   }
 }
 ```
+</details>
 
 ---
 
