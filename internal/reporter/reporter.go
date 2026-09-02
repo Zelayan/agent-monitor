@@ -52,9 +52,9 @@ var IgnoredTools = map[string]bool{
 
 // Config 封装 CLI 传入参数与运行配置
 type Config struct {
-	Event    string
-	Agent    string
-	Turn     int
+	Event     string
+	Agent     string
+	Turn      int
 	ServerURL string
 }
 
@@ -74,10 +74,11 @@ type Payload struct {
 	GenerationID   string                 `json:"generation_id,omitempty"`
 	ToolName       string                 `json:"tool_name,omitempty"`
 	Tool           string                 `json:"tool,omitempty"`
-	ToolInput      map[string]interface{} `json:"tool_input,omitempty"`
+	ToolInput      json.RawMessage        `json:"tool_input,omitempty"` // Cursor: object 或 MCP JSON 字符串
 	ToolArgs       map[string]interface{} `json:"tool_args,omitempty"`
 	Parameters     map[string]interface{} `json:"parameters,omitempty"`
 	Command        string                 `json:"command,omitempty"`
+	Cwd            string                 `json:"cwd,omitempty"`
 	Prompt         interface{}            `json:"prompt,omitempty"`
 	UserPrompt     interface{}            `json:"user_prompt,omitempty"`
 	UserQuery      interface{}            `json:"user_query,omitempty"`
@@ -85,7 +86,13 @@ type Payload struct {
 	Task           interface{}            `json:"task,omitempty"`
 	Input          interface{}            `json:"input,omitempty"`
 	Error          string                 `json:"error,omitempty"`
+	ErrorMessage   string                 `json:"error_message,omitempty"`
 	Message        string                 `json:"message,omitempty"`
+	Status         string                 `json:"status,omitempty"`
+	Reason         string                 `json:"reason,omitempty"`
+	Text           string                 `json:"text,omitempty"`
+	FilePath       string                 `json:"file_path,omitempty"`
+	MCPServerName  string                 `json:"mcp_server_name,omitempty"`
 	WorkspaceRoots []string               `json:"workspace_roots,omitempty"`
 	TranscriptPath string                 `json:"transcript_path,omitempty"`
 }
@@ -141,6 +148,7 @@ func ExtractSessionID(payload Payload) string {
 	for _, envK := range []string{
 		"ZCODE_SESSION_ID",
 		"CLAUDE_SESSION_ID",
+		"CURSOR_SESSION_ID",
 		"AIDER_SESSION_ID",
 		"TRAE_SESSION_ID",
 		"CONTINUE_SESSION_ID",
@@ -152,12 +160,12 @@ func ExtractSessionID(payload Payload) string {
 	}
 
 	for _, v := range []string{
-		payload.ID,
+		payload.ConversationID, // Cursor 跨轮稳定 ID，优先于 generation_id
 		payload.SessionID,
 		payload.SessionIDCamel,
+		payload.ID,
 		payload.TaskID,
 		payload.TaskIDCamel,
-		payload.ConversationID,
 		payload.GenerationID,
 	} {
 		if v != "" {
@@ -187,10 +195,77 @@ func GetHookResponse(event string) string {
 	switch event {
 	case "beforeSubmitPrompt", "UserPromptSubmit":
 		return `{"continue":true}`
-	case "beforeShellExecution", "preToolUse", "PreToolUse", "PermissionRequest":
+	case "beforeShellExecution", "beforeMCPExecution", "preToolUse", "PreToolUse", "PermissionRequest", "subagentStart":
 		return `{"permission":"allow"}`
 	default:
 		return `{}`
+	}
+}
+
+// IsFailureEvent 判断是否为单次工具失败（非整会话失败）。
+func IsFailureEvent(eventName string) bool {
+	switch eventName {
+	case "PostToolUseFailure", "postToolUseFailure", "toolFailure":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsFatalTerminal 根据 Cursor stop/sessionEnd 的 status/reason 判断是否为会话级中断。
+func IsFatalTerminal(payload Payload) bool {
+	for _, v := range []string{payload.Status, payload.Reason} {
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "error", "aborted":
+			return true
+		}
+	}
+	return false
+}
+
+// MapHookEvent 将各 Agent 原始 Hook 名规范化为 Monitor 状态机事件。
+func MapHookEvent(eventName, toolName string, payload Payload) string {
+	switch eventName {
+	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
+		return "sessionStart"
+	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
+		if IsFatalTerminal(payload) {
+			return "failed"
+		}
+		return "agentCompletion"
+	case "PostToolUseFailure", "postToolUseFailure":
+		return "toolFailure"
+	case "error", "failed":
+		return "failed"
+	case "beforeMCPExecution", "afterMCPExecution", "subagentStart", "subagentStop":
+		return "toolUse"
+	case "PreToolUse", "preToolUse", "beforeShellExecution":
+		if isBashTool(toolName) || payload.Command != "" {
+			return "beforeShellExecution"
+		}
+		return "toolUse"
+	case "afterAgentResponse":
+		return "afterAgentResponse"
+	default:
+		return eventName
+	}
+}
+
+func shouldDropEvent(eventName string) bool {
+	switch eventName {
+	case "afterFileEdit", "afterTabFileEdit", "beforeReadFile", "beforeTabFileRead", "afterAgentThought", "preCompact", "workspaceOpen":
+		return true
+	default:
+		return false
+	}
+}
+
+func isPreOrPostToolUse(eventName string) bool {
+	switch eventName {
+	case "PreToolUse", "PostToolUse", "preToolUse", "postToolUse":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -235,24 +310,26 @@ func Run(cfg Config, inputReader io.Reader) {
 		toolName = payload.Tool
 	}
 
-	isFailure := false
-	switch eventName {
-	case "PostToolUseFailure", "toolFailure", "failed", "error":
-		isFailure = true
-	}
+	isFailure := IsFailureEvent(eventName)
 
-	if eventName == "afterFileEdit" {
+	if shouldDropEvent(eventName) {
 		RespondAndExit(eventName)
 		return
 	}
 
-	if eventName == "PreToolUse" || eventName == "PostToolUse" {
+	if isPreOrPostToolUse(eventName) {
 		if !isFailure {
 			if IgnoredTools[toolName] {
 				RespondAndExit(eventName)
 				return
 			}
-			if eventName == "PostToolUse" {
+			if eventName == "PostToolUse" || eventName == "postToolUse" {
+				RespondAndExit(eventName)
+				return
+			}
+			// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
+			// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
+			if eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
 				RespondAndExit(eventName)
 				return
 			}
@@ -273,33 +350,17 @@ func Run(cfg Config, inputReader io.Reader) {
 	repo, branch := GetGitInfo(payload)
 
 	// 8. 映射事件名称
-	mappedEvent := eventName
-	switch eventName {
-	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
-		mappedEvent = "sessionStart"
-	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
-		mappedEvent = "agentCompletion"
-	case "PostToolUseFailure":
-		mappedEvent = "toolFailure"
-	case "error", "failed":
-		mappedEvent = "failed"
-	case "PreToolUse", "beforeShellExecution":
-		if isBashTool(toolName) || payload.Command != "" {
-			mappedEvent = "beforeShellExecution"
-		} else {
-			mappedEvent = "toolUse"
-		}
-	}
+	mappedEvent := MapHookEvent(eventName, toolName, payload)
 
-	// 9. 如果是会话完成，尝试从 transcript 文件提取最新的 AI 回复
-	aiResponseText := ""
-	if mappedEvent == "agentCompletion" {
+	// 9. AI 回复：优先 Cursor afterAgentResponse.text，否则倒序读 transcript
+	aiResponseText := strings.TrimSpace(payload.Text)
+	if (mappedEvent == "agentCompletion" || eventName == "afterAgentResponse") && aiResponseText == "" {
 		aiResponseText = ExtractAIResponseFromTranscripts(payload, sessionID)
-		if aiResponseText != "" {
-			aiSummary := ShortTitle(aiResponseText)
-			if aiSummary != "" {
-				detail = fmt.Sprintf("AI 回复: %s", aiSummary)
-			}
+	}
+	if aiResponseText != "" && (mappedEvent == "agentCompletion" || eventName == "afterAgentResponse") {
+		aiSummary := ShortTitle(aiResponseText)
+		if aiSummary != "" {
+			detail = fmt.Sprintf("AI 回复: %s", aiSummary)
 		}
 	}
 
@@ -350,7 +411,7 @@ func parsePayload(r io.Reader) Payload {
 
 func isBashTool(tool string) bool {
 	switch strings.ToLower(tool) {
-	case "bash", "execute_command", "shell", "run_command":
+	case "bash", "execute_command", "shell", "run_command", "runterminalcommand":
 		return true
 	default:
 		return false
@@ -363,6 +424,9 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 		if payload.Error != "" {
 			return payload.Error
 		}
+		if payload.ErrorMessage != "" {
+			return payload.ErrorMessage
+		}
 		if payload.Message != "" {
 			return payload.Message
 		}
@@ -370,6 +434,31 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 			return fmt.Sprintf("工具执行失败: %s", toolName)
 		}
 		return "执行失败"
+	}
+	if eventName == "beforeMCPExecution" || eventName == "afterMCPExecution" || payload.MCPServerName != "" {
+		name := toolName
+		if name == "" {
+			name = payload.MCPServerName
+		}
+		if name != "" {
+			return fmt.Sprintf("调用 MCP: %s", name)
+		}
+		return "调用 MCP 工具"
+	}
+	if eventName == "subagentStart" || eventName == "subagentStop" {
+		if s, ok := payload.Task.(string); ok && strings.TrimSpace(s) != "" {
+			return fmt.Sprintf("子代理: %s", ShortTitle(s))
+		}
+		if eventName == "subagentStop" {
+			return "子代理结束"
+		}
+		return "启动子代理"
+	}
+	if eventName == "afterAgentResponse" {
+		if payload.Text != "" {
+			return fmt.Sprintf("AI 回复: %s", ShortTitle(payload.Text))
+		}
+		return "AI 回复完成"
 	}
 	if payload.Command != "" {
 		return fmt.Sprintf("执行命令: %s", payload.Command)
@@ -385,6 +474,15 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 	case "beforeSubmitPrompt", "sessionStart", "SessionStart", "UserPromptSubmit":
 		return "会话启动，分析任务中..."
 	case "stop", "sessionEnd", "agentCompletion", "SessionEnd", "Stop":
+		if IsFatalTerminal(payload) {
+			if payload.ErrorMessage != "" {
+				return payload.ErrorMessage
+			}
+			if payload.Error != "" {
+				return payload.Error
+			}
+			return "任务异常中断"
+		}
 		return "任务执行完成"
 	}
 	if toolName != "" {
@@ -393,8 +491,25 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 	return ""
 }
 
+func toolInputAsMap(payload Payload) map[string]interface{} {
+	if len(payload.ToolInput) == 0 {
+		return nil
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal(payload.ToolInput, &m); err == nil {
+		return m
+	}
+	var s string
+	if err := json.Unmarshal(payload.ToolInput, &s); err == nil && s != "" {
+		if json.Unmarshal([]byte(s), &m) == nil {
+			return m
+		}
+	}
+	return nil
+}
+
 func extractCommandFromArgs(payload Payload) string {
-	for _, m := range []map[string]interface{}{payload.ToolInput, payload.ToolArgs, payload.Parameters} {
+	for _, m := range []map[string]interface{}{toolInputAsMap(payload), payload.ToolArgs, payload.Parameters} {
 		if m != nil {
 			if v, ok := m["command"].(string); ok && v != "" {
 				return v
@@ -532,13 +647,15 @@ func textFromTranscriptLine(obj map[string]interface{}) string {
 	if role, _ := obj["role"].(string); role != "user" {
 		return ""
 	}
-	var chunks []string
+	return UnwrapUserQuery(contentTextFromObj(obj))
+}
 
+func contentTextFromObj(obj map[string]interface{}) string {
 	msgObj, ok := obj["message"].(map[string]interface{})
 	if !ok {
 		msgObj = obj
 	}
-
+	var chunks []string
 	if contentList, ok := msgObj["content"].([]interface{}); ok {
 		for _, c := range contentList {
 			if cMap, ok := c.(map[string]interface{}); ok {
@@ -553,11 +670,12 @@ func textFromTranscriptLine(obj map[string]interface{}) string {
 		}
 	} else if s, ok := msgObj["content"].(string); ok {
 		chunks = append(chunks, s)
+	} else if s, ok := obj["content"].(string); ok {
+		chunks = append(chunks, s)
 	} else if s, ok := obj["text"].(string); ok {
 		chunks = append(chunks, s)
 	}
-
-	return UnwrapUserQuery(strings.Join(chunks, "\n"))
+	return strings.TrimSpace(strings.Join(chunks, "\n"))
 }
 
 // TranscriptCandidates 获取可能存在的 Transcript 文件路径（覆盖 Cursor、Claude Code 等）
@@ -634,16 +752,8 @@ func ExtractAIResponseFromTranscripts(payload Payload, sessionID string) string 
 				continue
 			}
 			if role, _ := obj["role"].(string); role == "assistant" {
-				if content, ok := obj["content"].(string); ok && strings.TrimSpace(content) != "" {
-					return strings.TrimSpace(content)
-				}
-				if msg, ok := obj["message"].(map[string]interface{}); ok {
-					if content, ok := msg["content"].(string); ok && strings.TrimSpace(content) != "" {
-						return strings.TrimSpace(content)
-					}
-				}
-				if text, ok := obj["text"].(string); ok && strings.TrimSpace(text) != "" {
-					return strings.TrimSpace(text)
+				if text := contentTextFromObj(obj); text != "" {
+					return text
 				}
 			}
 		}
@@ -667,8 +777,10 @@ func GetGitInfo(payload Payload) (string, string) {
 	cwd := ""
 	if len(payload.WorkspaceRoots) > 0 && payload.WorkspaceRoots[0] != "" {
 		cwd = payload.WorkspaceRoots[0]
+	} else if payload.Cwd != "" {
+		cwd = payload.Cwd
 	} else {
-		for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR"} {
+		for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR"} {
 			if v := os.Getenv(envK); v != "" {
 				cwd = v
 				break

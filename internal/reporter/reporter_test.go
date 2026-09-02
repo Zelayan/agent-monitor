@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 )
@@ -17,10 +18,14 @@ func TestGetHookResponse(t *testing.T) {
 		{"beforeSubmitPrompt", `{"continue":true}`},
 		{"UserPromptSubmit", `{"continue":true}`},
 		{"beforeShellExecution", `{"permission":"allow"}`},
+		{"beforeMCPExecution", `{"permission":"allow"}`},
 		{"PreToolUse", `{"permission":"allow"}`},
 		{"preToolUse", `{"permission":"allow"}`},
+		{"subagentStart", `{"permission":"allow"}`},
 		{"PermissionRequest", `{"permission":"allow"}`},
 		{"SessionStart", `{}`},
+		{"afterAgentResponse", `{}`},
+		{"stop", `{}`},
 		{"Stop", `{}`},
 		{"unknown", `{}`},
 	}
@@ -69,10 +74,27 @@ func TestExtractDetail(t *testing.T) {
 	}
 
 	payloadWithToolInput := Payload{
-		ToolInput: map[string]interface{}{"command": "npm run build"},
+		ToolInput: json.RawMessage(`{"command":"npm run build"}`),
 	}
 	if d := ExtractDetail(payloadWithToolInput, "PreToolUse", "bash", false); d != "执行命令: npm run build" {
 		t.Errorf("ExtractDetail(toolInput) = %q", d)
+	}
+
+	cursorShell := Payload{
+		ToolInput: json.RawMessage(`{"command":"ls","working_directory":"/project"}`),
+	}
+	if d := ExtractDetail(cursorShell, "preToolUse", "Shell", false); d != "执行命令: ls" {
+		t.Errorf("ExtractDetail(cursor Shell) = %q", d)
+	}
+
+	mcpPayload := Payload{MCPServerName: "cursor-ide-browser", ToolName: "browser_navigate"}
+	if d := ExtractDetail(mcpPayload, "beforeMCPExecution", "browser_navigate", false); d != "调用 MCP: browser_navigate" {
+		t.Errorf("ExtractDetail(MCP) = %q", d)
+	}
+
+	failPayload := Payload{ErrorMessage: "Command timed out after 30s"}
+	if d := ExtractDetail(failPayload, "postToolUseFailure", "Shell", true); d != "Command timed out after 30s" {
+		t.Errorf("ExtractDetail(cursor failure) = %q", d)
 	}
 
 	startPayload := Payload{}
@@ -80,8 +102,8 @@ func TestExtractDetail(t *testing.T) {
 		t.Errorf("ExtractDetail(start) = %q", d)
 	}
 
-	failPayload := Payload{Error: "command timed out"}
-	if d := ExtractDetail(failPayload, "PostToolUseFailure", "Bash", true); d != "command timed out" {
+	failClaude := Payload{Error: "command timed out"}
+	if d := ExtractDetail(failClaude, "PostToolUseFailure", "Bash", true); d != "command timed out" {
 		t.Errorf("ExtractDetail(failure) = %q", d)
 	}
 }
@@ -124,7 +146,7 @@ func TestIgnoredToolsFilter(t *testing.T) {
 			t.Errorf("Expected %s to be ignored", tool)
 		}
 	}
-	for _, tool := range []string{"Bash", "bash", "execute_command"} {
+	for _, tool := range []string{"Bash", "bash", "execute_command", "Shell", "Task"} {
 		if IgnoredTools[tool] {
 			t.Errorf("Expected %s NOT to be ignored", tool)
 		}
@@ -149,6 +171,24 @@ func TestParsePayload(t *testing.T) {
 	payload := parsePayload(bytes.NewBufferString(jsonInput))
 	if payload.Agent != "ZCode" || payload.Event != "SessionStart" || payload.SessionID != "sess-999" {
 		t.Errorf("Parsed payload mismatch: %+v", payload)
+	}
+
+	cursorInput := `{"conversation_id":"conv-1","generation_id":"gen-9","hook_event_name":"preToolUse","tool_name":"Shell","tool_input":{"command":"pwd"},"workspace_roots":["/tmp/proj"],"error_message":"","text":"","status":"completed"}`
+	cursorPayload := parsePayload(bytes.NewBufferString(cursorInput))
+	if cursorPayload.ConversationID != "conv-1" || cursorPayload.ToolName != "Shell" || cursorPayload.HookEventName != "preToolUse" {
+		t.Errorf("Cursor payload mismatch: %+v", cursorPayload)
+	}
+	if extractCommandFromArgs(cursorPayload) != "pwd" {
+		t.Errorf("tool_input object command = %q", extractCommandFromArgs(cursorPayload))
+	}
+
+	mcpInput := `{"tool_name":"search","tool_input":"{\"query\":\"hooks\"}","mcp_server_name":"docs"}`
+	mcpPayload := parsePayload(bytes.NewBufferString(mcpInput))
+	if mcpPayload.MCPServerName != "docs" || mcpPayload.ToolName != "search" {
+		t.Errorf("MCP payload mismatch: %+v", mcpPayload)
+	}
+	if m := toolInputAsMap(mcpPayload); m["query"] != "hooks" {
+		t.Errorf("MCP tool_input string parse = %#v", m)
 	}
 
 	rawInput := `not a valid json`
@@ -177,8 +217,59 @@ func TestExtractSessionID(t *testing.T) {
 	if id := ExtractSessionID(p); id != "task-abc" {
 		t.Errorf("expected task-abc, got %s", id)
 	}
+	cursor := Payload{ConversationID: "conv-stable", GenerationID: "gen-turn", SessionID: "sess-same"}
+	if id := ExtractSessionID(cursor); id != "conv-stable" {
+		t.Errorf("expected conversation_id over generation_id, got %s", id)
+	}
 	t.Setenv("CLAUDE_SESSION_ID", "claude-sess-99")
 	if id := ExtractSessionID(p); id != "claude-sess-99" {
 		t.Errorf("expected env priority claude-sess-99, got %s", id)
+	}
+}
+
+func TestMapHookEvent(t *testing.T) {
+	empty := Payload{}
+	if got := MapHookEvent("stop", "", empty); got != "agentCompletion" {
+		t.Errorf("Cursor stop completed = %q", got)
+	}
+	if got := MapHookEvent("stop", "", Payload{Status: "aborted"}); got != "failed" {
+		t.Errorf("Cursor stop aborted = %q", got)
+	}
+	if got := MapHookEvent("sessionEnd", "", Payload{Reason: "error"}); got != "failed" {
+		t.Errorf("sessionEnd error = %q", got)
+	}
+	if got := MapHookEvent("preToolUse", "Shell", Payload{Command: ""}); got != "beforeShellExecution" {
+		t.Errorf("preToolUse Shell = %q", got)
+	}
+	if got := MapHookEvent("preToolUse", "Task", empty); got != "toolUse" {
+		t.Errorf("preToolUse Task = %q", got)
+	}
+	if got := MapHookEvent("beforeMCPExecution", "search", empty); got != "toolUse" {
+		t.Errorf("beforeMCPExecution = %q", got)
+	}
+	if got := MapHookEvent("postToolUseFailure", "Shell", empty); got != "toolFailure" {
+		t.Errorf("postToolUseFailure = %q", got)
+	}
+	if got := MapHookEvent("afterAgentResponse", "", empty); got != "afterAgentResponse" {
+		t.Errorf("afterAgentResponse = %q", got)
+	}
+}
+
+func TestExtractAIResponseFromCursorTranscript(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/sess.jsonl"
+	content := `{"role":"user","message":{"content":[{"type":"text","text":"<user_query>分析适配</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"text","text":"先看 Hook 协议。"},{"type":"tool_use","name":"Grep"}]}}
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := ExtractAIResponseFromTranscripts(Payload{TranscriptPath: path}, "sess")
+	if got != "先看 Hook 协议。" {
+		t.Errorf("AI response = %q", got)
+	}
+	turns, curr, _ := ExtractTurnInfo(Payload{TranscriptPath: path}, "sess", 0)
+	if turns != 1 || curr != "分析适配" {
+		t.Errorf("turn/prompt = %d %q", turns, curr)
 	}
 }

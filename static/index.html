@@ -938,7 +938,10 @@
           if (e.event === 'beforeShellExecution') {
             tagClass = 'text-indigo-300 bg-indigo-950/60 border-indigo-800/60';
             tagText = 'EXEC';
-          } else if (e.event === 'agentCompletion') {
+          } else if (e.event === 'toolUse') {
+            tagClass = 'text-sky-300 bg-sky-950/60 border-sky-800/60';
+            tagText = 'TOOL';
+          } else if (e.event === 'afterAgentResponse' || e.event === 'agentCompletion') {
             tagClass = 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60';
             tagText = 'AI';
           } else if (e.event === 'sessionStart') {

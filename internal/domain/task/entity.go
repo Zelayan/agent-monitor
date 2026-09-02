@@ -15,16 +15,16 @@ type TimelineItem struct {
 // Turn 表示单个会话内的独立一轮执行周期（Run 实体）。
 type Turn struct {
 	Index      int            `json:"index"`                // 轮次序号 1, 2, 3...
-	Prompt     string         `json:"prompt,omitempty"`    // 当轮 Prompt 正文
-	Title      string         `json:"title,omitempty"`     // 当轮标题
-	AIResponse string         `json:"aiResponse,omitempty"`// 当轮 AI 最终回复与总结
-	Status     string         `json:"status"`              // running / completed / failed
-	StartTime  int64          `json:"startTime"`           // 当轮开始时间，Unix 毫秒
-	EndTime    int64          `json:"endTime,omitempty"`   // 当轮结束时间，Unix 毫秒
-	Duration   string         `json:"duration,omitempty"`  // 当轮实际执行耗时
-	Detail     string         `json:"detail,omitempty"`    // 当轮最新操作描述
-	LastHook   string         `json:"lastHook,omitempty"`  // 当轮最后一次 Hook 事件
-	Timeline   []TimelineItem `json:"timeline"`            // 当轮独立 Hook 轨迹
+	Prompt     string         `json:"prompt,omitempty"`     // 当轮 Prompt 正文
+	Title      string         `json:"title,omitempty"`      // 当轮标题
+	AIResponse string         `json:"aiResponse,omitempty"` // 当轮 AI 最终回复与总结
+	Status     string         `json:"status"`               // running / completed / failed
+	StartTime  int64          `json:"startTime"`            // 当轮开始时间，Unix 毫秒
+	EndTime    int64          `json:"endTime,omitempty"`    // 当轮结束时间，Unix 毫秒
+	Duration   string         `json:"duration,omitempty"`   // 当轮实际执行耗时
+	Detail     string         `json:"detail,omitempty"`     // 当轮最新操作描述
+	LastHook   string         `json:"lastHook,omitempty"`   // 当轮最后一次 Hook 事件
+	Timeline   []TimelineItem `json:"timeline"`             // 当轮独立 Hook 轨迹
 }
 
 // Task 表示 Monitor 上的一个 Agent 会话容器（聚合根 Workflow）。
@@ -54,17 +54,17 @@ type Task struct {
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID         string `json:"id"`                   // 会话/任务 ID，空则自动生成
-	Agent      string `json:"agent"`                // Agent 名称
-	Repo       string `json:"repo"`                 // 仓库信息
-	Branch     string `json:"branch"`               // 分支名
-	Event      string `json:"event"`                // hook 事件名，决定任务状态流转
-	Title      string `json:"title"`                // 任务标题
-	Prompt     string `json:"prompt"`               // 本轮 Prompt
-	AIResponse string `json:"ai_response,omitempty"`// 本轮 AI 总结与回复
-	Timestamp  int64  `json:"timestamp"`            // Unix 秒；为 0 则用服务端当前时间
-	Detail     string `json:"detail"`               // 本次操作的简要说明
-	TurnIndex  int    `json:"turn_index,omitempty"` // 上报指定的轮次（可选）
+	ID         string `json:"id"`                    // 会话/任务 ID，空则自动生成
+	Agent      string `json:"agent"`                 // Agent 名称
+	Repo       string `json:"repo"`                  // 仓库信息
+	Branch     string `json:"branch"`                // 分支名
+	Event      string `json:"event"`                 // hook 事件名，决定任务状态流转
+	Title      string `json:"title"`                 // 任务标题
+	Prompt     string `json:"prompt"`                // 本轮 Prompt
+	AIResponse string `json:"ai_response,omitempty"` // 本轮 AI 总结与回复
+	Timestamp  int64  `json:"timestamp"`             // Unix 秒；为 0 则用服务端当前时间
+	Detail     string `json:"detail"`                // 本次操作的简要说明
+	TurnIndex  int    `json:"turn_index,omitempty"`  // 上报指定的轮次（可选）
 }
 
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
@@ -228,69 +228,69 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		})
 	}
 
-		// 状态流转判定
-		switch p.Event {
-		case "sessionStart", "onStart", "beforeSubmitPrompt", "UserPromptSubmit", "SessionStart":
-			curRun.Status = "running"
-			t.Status = "running"
-			t.ActiveRunStart = curRun.StartTime
-		case "agentCompletion", "onComplete", "complete", "Stop", "SessionEnd":
-			curRun.Status = "completed"
-			curRun.EndTime = nowMs
-			diffSec := (curRun.EndTime - curRun.StartTime) / 1000
-			if diffSec < 0 {
-				diffSec = 0
-			}
-			curRun.Duration = FormatDuration(diffSec)
+	// 状态流转判定
+	switch p.Event {
+	case "sessionStart", "onStart", "beforeSubmitPrompt", "UserPromptSubmit", "SessionStart":
+		curRun.Status = "running"
+		t.Status = "running"
+		t.ActiveRunStart = curRun.StartTime
+	case "agentCompletion", "onComplete", "complete", "Stop", "stop", "SessionEnd", "sessionEnd":
+		curRun.Status = "completed"
+		curRun.EndTime = nowMs
+		diffSec := (curRun.EndTime - curRun.StartTime) / 1000
+		if diffSec < 0 {
+			diffSec = 0
+		}
+		curRun.Duration = FormatDuration(diffSec)
 
-			t.Status = "completed"
-			t.EndTime = nowMs
+		t.Status = "completed"
+		t.EndTime = nowMs
 
-			// 重新计算全生命周期总执行秒数
-			var totalSec int64 = 0
-			for _, r := range t.Runs {
-				if r.EndTime > r.StartTime {
-					totalSec += (r.EndTime - r.StartTime) / 1000
-				}
-			}
-			t.TotalLifetime = totalSec
-			t.Duration = FormatDuration(totalSec)
-		case "stop", "failed", "error":
-			// 会话级中断/崩溃
-			curRun.Status = "failed"
-			curRun.EndTime = nowMs
-			diffSec := (curRun.EndTime - curRun.StartTime) / 1000
-			if diffSec < 0 {
-				diffSec = 0
-			}
-			curRun.Duration = FormatDuration(diffSec)
-
-			t.Status = "failed"
-			t.EndTime = nowMs
-
-			var totalSec int64 = 0
-			for _, r := range t.Runs {
-				if r.EndTime > r.StartTime {
-					totalSec += (r.EndTime - r.StartTime) / 1000
-				}
-			}
-			t.TotalLifetime = totalSec
-			t.Duration = FormatDuration(totalSec)
-		case "toolFailure", "PostToolUseFailure":
-			// 单个工具执行异常（如 bash 非零退出），非致命中断，任务与 Run 保持 running
-			if curRun.Status == "" {
-				curRun.Status = "running"
-			}
-			if t.Status == "" {
-				t.Status = "running"
+		// 重新计算全生命周期总执行秒数
+		var totalSec int64 = 0
+		for _, r := range t.Runs {
+			if r.EndTime > r.StartTime {
+				totalSec += (r.EndTime - r.StartTime) / 1000
 			}
 		}
+		t.TotalLifetime = totalSec
+		t.Duration = FormatDuration(totalSec)
+	case "failed", "error":
+		// 会话级中断/崩溃（Cursor stop 的 aborted/error 由上报器映射为 failed）
+		curRun.Status = "failed"
+		curRun.EndTime = nowMs
+		diffSec := (curRun.EndTime - curRun.StartTime) / 1000
+		if diffSec < 0 {
+			diffSec = 0
+		}
+		curRun.Duration = FormatDuration(diffSec)
 
-		t.LastHook = p.Event
-		t.Detail = p.Detail
-		t.Turns = t.Runs                // 兼容 turns 别名
-		t.Timeline = curRun.Timeline    // 兼容顶层 timeline
+		t.Status = "failed"
+		t.EndTime = nowMs
+
+		var totalSec int64 = 0
+		for _, r := range t.Runs {
+			if r.EndTime > r.StartTime {
+				totalSec += (r.EndTime - r.StartTime) / 1000
+			}
+		}
+		t.TotalLifetime = totalSec
+		t.Duration = FormatDuration(totalSec)
+	case "toolFailure", "PostToolUseFailure", "postToolUseFailure":
+		// 单个工具执行异常（如 bash 非零退出），非致命中断，任务与 Run 保持 running
+		if curRun.Status == "" {
+			curRun.Status = "running"
+		}
+		if t.Status == "" {
+			t.Status = "running"
+		}
 	}
+
+	t.LastHook = p.Event
+	t.Detail = p.Detail
+	t.Turns = t.Runs             // 兼容 turns 别名
+	t.Timeline = curRun.Timeline // 兼容顶层 timeline
+}
 
 // Clone 返回当前 Task 聚合根的独立深拷贝副本，确保并发安全。
 func (t *Task) Clone() *Task {
