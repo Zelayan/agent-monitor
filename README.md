@@ -79,7 +79,20 @@ make build-all
 - `bin/agent-monitor`：Monitor Web 仪表盘服务
 - `bin/agent-reporter`：面向 AI Agent 的零依赖 Hook 上报器（支持 macOS/Linux/Windows）
 
-## 接入 ZCode Hook
+## ⚡ 让 AI 自动为你接入（零手工配置）
+
+你可以直接对你正在使用的 **Claude Code / Cursor / ZCode / Aider** 说一句话：
+
+> *"请阅读 [https://raw.githubusercontent.com/Zelayan/agent-monitor/main/docs/AGENT_INTEGRATION.md](docs/AGENT_INTEGRATION.md) 并帮我为当前项目自动安装配置 Agent Monitor 的 Hook"*
+
+AI Agent 会自动：
+1. 检查并一键安装 `agent-reporter` 命令行工具；
+2. 识别当前 Agent 类型并自动生成对应的工作区 Hook 配置文件；
+3. 发送测试心跳验证连通性。
+
+---
+
+## 手动接入各 Agent Hook
 
 ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.json` 中配置生命周期 Hook。
 
@@ -200,6 +213,8 @@ main.go                  Monitor 服务入口（内存任务 + SSE）
 static/index.html        Monitor 前端（go:embed）
 cmd/reporter/            Go 原生零依赖 Hook 上报器命令行入口
 internal/reporter/       上报器核心逻辑（协议放行、过滤规则、Git/Transcript解析）
+llms.txt                 符合 LLM 索引规范的 Agent 入口
+docs/AGENT_INTEGRATION.md 面向 AI Agent 的自动安装配置指南
 scripts/reporter.py      历史 Python 上报脚本（已废弃，建议使用 cmd/reporter）
 configs/                 多 Agent Hook 配置模板（ZCode, Cursor, Claude Code, Aider 等）
 install.sh               全平台一键安装脚本
