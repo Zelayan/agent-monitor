@@ -109,6 +109,8 @@ jobs:
             "  cd ${OFFLINE_NAME}" \
             '  ./install.sh .' \
             '' \
+            'From inside the extracted directory, ./install.sh uses local binaries (no network).' \
+            '' \
             'Or pass the archive directly:' \
             '' \
             "  ./install.sh ./${OFFLINE_NAME}.tar.gz" \

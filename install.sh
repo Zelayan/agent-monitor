@@ -6,7 +6,8 @@ set -e
 # 支持系统: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64)
 #
 # 在线:   ./install.sh
-# 离线:   ./install.sh ./agent-monitor_v1.0.0-beta.3_linux-offline.tar.gz
+# 离线:   在 linux-offline 解压目录里直接 ./install.sh（不访问网络）
+#         或 ./install.sh ./agent-monitor_*_linux-offline.tar.gz
 # 目录:   ./install.sh ./bin
 # 镜像:   VERSION=v1.0.0-beta.3 BASE_URL=https://files.corp.local/am ./install.sh
 # ==========================================================
@@ -17,7 +18,8 @@ GITHUB_URL="https://github.com/${REPO}"
 usage() {
   cat <<'EOF'
 Usage:
-  install.sh                              Download latest GitHub Release
+  install.sh                              Offline if binaries sit next to this script
+                                          (linux-offline pack). Otherwise download GitHub.
   install.sh /path/to/package.tar.gz      Offline archive (no network)
                                           Linux: agent-monitor_*_linux-offline.tar.gz
   install.sh /path/to/dir                 Directory with agent-monitor + agent-reporter
@@ -29,6 +31,7 @@ Environment:
   DOWNLOAD_URL        Full archive URL (skips GitHub API)
   INSTALL_DIR         Binary install path (default: /usr/local/bin or ~/.local/bin)
   INSTALL_SYSTEMD=0   Do not register systemd service
+  FORCE_ONLINE=1      Ignore local binaries and download from GitHub / BASE_URL
 EOF
 }
 
@@ -61,6 +64,11 @@ case "${ARCH}" in
 esac
 
 echo "    Platform: ${OS}/${ARCH}"
+
+script_dir() {
+  local src="${BASH_SOURCE[0]:-$0}"
+  cd "$(dirname "$src")" && pwd
+}
 
 PACKAGE="${PACKAGE:-${1:-}}"
 TMP_DIR=""
@@ -103,7 +111,23 @@ guess_version_from_name() {
 
 EXTRACTED_DIR=""
 
-if [ -n "${PACKAGE}" ]; then
+if [ -z "${PACKAGE}" ] && [ "${FORCE_ONLINE:-0}" != "1" ]; then
+  for _root in "$(script_dir)" "$(pwd)"; do
+    if EXTRACTED_DIR="$(locate_payload "${_root}")"; then
+      PACKAGE="${_root}"
+      echo "==> Using bundled binaries in ${EXTRACTED_DIR} (offline)"
+      if [ -z "${VERSION:-}" ]; then
+        VERSION="$(guess_version_from_name "$(basename "${_root}")" || true)"
+      fi
+      break
+    fi
+  done
+  unset _root
+fi
+
+if [ -n "${EXTRACTED_DIR}" ]; then
+  :
+elif [ -n "${PACKAGE}" ]; then
   if [ ! -e "${PACKAGE}" ]; then
     echo "Error: package not found: ${PACKAGE}" >&2
     exit 1

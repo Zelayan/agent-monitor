@@ -62,15 +62,18 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ### 内网 / 离线安装
 
-把 GitHub Release 里的 **`agent-monitor_<version>_linux-offline.tar.gz`** 拷进内网（一份包含 `install.sh`、amd64 与 arm64）。发版流水线会和其它平台包一起挂上：
+把 GitHub Release 里的 **`agent-monitor_<version>_linux-offline.tar.gz`** 拷进内网（一份包含 `install.sh`、amd64 与 arm64）。发版流水线会和其它平台包一起挂上。解压后在目录里直接执行即可，**不会访问 GitHub**：
 
 ```bash
-./install.sh ./agent-monitor_v1.0.0-beta.3_linux-offline.tar.gz
+tar -xzf agent-monitor_v1.0.0-beta.5_linux-offline.tar.gz
+cd agent-monitor_v1.0.0-beta.5_linux-offline
+./install.sh
 ```
 
-单架构包 `agent-monitor_*_linux_amd64.tar.gz` / `linux_arm64.tar.gz` 同样可以离线安装。已解压目录或本机 `make build` 的 `bin/`：
+也可以对压缩包或其它目录显式指定路径：
 
 ```bash
+./install.sh ./agent-monitor_v1.0.0-beta.5_linux-offline.tar.gz
 ./install.sh ./bin
 ```
 
