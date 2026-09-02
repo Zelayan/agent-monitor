@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"agent-monitor/internal/application/monitor"
-	"agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/application/monitor"
+	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
 // Handler 提供 Monitor 的 HTTP API 与前端页面路由处理。

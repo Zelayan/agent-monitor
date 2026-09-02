@@ -12,9 +12,9 @@ import (
 	"net/http"
 	"os"
 
-	"agent-monitor/internal/application/monitor"
-	"agent-monitor/internal/infrastructure/persistence"
-	transport "agent-monitor/internal/infrastructure/transport/http"
+	"github.com/Zelayan/agent-monitor/internal/application/monitor"
+	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
+	transport "github.com/Zelayan/agent-monitor/internal/infrastructure/transport/http"
 )
 
 //go:embed static/index.html

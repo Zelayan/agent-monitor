@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"agent-monitor/internal/application/monitor"
-	"agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/application/monitor"
+	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
 type mockRepo struct {

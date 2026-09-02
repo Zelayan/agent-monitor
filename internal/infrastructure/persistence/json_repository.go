@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
 // JSONRepository 是基于本地 JSON 文件的 TaskRepository 实现。

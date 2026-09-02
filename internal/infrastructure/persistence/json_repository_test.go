@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
 func TestJSONRepository_Lifecycle(t *testing.T) {

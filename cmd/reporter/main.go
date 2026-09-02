@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"agent-monitor/internal/reporter"
+	"github.com/Zelayan/agent-monitor/internal/reporter"
 )
 
 func main() {
