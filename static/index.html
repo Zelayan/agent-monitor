@@ -199,6 +199,17 @@
           EN
         </button>
 
+        <!-- 桌面通知开关 -->
+        <button id="btn-notify" type="button" class="h-7 w-7 rounded border border-line bg-card flex items-center justify-center text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors" title="桌面通知">
+          <svg id="icon-notify-on" class="w-3.5 h-3.5 hidden text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <svg id="icon-notify-off" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/><path d="M8.6 8.6a6 6 0 0 0 .4-.6"/><path d="M18 8A6 6 0 0 0 9.3 2.7"/><path d="M4 17h13"/><path d="M18 17a3 3 0 0 0 2-2.5"/></svg>
+        </button>
+
+        <!-- API Key 设置 -->
+        <button id="btn-auth" type="button" class="h-7 w-7 rounded border border-line bg-card flex items-center justify-center text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors" title="API Key 鉴权设置">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L20 9l-1.5-1.5 2-2"/></svg>
+        </button>
+
         <!-- 多模式清空下拉菜单 (Clear Actions Dropdown) -->
         <div class="relative" id="clear-dropdown-container">
           <button id="btn-clear-dropdown" type="button" aria-haspopup="true" aria-expanded="false" class="h-7 px-2.5 rounded border border-line bg-card hover:border-zinc-500 text-[11px] text-zinc-300 hover:text-zinc-100 flex items-center gap-1.5 transition-colors">
@@ -439,6 +450,47 @@
     </div>
   </div>
 
+  <!-- API Key 鉴权设置 Modal -->
+  <div id="auth-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs hidden" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div class="w-full max-w-sm bg-[#0c0d0e] border border-[#27272a] rounded-lg shadow-2xl overflow-hidden transition-all duration-150">
+      <div class="p-4 space-y-3">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="7.5" cy="15.5" r="4.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L20 9l-1.5-1.5 2-2"/>
+            </svg>
+          </div>
+          <h3 id="auth-modal-title" class="font-mono text-xs font-semibold text-zinc-100 uppercase tracking-tight"></h3>
+        </div>
+        <p id="auth-modal-desc" class="text-xs text-zinc-400 leading-relaxed font-sans"></p>
+        <div class="space-y-1.5 pt-1">
+          <input id="auth-key-input" type="password" placeholder="API Key / Token"
+            class="w-full h-8 px-3 rounded bg-card border border-line text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
+          <div class="flex items-center justify-between text-[10px] text-zinc-500 font-mono">
+            <label class="flex items-center gap-1.5 cursor-pointer select-none">
+              <input type="checkbox" id="auth-show-key" class="accent-indigo-500 rounded">
+              <span id="lbl-show-key">显示明文</span>
+            </label>
+            <span id="auth-status-hint" class="text-zinc-500"></span>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between px-4 py-2.5 bg-[#111215] border-t border-[#27272a]">
+        <button id="auth-modal-clear" type="button" class="h-7 px-2.5 rounded border border-rose-900/40 bg-rose-950/20 text-xs font-mono text-rose-400 hover:bg-rose-950/50 transition-colors">
+          清除
+        </button>
+        <div class="flex items-center gap-2">
+          <button id="auth-modal-cancel" type="button" class="h-7 px-3 rounded border border-line text-xs font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors">
+            取消
+          </button>
+          <button id="auth-modal-save" type="button" class="h-7 px-3 rounded text-xs font-mono font-medium text-white bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 transition-colors shadow-sm">
+            保存
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const I18N = {
       zh: {
@@ -489,6 +541,21 @@
         offline: '离线',
         filterAll: '全部',
         abortedDefault: '用户终止执行 (SIGINT)',
+        notifyOn: '桌面通知已开启',
+        notifyOff: '开启桌面通知',
+        notifyDenied: '通知已被浏览器拒绝',
+        notifyCompleted: '任务执行完成',
+        notifyFailed: '任务异常终止',
+        notifyCompletedBody: '工作流已顺利完成',
+        notifyFailedBody: '工作流遇到错误或已被终止',
+        btnAuthTitle: 'API Key 鉴权设置',
+        authModalTitle: 'API KEY 访问鉴权',
+        authModalDesc: '若服务端开启了 API Key 访问控制，请在下方填入密钥。密钥将安全保存于本地浏览器。',
+        authKeyPlaceholder: '输入 API Key / Token',
+        authShowKey: '显示明文',
+        authSave: '保存',
+        authClear: '清除密钥',
+        authRequired: '401 未授权：请配置有效 API Key',
       },
       en: {
         htmlLang: 'en',
@@ -538,6 +605,21 @@
         offline: 'offline',
         filterAll: 'ALL',
         abortedDefault: 'Aborted by user (SIGINT)',
+        notifyOn: 'Notifications enabled',
+        notifyOff: 'Enable notifications',
+        notifyDenied: 'Notifications blocked by browser',
+        notifyCompleted: 'Workflow Completed',
+        notifyFailed: 'Workflow Terminated',
+        notifyCompletedBody: 'Workflow finished successfully',
+        notifyFailedBody: 'Workflow encountered an error or was aborted',
+        btnAuthTitle: 'API Key Authentication Settings',
+        authModalTitle: 'API KEY AUTHENTICATION',
+        authModalDesc: 'If server authentication is enabled, enter your API Key below. Stored securely in your browser.',
+        authKeyPlaceholder: 'Enter API Key / Token',
+        authShowKey: 'Show key',
+        authSave: 'Save',
+        authClear: 'Clear Key',
+        authRequired: '401 Unauthorized: Valid API key required',
       },
     };
 
@@ -586,6 +668,24 @@
       document.getElementById('btn-batch-delete').textContent = t('batchDelete');
       document.getElementById('btn-batch-cancel').textContent = t('batchCancel');
       document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
+      const authBtn = document.getElementById('btn-auth');
+      if (authBtn) authBtn.title = t('btnAuthTitle');
+      const authTitle = document.getElementById('auth-modal-title');
+      if (authTitle) authTitle.textContent = t('authModalTitle');
+      const authDesc = document.getElementById('auth-modal-desc');
+      if (authDesc) authDesc.textContent = t('authModalDesc');
+      const authInput = document.getElementById('auth-key-input');
+      if (authInput) authInput.placeholder = t('authKeyPlaceholder');
+      const lblShow = document.getElementById('lbl-show-key');
+      if (lblShow) lblShow.textContent = t('authShowKey');
+      const btnAuthSave = document.getElementById('auth-modal-save');
+      if (btnAuthSave) btnAuthSave.textContent = t('authSave');
+      const btnAuthClear = document.getElementById('auth-modal-clear');
+      if (btnAuthClear) btnAuthClear.textContent = t('authClear');
+      const btnAuthCancel = document.getElementById('auth-modal-cancel');
+      if (btnAuthCancel) btnAuthCancel.textContent = t('btnCancel');
+      updateNotifyButtonUI();
+      updateAuthButtonUI();
       updateBatchUI();
       setDaemon(isOnline);
       lastFilterSignature = '';
@@ -1144,13 +1244,181 @@
       el.className = 'inline-flex items-center gap-1.5 font-mono text-[11px] tabular-nums ' + (online ? 'text-zinc-500' : 'text-zinc-600');
     }
 
+    // 桌面通知权限与状态管理
+    let notificationPermission = (typeof Notification !== 'undefined') ? Notification.permission : 'denied';
+    let isNotifyEnabled = localStorage.getItem('agent_monitor_notify') === 'true';
+
+    function updateNotifyButtonUI() {
+      const btn = document.getElementById('btn-notify');
+      const iconOn = document.getElementById('icon-notify-on');
+      const iconOff = document.getElementById('icon-notify-off');
+      if (!btn) return;
+
+      if (typeof Notification === 'undefined') {
+        btn.classList.add('opacity-40', 'cursor-not-allowed');
+        btn.title = t('notifyDenied');
+        return;
+      }
+
+      if (Notification.permission === 'denied') {
+        btn.classList.add('opacity-50');
+        btn.title = t('notifyDenied');
+        if (iconOn) iconOn.classList.add('hidden');
+        if (iconOff) iconOff.classList.remove('hidden');
+        return;
+      }
+
+      btn.classList.remove('opacity-40', 'opacity-50', 'cursor-not-allowed');
+      if (isNotifyEnabled && Notification.permission === 'granted') {
+        if (iconOn) iconOn.classList.remove('hidden');
+        if (iconOff) iconOff.classList.add('hidden');
+        btn.classList.add('border-emerald-600/60', 'bg-emerald-950/20');
+        btn.title = t('notifyOn');
+      } else {
+        if (iconOn) iconOn.classList.add('hidden');
+        if (iconOff) iconOff.classList.remove('hidden');
+        btn.classList.remove('border-emerald-600/60', 'bg-emerald-950/20');
+        btn.title = t('notifyOff');
+      }
+    }
+
+    async function toggleNotification() {
+      if (typeof Notification === 'undefined') return;
+      if (Notification.permission === 'default') {
+        const perm = await Notification.requestPermission();
+        notificationPermission = perm;
+        if (perm === 'granted') {
+          isNotifyEnabled = true;
+          localStorage.setItem('agent_monitor_notify', 'true');
+        }
+      } else if (Notification.permission === 'granted') {
+        isNotifyEnabled = !isNotifyEnabled;
+        localStorage.setItem('agent_monitor_notify', isNotifyEnabled ? 'true' : 'false');
+      }
+      updateNotifyButtonUI();
+    }
+
+    function notifyTaskEvent(task, eventType) {
+      if (!isNotifyEnabled || typeof Notification === 'undefined' || Notification.permission !== 'granted') {
+        return;
+      }
+      const isCompleted = eventType === 'completed';
+      const agentName = task.agent || 'AI Agent';
+      const title = isCompleted
+        ? `✓ [${agentName}] ${t('notifyCompleted')}`
+        : `✕ [${agentName}] ${t('notifyFailed')}`;
+      const body = task.rootGoal || task.title || (isCompleted ? t('notifyCompletedBody') : t('notifyFailedBody'));
+
+      try {
+        const notification = new Notification(title, {
+          body: body.length > 120 ? body.slice(0, 120) + '...' : body,
+          tag: 'agent-monitor-' + task.id,
+        });
+        notification.onclick = () => {
+          window.focus();
+          if (task.id) openDrawer(task.id);
+          notification.close();
+        };
+      } catch (_) { /* ignore */ }
+    }
+
+    // API Key 鉴权管理
+    let apiKey = localStorage.getItem('agent_monitor_api_key') || '';
+
+    function updateAuthButtonUI() {
+      const btn = document.getElementById('btn-auth');
+      if (!btn) return;
+      if (apiKey) {
+        btn.classList.add('border-indigo-600/60', 'bg-indigo-950/30', 'text-indigo-300');
+        btn.classList.remove('text-zinc-400');
+      } else {
+        btn.classList.remove('border-indigo-600/60', 'bg-indigo-950/30', 'text-indigo-300');
+        btn.classList.add('text-zinc-400');
+      }
+    }
+
+    function showAuthModal(is401 = false) {
+      const modal = document.getElementById('auth-modal');
+      const input = document.getElementById('auth-key-input');
+      const hint = document.getElementById('auth-status-hint');
+      if (!modal || !input) return;
+      input.value = apiKey;
+      if (hint) {
+        hint.textContent = is401 ? t('authRequired') : (apiKey ? '✓ Key active' : '');
+        hint.className = is401 ? 'text-rose-400 font-mono text-[10px]' : 'text-emerald-400 font-mono text-[10px]';
+      }
+      modal.classList.remove('hidden');
+      setTimeout(() => input.focus(), 30);
+    }
+
+    function closeAuthModal() {
+      const modal = document.getElementById('auth-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function saveAuthKey() {
+      const input = document.getElementById('auth-key-input');
+      if (!input) return;
+      apiKey = input.value.trim();
+      if (apiKey) {
+        localStorage.setItem('agent_monitor_api_key', apiKey);
+      } else {
+        localStorage.removeItem('agent_monitor_api_key');
+      }
+      updateAuthButtonUI();
+      closeAuthModal();
+      connect();
+    }
+
+    function clearAuthKey() {
+      apiKey = '';
+      localStorage.removeItem('agent_monitor_api_key');
+      const input = document.getElementById('auth-key-input');
+      if (input) input.value = '';
+      updateAuthButtonUI();
+      closeAuthModal();
+      connect();
+    }
+
+    // 封装统一的 API 请求，自动注入 Bearer Token 鉴权头
+    async function apiFetch(url, options = {}) {
+      options.headers = options.headers || {};
+      if (apiKey) {
+        if (options.headers instanceof Headers) {
+          options.headers.set('Authorization', 'Bearer ' + apiKey);
+        } else {
+          options.headers['Authorization'] = 'Bearer ' + apiKey;
+        }
+      }
+      try {
+        const resp = await fetch(url, options);
+        if (resp.status === 401) {
+          showAuthModal(true);
+        }
+        return resp;
+      } catch (err) {
+        throw err;
+      }
+    }
+
+    let isInitialLoad = true;
+
     function connect() {
       if (eventSource) {
         eventSource.onerror = null;
         eventSource.close();
       }
-      eventSource = new EventSource('/api/stream');
-      eventSource.onopen = () => setDaemon(true);
+      isInitialLoad = true;
+      let sseUrl = '/api/stream';
+      if (apiKey) {
+        sseUrl += '?token=' + encodeURIComponent(apiKey);
+      }
+      eventSource = new EventSource(sseUrl);
+      eventSource.onopen = () => {
+        setDaemon(true);
+        // 避开首帧全量历史数据快照的弹窗触发
+        setTimeout(() => { isInitialLoad = false; }, 1200);
+      };
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
@@ -1167,7 +1435,15 @@
           }
           // 普通任务增量更新或全量快照
           if (data && data.id) {
+            const oldTask = tasksMap.get(data.id);
             tasksMap.set(data.id, data);
+            if (!isInitialLoad && oldTask && oldTask.status === 'running') {
+              if (data.status === 'completed') {
+                notifyTaskEvent(data, 'completed');
+              } else if (data.status === 'failed') {
+                notifyTaskEvent(data, 'failed');
+              }
+            }
             scheduleRender();
           }
         } catch (_) { /* ignore malformed frames */ }
@@ -1249,7 +1525,7 @@
     async function clearFinishedTasks() {
       toggleClearDropdown(false);
       try {
-        await fetch('/api/tasks', { method: 'DELETE' });
+        await apiFetch('/api/tasks', { method: 'DELETE' });
       } catch (_) { /* local fallback */ }
       for (const [id, tObj] of tasksMap) {
         if (tObj.status !== 'running') tasksMap.delete(id);
@@ -1270,7 +1546,7 @@
       });
       if (!confirmed) return;
       try {
-        await fetch('/api/tasks?all=true', { method: 'DELETE' });
+        await apiFetch('/api/tasks?all=true', { method: 'DELETE' });
       } catch (_) { /* local fallback */ }
       tasksMap.clear();
       selectedTaskIds.clear();
@@ -1291,7 +1567,7 @@
       });
       if (!confirmed) return;
       try {
-        await fetch('/api/tasks', {
+        await apiFetch('/api/tasks', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: [id] })
@@ -1360,7 +1636,7 @@
       });
       if (!confirmed) return;
       try {
-        await fetch('/api/tasks', {
+        await apiFetch('/api/tasks', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: ids })
@@ -1412,6 +1688,39 @@
     document.getElementById('btn-batch-delete').addEventListener('click', deleteSelectedBatch);
     document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleSelectMode(false));
     document.getElementById('btn-delete-session').addEventListener('click', () => deleteSingleSession(selectedId));
+    document.getElementById('btn-notify').addEventListener('click', toggleNotification);
+    document.getElementById('btn-auth').addEventListener('click', () => showAuthModal(false));
+
+    // API Key 弹窗事件绑定
+    const authModalEl = document.getElementById('auth-modal');
+    if (authModalEl) {
+      authModalEl.addEventListener('click', (e) => {
+        if (e.target === authModalEl) closeAuthModal();
+      });
+    }
+    const btnAuthCancel = document.getElementById('auth-modal-cancel');
+    if (btnAuthCancel) btnAuthCancel.addEventListener('click', closeAuthModal);
+    const btnAuthSave = document.getElementById('auth-modal-save');
+    if (btnAuthSave) btnAuthSave.addEventListener('click', saveAuthKey);
+    const btnAuthClear = document.getElementById('auth-modal-clear');
+    if (btnAuthClear) btnAuthClear.addEventListener('click', clearAuthKey);
+
+    const authShowKeyCb = document.getElementById('auth-show-key');
+    if (authShowKeyCb) {
+      authShowKeyCb.addEventListener('change', (e) => {
+        const input = document.getElementById('auth-key-input');
+        if (input) input.type = e.target.checked ? 'text' : 'password';
+      });
+    }
+    const authKeyInput = document.getElementById('auth-key-input');
+    if (authKeyInput) {
+      authKeyInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          saveAuthKey();
+        }
+      });
+    }
 
     const dropdownTrigger = document.getElementById('run-dropdown-trigger');
     if (dropdownTrigger) {
@@ -1449,6 +1758,14 @@
     }
 
     document.addEventListener('keydown', (e) => {
+      const authModal = document.getElementById('auth-modal');
+      if (authModal && !authModal.classList.contains('hidden')) {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeAuthModal();
+          return;
+        }
+      }
       const modal = document.getElementById('confirm-modal');
       if (modal && !modal.classList.contains('hidden')) {
         if (e.key === 'Escape') {
