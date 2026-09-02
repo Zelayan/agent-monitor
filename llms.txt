@@ -8,6 +8,7 @@ Agent Monitor provides a local dark-themed web dashboard and an ultra-fast, zero
 
 For AI Coding Agents that want to automatically self-configure hooks for the current project:
 - [Agent Integration Manual](docs/AGENT_INTEGRATION.md): Step-by-step instructions for AI agents to auto-detect their environment and configure hooks.
+- [Installation Guide](docs/INSTALLATION.md): Complete guide for installing, offline distribution, Docker, and systemd service management.
 - [GitHub Repository](https://github.com/Zelayan/agent-monitor): Source code, releases, and documentation.
 
 ## Core Components
