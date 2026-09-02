@@ -168,6 +168,47 @@ func TestTask_CursorStopCompletes(t *testing.T) {
 	}
 }
 
+func TestTask_AfterAgentResponseClosesRunWithoutStop(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-ai-only",
+		Agent:  "Cursor Agent",
+		Event:  "sessionStart",
+		Prompt: "是不是需要支持只统计指定会话和任务呢？",
+	}, 1000000)
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-ai-only",
+		Event:     "sessionStart",
+		Prompt:    "是不是需要支持只统计指定会话和任务呢？",
+		Detail:    "会话启动，分析任务中...",
+	}, 1000000, "02:21:14")
+
+	task.ApplyEvent(EventPayload{
+		ID:         "sess-ai-only",
+		Event:      "afterAgentResponse",
+		Detail:     "AI 回复: 顶栏统计跟当前视野走即可。",
+		AIResponse: "顶栏统计跟当前视野走即可。",
+	}, 1010000, "02:22:40")
+
+	if task.Status != "completed" || task.Runs[0].Status != "completed" {
+		t.Fatalf("afterAgentResponse should close the run when stop is missing, got task=%s run=%s", task.Status, task.Runs[0].Status)
+	}
+	if task.Runs[0].AIResponse != "顶栏统计跟当前视野走即可。" {
+		t.Errorf("AIResponse = %q", task.Runs[0].AIResponse)
+	}
+	if task.Runs[0].Duration == "" {
+		t.Fatal("closed run should record duration")
+	}
+
+	task.ApplyEvent(EventPayload{
+		ID:     "sess-ai-only",
+		Event:  "agentCompletion",
+		Detail: "任务执行完成",
+	}, 1011000, "02:22:41")
+	if task.Status != "completed" || task.Runs[0].Status != "completed" {
+		t.Fatalf("late stop must stay completed, got task=%s run=%s", task.Status, task.Runs[0].Status)
+	}
+}
+
 func TestTask_CursorAfterAgentResponseAndStopDedupsAIReply(t *testing.T) {
 	task := NewTask(EventPayload{
 		ID:     "sess-cursor-dup",

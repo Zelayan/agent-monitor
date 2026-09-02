@@ -179,7 +179,10 @@ func (r *Turn) closeAs(status string, nowMs int64) {
 	if r == nil {
 		return
 	}
-	if r.Status == "completed" || r.Status == "failed" {
+	if r.Status == "failed" {
+		return
+	}
+	if r.Status == "completed" && status != "failed" {
 		return
 	}
 	r.Status = status
@@ -349,11 +352,14 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		curRun.Status = "running"
 		t.Status = "running"
 		t.ActiveRunStart = curRun.StartTime
-	case "agentCompletion", "onComplete", "complete", "Stop", "stop", "SessionEnd", "sessionEnd":
-		curRun.closeAs("completed", nowMs)
-		t.Status = "completed"
-		t.EndTime = nowMs
-		t.recountLifetime()
+	case "agentCompletion", "onComplete", "complete", "Stop", "stop", "SessionEnd", "sessionEnd", "afterAgentResponse":
+		// afterAgentResponse：Cursor 回复已对用户交付。stop 晚到或丢失时作为本轮兜底收口。
+		if t.Status != "failed" {
+			curRun.closeAs("completed", nowMs)
+			t.Status = "completed"
+			t.EndTime = nowMs
+			t.recountLifetime()
+		}
 	case "failed", "error":
 		// 会话级中断/崩溃（Cursor stop 的 aborted/error 由上报器映射为 failed）
 		curRun.closeAs("failed", nowMs)

@@ -202,9 +202,9 @@ curl -s http://127.0.0.1:8000/api/event \
 `event` 会映射到 Monitor 列：
 
 - `sessionStart` / `onStart` / `SessionStart` / `UserPromptSubmit` / `beforeSubmitPrompt` → 正在运行
-- `agentCompletion` / `onComplete` / `complete` / `Stop` / `stop` / `SessionEnd` / `sessionEnd` → 已完成
+- `agentCompletion` / `onComplete` / `complete` / `Stop` / `stop` / `SessionEnd` / `sessionEnd` / `afterAgentResponse` → 已完成（Cursor 的 `afterAgentResponse` 表示回复已交付，作为 `stop` 丢失时的兜底收口）
 - `failed` / `error` → 异常 / 中断（Cursor `stop` 且 status 为 `aborted`/`error` 时由上报器映射而来）
-- `toolUse` / `beforeShellExecution` / `afterAgentResponse` / `toolFailure` → 操作轨迹（记录在时间线中）
+- `toolUse` / `beforeShellExecution` / `toolFailure` → 操作轨迹（记录在时间线中）
 
 同一 `id` 的多次上报会聚合成一条任务，并追加到时间线。
 

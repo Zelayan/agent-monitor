@@ -62,7 +62,7 @@ main.go                   # agent-monitor Web 服务入口（嵌入 static/index
 
 - **状态分类**：
   - **Running（运行中）**：`sessionStart`、`beforeSubmitPrompt`、`UserPromptSubmit` 等。
-  - **Completed（已完成）**：`agentCompletion`、`Stop`、`stop`、`SessionEnd`、`sessionEnd` 等。
+  - **Completed（已完成）**：`agentCompletion`、`Stop`、`stop`、`SessionEnd`、`sessionEnd`、`afterAgentResponse`（Cursor 回复已交付；`stop` 丢失时的兜底收口）等。
   - **Failed（异常中断）**：`failed`、`error`（会话级致命中断；Cursor `stop` 的 `aborted`/`error` 由上报器映射为 `failed`）。
 - **工具局部失败保护**：
   - 单次工具执行失败（`toolFailure` / `PostToolUseFailure`，如 `grep` 退出码 1、测试失败）属于正常调试轨迹，**绝不能将整任务状态直接置为 `failed`**；应保持 `running`，并将错误信息记入时间线详情中。
