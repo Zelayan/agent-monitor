@@ -114,6 +114,21 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ---
 
+## 🎯 全局统一配置与精准标签过滤 (可选)
+
+如果你不想在每个项目重复配置，或者希望**只监控重要任务（如带有 `#task` 的 Prompt），而忽略日常随意闲聊**：
+
+只需执行一行命令，生成全局统一配置文件 `~/.agent-monitor/config.json`：
+```bash
+agent-reporter init-config --tag "#task"
+```
+
+- **精准过滤**：只有 Prompt 中包含 `#task` 的任务才会被推送到看板，普通对话纳秒级静默放行（`exit 0`）；
+- **全局生效**：所有 Agent（Cursor、Claude Code、ZCode、Aider 等）在任何项目中均自动遵循此规则；
+- 查看当前生效配置：`agent-reporter config`。
+
+---
+
 ## 📡 HTTP API 概览
 
 | Method | Endpoint | 用途 | 说明 |

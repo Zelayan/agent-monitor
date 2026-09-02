@@ -169,3 +169,38 @@ If the response is `{"status":"ok"}`, integration is complete and active! Clean 
 ```bash
 curl -s -X DELETE 'http://127.0.0.1:8000/api/tasks?ids=ping-test'
 ```
+
+---
+
+## 6. Global Unified Configuration & Session Filtering
+
+Instead of exporting environment variables in multiple shells or editing individual workspace configs, you can manage all reporting behavior in a single global configuration file:
+
+👉 **`~/.agent-monitor/config.json`**
+
+### Quick Setup:
+Initialize the global config with a single command:
+```bash
+# Only intercept tasks containing #task in their prompt
+agent-reporter init-config --tag "#task"
+
+# Or view currently active global configuration
+agent-reporter config
+```
+
+### Configuration Format (`~/.agent-monitor/config.json`):
+```json
+{
+  "require_tag": "#task",
+  "server_url": "http://127.0.0.1:8000/api/event",
+  "disabled": false
+}
+```
+
+### Key Options:
+- **`require_tag`**: e.g. `"#task"` (or comma-separated `"#task,#todo"`).
+  - Only prompts containing the tag will be reported to Agent Monitor.
+  - Non-tagged casual chats are silently bypassed in nanoseconds (`exit 0`), keeping your dashboard clean.
+- **`server_url`**: Set a remote monitor server IP globally (e.g. `"http://192.168.1.100:8000/api/event"`).
+- **`disabled`**: Temporarily pause all monitoring without removing any hooks (`true` / `false`).
+

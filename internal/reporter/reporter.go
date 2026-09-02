@@ -58,10 +58,11 @@ const (
 
 // Config 封装 CLI 传入参数与运行配置
 type Config struct {
-	Event     string
-	Agent     string
-	Turn      int
-	ServerURL string
+	Event      string
+	Agent      string
+	Turn       int
+	ServerURL  string
+	RequireTag string
 }
 
 // Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
@@ -281,11 +282,60 @@ func RespondAndExit(event string) {
 	os.Exit(0)
 }
 
+func sessionTrackedFile(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	cleanID := strings.ReplaceAll(sessionID, "/", "_")
+	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
+}
+
+func isSessionTracked(sessionID string) bool {
+	p := sessionTrackedFile(sessionID)
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+func markSessionTracked(sessionID string) {
+	p := sessionTrackedFile(sessionID)
+	if p != "" {
+		_ = os.WriteFile(p, []byte("1"), 0644)
+	}
+}
+
+func unmarkSessionTracked(sessionID string) {
+	p := sessionTrackedFile(sessionID)
+	if p != "" {
+		_ = os.Remove(p)
+	}
+}
+
 // Run 执行完整的 Reporter 逻辑
 func Run(cfg Config, inputReader io.Reader) {
-	if cfg.ServerURL == "" {
-		cfg.ServerURL = "http://127.0.0.1:8000/api/event"
+	// 0. 加载全局统一配置 (~/.agent-monitor/config.json) 与环境变量合并
+	globalCfg := LoadGlobalConfig()
+	if globalCfg.Disabled {
+		RespondAndExit(cfg.Event)
+		return
 	}
+
+	if cfg.ServerURL == "" {
+		if globalCfg.ServerURL != "" {
+			cfg.ServerURL = globalCfg.ServerURL
+		} else {
+			cfg.ServerURL = "http://127.0.0.1:8000/api/event"
+		}
+	}
+
+	effectiveRequireTag := cfg.RequireTag
+	if effectiveRequireTag == "" {
+		effectiveRequireTag = globalCfg.RequireTag
+	}
+	globalCfg.RequireTag = effectiveRequireTag
 
 	payload := parsePayload(inputReader)
 
@@ -346,12 +396,27 @@ func Run(cfg Config, inputReader io.Reader) {
 		}
 	}
 
-	// 5. 提取多轮 Prompt 与标题
-	turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
-	title := ShortTitle(currentPrompt)
-	if title == "" {
-		title = ShortTitle(firstPrompt)
-	}
+		// 5. 提取多轮 Prompt 与标题
+		turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
+		title := ShortTitle(currentPrompt)
+		if title == "" {
+			title = ShortTitle(firstPrompt)
+		}
+
+		// 5.1 标签规则过滤 (如 require_tag: "#task")
+		if strings.TrimSpace(globalCfg.RequireTag) != "" {
+			hasTag := globalCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
+			if hasTag {
+				markSessionTracked(sessionID)
+			} else {
+				// 未命中标签，检查此前是否已被激活（多轮历史）
+				if !isSessionTracked(sessionID) {
+					// 未激活且未命中指定标签（包括刚启动无 prompt 阶段）：静默放行，不打扰监控台
+					RespondAndExit(eventName)
+					return
+				}
+			}
+		}
 
 	// 6. 动态提取操作细节
 	detail := ExtractDetail(payload, eventName, toolName, isFailure)
@@ -401,11 +466,16 @@ func Run(cfg Config, inputReader io.Reader) {
 		data.AIResponse = aiResponseText
 	}
 
-	// 10. 先补报失败队列，再发当前事件；Monitor 宕机时落盘，绝不阻断 Hook
-	DeliverEvent(cfg.ServerURL, data)
+		// 10. 先补报失败队列，再发当前事件；Monitor 宕机时落盘，绝不阻断 Hook
+		DeliverEvent(cfg.ServerURL, data)
 
-	// 11. 正常响应 Hook 协议
-	RespondAndExit(eventName)
+		// 10.1 若为会话终止或收口事件，清理临时追踪标记
+		if eventName == "Stop" || eventName == "stop" || eventName == "SessionEnd" || eventName == "sessionEnd" {
+			unmarkSessionTracked(sessionID)
+		}
+
+		// 11. 正常响应 Hook 协议
+		RespondAndExit(eventName)
 }
 
 func parsePayload(r io.Reader) Payload {
