@@ -1,0 +1,30 @@
+# Agent Monitor — systemd 用户服务
+#
+#   mkdir -p ~/.config/systemd/user ~/.local/share/agent-monitor/sessions
+#   sed "s|/usr/local/bin/agent-monitor|$HOME/.local/bin/agent-monitor|" \
+#     configs/agent-monitor.service > ~/.config/systemd/user/agent-monitor.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now agent-monitor
+#
+# 登出后仍要保持运行：loginctl enable-linger "$USER"
+# 只要二进制、不要服务：INSTALL_SYSTEMD=0
+
+[Unit]
+Description=Agent Monitor dashboard
+Documentation=https://github.com/Zelayan/agent-monitor
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p %h/.local/share/agent-monitor/sessions
+ExecStart=/usr/local/bin/agent-monitor
+WorkingDirectory=%h/.local/share/agent-monitor
+Environment=PORT=8000
+Environment=DATA_DIR=%h/.local/share/agent-monitor/sessions
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

@@ -93,15 +93,103 @@ else
   install -m 755 "${EXTRACTED_DIR}/agent-reporter" "${INSTALL_DIR}/agent-reporter"
 fi
 
+install_linux_systemd() {
+  if [ "${OS}" != "linux" ]; then
+    return 0
+  fi
+  if [ "${INSTALL_SYSTEMD:-1}" = "0" ]; then
+    echo "==> Skipping systemd (INSTALL_SYSTEMD=0). Start with: ${INSTALL_DIR}/agent-monitor"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    echo "==> systemd not found. Start with: ${INSTALL_DIR}/agent-monitor"
+    return 0
+  fi
+
+  local exec_path="${INSTALL_DIR}/agent-monitor"
+  if [ "$(id -u)" -eq 0 ]; then
+    echo "==> Installing systemd system service..."
+    mkdir -p /var/lib/agent-monitor/sessions
+    cat > /etc/systemd/system/agent-monitor.service <<EOF
+[Unit]
+Description=Agent Monitor dashboard
+Documentation=https://github.com/Zelayan/agent-monitor
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p /var/lib/agent-monitor/sessions
+ExecStart=${exec_path}
+WorkingDirectory=/var/lib/agent-monitor
+Environment=PORT=8000
+Environment=DATA_DIR=/var/lib/agent-monitor/sessions
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    if systemctl daemon-reload && systemctl enable --now agent-monitor.service; then
+      echo "    enabled: systemctl status agent-monitor"
+    else
+      echo "Notice: failed to enable system service. Start with: ${exec_path}"
+    fi
+    return 0
+  fi
+
+  echo "==> Installing systemd user service..."
+  if [ -z "${XDG_RUNTIME_DIR:-}" ]; then
+    export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+  fi
+  mkdir -p "${HOME}/.config/systemd/user" "${HOME}/.local/share/agent-monitor/sessions"
+  cat > "${HOME}/.config/systemd/user/agent-monitor.service" <<EOF
+[Unit]
+Description=Agent Monitor dashboard
+Documentation=https://github.com/Zelayan/agent-monitor
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStartPre=/bin/mkdir -p %h/.local/share/agent-monitor/sessions
+ExecStart=${exec_path}
+WorkingDirectory=%h/.local/share/agent-monitor
+Environment=PORT=8000
+Environment=DATA_DIR=%h/.local/share/agent-monitor/sessions
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target
+EOF
+  if systemctl --user daemon-reload && systemctl --user enable --now agent-monitor.service; then
+    echo "    enabled: systemctl --user status agent-monitor"
+  else
+    echo "Notice: failed to enable user service (need a logged-in systemd session)."
+    echo "  Start with: ${exec_path}"
+    echo "  Or: systemctl --user enable --now agent-monitor"
+  fi
+}
+
+install_linux_systemd
+
 echo "=========================================================="
 echo "✓ Agent Monitor and Reporter installed successfully!"
 echo "  - ${INSTALL_DIR}/agent-monitor"
 echo "  - ${INSTALL_DIR}/agent-reporter"
 echo ""
 echo "Usage:"
-echo "  1. Start Dashboard: agent-monitor"
-echo "  2. Open Browser:    http://127.0.0.1:8000"
-echo "  3. Configure Hooks: See configs/ in repo"
+echo "  1. Dashboard:  http://127.0.0.1:8000"
+if [ "${OS}" = "linux" ] && [ "${INSTALL_SYSTEMD:-1}" != "0" ]; then
+  echo "  2. Service:    systemctl --user status agent-monitor"
+  echo "  3. Logs:       journalctl --user -u agent-monitor -f"
+else
+  echo "  2. Start:      agent-monitor"
+fi
+echo "  Configure Hooks: See configs/ in repo"
 echo "=========================================================="
 
 if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then

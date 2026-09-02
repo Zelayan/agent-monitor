@@ -27,6 +27,8 @@ If `agent-reporter` is not found, install it automatically by executing:
 curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
 ```
 
+On Linux this also enables the `agent-monitor` systemd user service. If `http://127.0.0.1:8000/` is down, start it with `systemctl --user start agent-monitor` (or run `agent-monitor` in the foreground). Do not wrap the install script in `sudo`.
+
 Alternatively, if Go is installed:
 ```bash
 go install github.com/Zelayan/agent-monitor/cmd/reporter@latest

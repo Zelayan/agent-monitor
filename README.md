@@ -19,25 +19,42 @@ Agent 通过 Hook 零延迟上报事件，页面基于原生 SSE 极速刷新三
 
 ## 快速开始
 
-纯 Go 静态编译，零外部运行时依赖（**无需安装 Python**）。
+纯 Go 静态编译，零外部运行时依赖（**无需安装 Python**）。Linux 上一键安装会把 `agent-monitor` 注册为 **systemd 用户服务**，登录后自动拉起看板。
 
 ```bash
-go run main.go
+curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
 ```
 
 浏览器打开 [http://127.0.0.1:8000/](http://127.0.0.1:8000/)。
 
-默认端口 `8000`，可用环境变量覆盖：
+```bash
+systemctl --user status agent-monitor
+journalctl --user -u agent-monitor -f
+systemctl --user restart agent-monitor
+```
+
+会话数据默认在 `~/.local/share/agent-monitor/sessions`。改端口：编辑 `~/.config/systemd/user/agent-monitor.service` 里的 `PORT=`，然后：
 
 ```bash
-PORT=9000 go run main.go
+systemctl --user daemon-reload && systemctl --user restart agent-monitor
+```
+
+SSH 登出后仍要保持运行：`loginctl enable-linger "$USER"`。不要用 `sudo` 跑安装脚本（否则服务会装到 root）。只要二进制、不要服务：`INSTALL_SYSTEMD=0 bash install.sh`。
+
+macOS 没有 systemd，脚本只安装到 PATH，然后执行 `agent-monitor`。
+
+从源码试跑：
+
+```bash
+go run main.go
+# PORT=9000 go run main.go
 ```
 
 ## 安装与分发
 
 ### 方式一：一键安装脚本（推荐，macOS / Linux）
 
-自动识别系统与 CPU 架构，下载官方最新静态二进制并配置到 PATH：
+自动识别系统与 CPU 架构，下载官方最新静态二进制并配置到 PATH。Linux 上默认启用 systemd 用户服务（见上方快速开始）。以 **root** 运行安装脚本时，会改为写入 `/etc/systemd/system/agent-monitor.service`（`multi-user.target`，数据目录 `/var/lib/agent-monitor/sessions`）。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
@@ -227,7 +244,8 @@ llms.txt                 符合 LLM 索引规范的 Agent 入口
 docs/AGENT_INTEGRATION.md 面向 AI Agent 的自动安装配置指南
 scripts/reporter.py      历史 Python 上报脚本（已废弃，建议使用 cmd/reporter）
 configs/                 多 Agent Hook 配置模板（ZCode, Cursor, Claude Code, Aider 等）
-install.sh               全平台一键安装脚本
+install.sh               全平台一键安装脚本（Linux 默认注册 systemd 用户服务）
+configs/agent-monitor.service  systemd 用户服务单元
 Dockerfile               轻量容器镜像定义
 .github/workflows/       CI/CD 与多架构 Release 发布流水线
 AGENTS.md                给 Agent 的仓库约定

@@ -94,4 +94,4 @@ main.go                   # agent-monitor Web 服务入口（嵌入 static/index
 - **自动化发布**：
   - 推送 `v*` Tag（如 `git tag v1.0.0 && git push origin v1.0.0`）会自动触发 GitHub Actions：编译各平台压缩包并发布 GitHub Release；同时构建 linux/amd64 + linux/arm64 镜像并始终推送到 GHCR（`ghcr.io/zelayan/agent-monitor`）。
   - Docker Hub（`zelayan/agent-monitor`）仅在仓库 Secrets 配有 `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` 时一并推送。
-  - 安装脚本 `install.sh` 会自动拉取最新 Release 产物完成配置。
+  - 安装脚本 `install.sh` 会自动拉取最新 Release 产物；Linux 上默认注册并启动 systemd 用户服务（`INSTALL_SYSTEMD=0` 可关闭）。
