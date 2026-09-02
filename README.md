@@ -6,7 +6,7 @@ Agent 通过 Hook 把会话事件打到本地进程，页面用 SSE 实时刷新
 
 ## 快速开始
 
-需要 Go 1.22+ 与 Python 3（仅 Hook 上报脚本依赖标准库）。
+纯 Go 静态编译，零外部运行时依赖（**无需安装 Python**）。
 
 ```bash
 go run main.go
@@ -105,8 +105,6 @@ ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.jso
 bin/agent-reporter --event sessionStart --agent 'Cursor Agent'
 ```
 
-*(也支持使用 `python3 scripts/reporter.py` 作为兼容方案)*
-
 ## 接入 Claude Code (Anthropic 官方 CLI)
 
 Claude Code 原生支持 Hook 事件。将 `configs/claude-hooks.json` 配置写入工作区 `.claude/config.json` 或全局 `~/.claude/config.json`：
@@ -189,7 +187,7 @@ main.go                  Monitor 服务入口（内存任务 + SSE）
 static/index.html        Monitor 前端（go:embed）
 cmd/reporter/            Go 原生零依赖 Hook 上报器命令行入口
 internal/reporter/       上报器核心逻辑（协议放行、过滤规则、Git/Transcript解析）
-scripts/reporter.py      通用 Hook 上报脚本（Python 备用兼容版本）
+scripts/reporter.py      历史 Python 上报脚本（已废弃，建议使用 cmd/reporter）
 configs/                 多 Agent Hook 配置模板（ZCode, Cursor, Claude Code, Aider 等）
 install.sh               全平台一键安装脚本
 Dockerfile               轻量容器镜像定义

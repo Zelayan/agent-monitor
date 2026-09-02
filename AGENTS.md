@@ -15,7 +15,7 @@
 - Monitor 页面在 `static/index.html`，由 `main.go` 通过 `go:embed` 打进二进制。**改 HTML 后必须重启 `go run main.go` 才会生效。**
 - 实时通道：前端用原生 `EventSource('/api/stream')`；Hook 上报 `POST /api/event`；`DELETE /api/tasks` 只清已完成/失败任务。
 - Agent 过滤胶囊必须按当前任务里实际上报的 `agent` 字段动态生成，禁止写死 Cursor / Codex / Claude。
-- `cmd/reporter/main.go` 编译出零依赖的 Go 原生二进制 `bin/agent-reporter`；配置在 `configs/` 目录下（支持 Claude Code, Cursor, ZCode, Aider 等；兼容 Python 脚本 `scripts/reporter.py`）。
+- `cmd/reporter/main.go` 编译出零依赖的 Go 原生二进制 `bin/agent-reporter`；配置在 `configs/` 目录下（支持 Claude Code, Cursor, ZCode, Aider 等，无需 Python 运行时）。
 
 ## 前端
 
