@@ -95,3 +95,21 @@ main.go                   # agent-monitor Web 服务入口（嵌入 static/index
   - 推送 `v*` Tag（如 `git tag v1.0.0 && git push origin v1.0.0`）会自动触发 GitHub Actions：编译各平台压缩包并发布 GitHub Release（含 Linux 离线包 `*_linux-offline.tar.gz`）；同时构建 linux/amd64 + linux/arm64 镜像并始终推送到 GHCR（`ghcr.io/zelayan/agent-monitor`）。
   - Docker Hub（`zelayan/agent-monitor`）仅在仓库 Secrets 配有 `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` 时一并推送。
   - 安装脚本 `install.sh` 会自动拉取最新 Release 产物；也可对本地 `tar.gz` / 解压目录离线安装（`VERSION` + `BASE_URL` 走内网镜像）。Linux 上默认注册并启动 systemd 用户服务（`INSTALL_SYSTEMD=0` 可关闭）。
+
+---
+
+## 7. 中英文双语文档规范 (Bilingual Documentation)
+
+面向国际化开源开发者与本土用户，项目的对外文档必须遵循双语支持规范：
+
+1. **README 双语镜像与互链**：
+   - 默认主页 `README.md` 与英文版 `README.en.md`（或 `README_EN.md`）保持结构对称与内容同步更新；
+   - 页面顶部必须放置中英文互相切换的直达链接（如 `[English](README.en.md) | [简体中文](README.md)`）。
+2. **核心文档对称性**：
+   - `docs/` 下的核心指南（如 `INSTALLATION.md`、`AGENT_INTEGRATION.md`）需逐步维护对应英文镜像（如 `INSTALLATION.en.md`）；
+   - 面向 LLM 的索引接口 `llms.txt` 保持全英文，以便各类国际大模型高精度理解并配置上下文。
+3. **技术术语与命名统一**：
+   - 专有名词（如 Server-Sent Events、Fail-Safe、Multi-Turn Run、PWA、Hook 等）统一保留业界通用英文术语，避免生硬意译；
+   - 代码配置示例、环境变量名、JSON 字段名在所有语言版本中严格保持 100% 一致。
+4. **前端看板国际化**：
+   - 前端 Web 页面支持中英双语切换，状态标签、运行指标与抽屉时间线操作保持双语语义对齐。
