@@ -1,8 +1,17 @@
 # AGENT MONITOR
 
-面向 AI Coding Agent（ZCode、Cursor、Codex CLI、Claude Code 等）的单页会话监视器。
+面向 AI Coding Agent（Claude Code、ZCode、Cursor Agent、Aider、Windsurf 等）的暗色工具台实时监视器。
 
-Agent 通过 Hook 把会话事件打到本地进程，页面用 SSE 实时刷新：Running、Completed、Failed / Aborted 三列，点击卡片可查看完整 Prompt 与 Hook 时间线。
+Agent 通过 Hook 零延迟上报事件，页面基于原生 SSE 极速刷新三列任务看板（Running、Completed、Failed / Aborted）。点击卡片即可在侧边抽屉中实时追踪多轮 Prompt、AI 回复与微秒级 Hook 执行轨迹。
+
+![Agent Monitor Dashboard Overview](docs/images/dashboard.png)
+
+<details>
+<summary><b>🔍 查看多轮执行抽屉与时间线（点击展开）</b></summary>
+
+![Agent Monitor Drawer Timeline Detail](docs/images/drawer.png)
+
+</details>
 
 ## 快速开始
 
