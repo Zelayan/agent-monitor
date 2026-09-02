@@ -4,14 +4,40 @@ set -e
 # ==========================================================
 # Agent Monitor & Reporter 一键安装脚本
 # 支持系统: macOS (Apple Silicon / Intel), Linux (x86_64 / arm64)
+#
+# 在线:   ./install.sh
+# 离线:   ./install.sh ./agent-monitor_v1.0.0-beta.3_linux_amd64.tar.gz
+# 目录:   ./install.sh ./bin
+# 镜像:   VERSION=v1.0.0-beta.3 BASE_URL=https://files.corp.local/am ./install.sh
 # ==========================================================
 
 REPO="Zelayan/agent-monitor"
 GITHUB_URL="https://github.com/${REPO}"
 
+usage() {
+  cat <<'EOF'
+Usage:
+  install.sh                              Download latest GitHub Release
+  install.sh /path/to/package.tar.gz      Offline archive (no network)
+  install.sh /path/to/dir                 Directory with agent-monitor + agent-reporter
+
+Environment:
+  VERSION             Release tag (required with BASE_URL)
+  BASE_URL            Intranet prefix; fetches
+                      $BASE_URL/agent-monitor_${VERSION}_${OS}_${ARCH}.tar.gz
+  DOWNLOAD_URL        Full archive URL (skips GitHub API)
+  INSTALL_DIR         Binary install path (default: /usr/local/bin or ~/.local/bin)
+  INSTALL_SYSTEMD=0   Do not register systemd service
+EOF
+}
+
+if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
+  usage
+  exit 0
+fi
+
 echo "==> Detecting operating system and architecture..."
 
-# 1. 检测操作系统
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "${OS}" in
   darwin) OS="darwin" ;;
@@ -23,7 +49,6 @@ case "${OS}" in
     ;;
 esac
 
-# 2. 检测 CPU 架构
 ARCH="$(uname -m)"
 case "${ARCH}" in
   x86_64|amd64) ARCH="amd64" ;;
@@ -36,56 +61,150 @@ esac
 
 echo "    Platform: ${OS}/${ARCH}"
 
-# 3. 获取版本号（默认获取最新 Release）
-if [ -z "${VERSION}" ]; then
-  echo "==> Fetching latest release tag from GitHub..."
-  VERSION=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
-  if [ -z "${VERSION}" ]; then
-    VERSION="v1.0.0"
-    echo "    Warning: Failed to fetch latest tag, defaulting to ${VERSION}"
-  else
-    echo "    Latest version: ${VERSION}"
+PACKAGE="${PACKAGE:-${1:-}}"
+TMP_DIR=""
+cleanup() {
+  if [ -n "${TMP_DIR}" ]; then
+    rm -rf "${TMP_DIR}"
   fi
-fi
+}
+trap cleanup EXIT
 
-# 4. 下载发布包
-ARCHIVE="agent-monitor_${VERSION}_${OS}_${ARCH}.tar.gz"
-DOWNLOAD_URL="${GITHUB_URL}/releases/download/${VERSION}/${ARCHIVE}"
-TMP_DIR=$(mktemp -d)
-trap 'rm -rf "${TMP_DIR}"' EXIT
+locate_payload() {
+  local root="$1"
+  if [ -f "${root}/agent-monitor" ] && [ -f "${root}/agent-reporter" ]; then
+    printf '%s\n' "${root}"
+    return 0
+  fi
+  local d
+  for d in "${root}"/*/; do
+    [ -d "${d}" ] || continue
+    if [ -f "${d}agent-monitor" ] && [ -f "${d}agent-reporter" ]; then
+      printf '%s\n' "${d%/}"
+      return 0
+    fi
+  done
+  return 1
+}
 
-echo "==> Downloading ${DOWNLOAD_URL}..."
-if ! curl -sSL -f "${DOWNLOAD_URL}" -o "${TMP_DIR}/${ARCHIVE}"; then
-  echo "Error: Failed to download release asset." >&2
-  echo "Please check if the release exists at: ${GITHUB_URL}/releases/tag/${VERSION}" >&2
-  exit 1
-fi
+guess_version_from_name() {
+  local name="$1"
+  if [[ "${name}" =~ agent-monitor_(v[^_]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  fi
+}
 
-echo "==> Extracting archive..."
-tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}"
+EXTRACTED_DIR=""
 
-EXTRACTED_DIR="${TMP_DIR}/agent-monitor_${VERSION}_${OS}_${ARCH}"
-if [ ! -d "${EXTRACTED_DIR}" ]; then
-  # 兼容平铺解压情况
-  EXTRACTED_DIR="${TMP_DIR}"
-fi
-
-# 5. 确定安装路径
-INSTALL_DIR="/usr/local/bin"
-USE_SUDO=false
-
-if [ ! -w "${INSTALL_DIR}" ]; then
-  if command -v sudo >/dev/null 2>&1 && [ -t 0 ]; then
-    USE_SUDO=true
+if [ -n "${PACKAGE}" ]; then
+  if [ ! -e "${PACKAGE}" ]; then
+    echo "Error: package not found: ${PACKAGE}" >&2
+    exit 1
+  fi
+  if [ -d "${PACKAGE}" ]; then
+    echo "==> Using local directory ${PACKAGE} (offline)"
+    EXTRACTED_DIR="$(locate_payload "${PACKAGE}")" || {
+      echo "Error: ${PACKAGE} must contain agent-monitor and agent-reporter binaries." >&2
+      exit 1
+    }
   else
-    INSTALL_DIR="${HOME}/.local/bin"
-    mkdir -p "${INSTALL_DIR}"
+    echo "==> Using local archive ${PACKAGE} (offline)"
+    TMP_DIR="$(mktemp -d)"
+    case "${PACKAGE}" in
+      *.tar.gz|*.tgz)
+        tar -xzf "${PACKAGE}" -C "${TMP_DIR}"
+        ;;
+      *.zip)
+        if command -v unzip >/dev/null 2>&1; then
+          unzip -q "${PACKAGE}" -d "${TMP_DIR}"
+        else
+          echo "Error: unzip is required for .zip packages." >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "Error: unsupported package (use .tar.gz, .tgz, .zip, or a directory)." >&2
+        exit 1
+        ;;
+    esac
+    EXTRACTED_DIR="$(locate_payload "${TMP_DIR}")" || {
+      echo "Error: archive does not contain agent-monitor and agent-reporter." >&2
+      exit 1
+    }
+    if [ -z "${VERSION:-}" ]; then
+      VERSION="$(guess_version_from_name "$(basename "${PACKAGE}")" || true)"
+    fi
+  fi
+else
+  ARCHIVE_VERSION="${VERSION:-}"
+  if [ -z "${DOWNLOAD_URL:-}" ] && [ -z "${BASE_URL:-}" ] && [ -z "${ARCHIVE_VERSION}" ]; then
+    echo "==> Fetching latest release tag from GitHub..."
+    ARCHIVE_VERSION=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "${ARCHIVE_VERSION}" ]; then
+      echo "Error: could not resolve latest release. For intranet use a local package or set VERSION and BASE_URL." >&2
+      exit 1
+    fi
+    echo "    Latest version: ${ARCHIVE_VERSION}"
+  fi
+
+  if [ -z "${ARCHIVE_VERSION}" ]; then
+    ARCHIVE_VERSION="${VERSION}"
+  fi
+  if [ -z "${ARCHIVE_VERSION}" ] && [ -z "${DOWNLOAD_URL:-}" ]; then
+    echo "Error: VERSION is required when using BASE_URL." >&2
+    exit 1
+  fi
+  VERSION="${ARCHIVE_VERSION}"
+  ARCHIVE="agent-monitor_${VERSION}_${OS}_${ARCH}.tar.gz"
+
+  if [ -z "${DOWNLOAD_URL:-}" ]; then
+    if [ -n "${BASE_URL:-}" ]; then
+      DOWNLOAD_URL="${BASE_URL%/}/${ARCHIVE}"
+    else
+      DOWNLOAD_URL="${GITHUB_URL}/releases/download/${VERSION}/${ARCHIVE}"
+    fi
+  fi
+
+  TMP_DIR="$(mktemp -d)"
+  echo "==> Downloading ${DOWNLOAD_URL}..."
+  if ! curl -sSL -f "${DOWNLOAD_URL}" -o "${TMP_DIR}/${ARCHIVE}"; then
+    echo "Error: Failed to download release asset." >&2
+    echo "Intranet: copy the tar.gz in and run:  ./install.sh ./$(basename "${ARCHIVE}")" >&2
+    exit 1
+  fi
+  tar -xzf "${TMP_DIR}/${ARCHIVE}" -C "${TMP_DIR}"
+  EXTRACTED_DIR="$(locate_payload "${TMP_DIR}")" || {
+    echo "Error: downloaded archive does not contain expected binaries." >&2
+    exit 1
+  }
+fi
+
+if [ -n "${VERSION:-}" ]; then
+  echo "    Version: ${VERSION}"
+fi
+
+if [ -z "${INSTALL_DIR:-}" ]; then
+  INSTALL_DIR="/usr/local/bin"
+  USE_SUDO=false
+  if [ ! -w "${INSTALL_DIR}" ]; then
+    if command -v sudo >/dev/null 2>&1 && [ -t 0 ]; then
+      USE_SUDO=true
+    else
+      INSTALL_DIR="${HOME}/.local/bin"
+      mkdir -p "${INSTALL_DIR}"
+    fi
+  fi
+else
+  USE_SUDO=false
+  mkdir -p "${INSTALL_DIR}"
+  if [ ! -w "${INSTALL_DIR}" ] && command -v sudo >/dev/null 2>&1 && [ -t 0 ]; then
+    USE_SUDO=true
   fi
 fi
 
 echo "==> Installing binaries to ${INSTALL_DIR}..."
 if [ "${USE_SUDO}" = true ]; then
-  echo "    (Root permissions required to write to /usr/local/bin)"
+  echo "    (Root permissions required to write to ${INSTALL_DIR})"
   sudo install -m 755 "${EXTRACTED_DIR}/agent-monitor" "${INSTALL_DIR}/agent-monitor"
   sudo install -m 755 "${EXTRACTED_DIR}/agent-reporter" "${INSTALL_DIR}/agent-reporter"
 else

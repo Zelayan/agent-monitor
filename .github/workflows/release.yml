@@ -77,7 +77,7 @@ jobs:
             GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/agent-reporter${EXT}" cmd/reporter/main.go
             
             # Copy documentation and config templates
-            cp README.md "${BUILD_DIR}/"
+            cp README.md install.sh "${BUILD_DIR}/"
             cp -r configs "${BUILD_DIR}/"
             
             # Archive package

@@ -39,7 +39,7 @@ systemctl --user restart agent-monitor
 systemctl --user daemon-reload && systemctl --user restart agent-monitor
 ```
 
-SSH 登出后仍要保持运行：`loginctl enable-linger "$USER"`。不要用 `sudo` 跑安装脚本（否则服务会装到 root）。只要二进制、不要服务：`INSTALL_SYSTEMD=0 bash install.sh`。
+SSH 登出后仍要保持运行：`loginctl enable-linger "$USER"`。不要用 `sudo` 跑安装脚本（否则服务会装到 root）。只要二进制、不要服务：`INSTALL_SYSTEMD=0 bash install.sh`。内网把 Release 的 `tar.gz` 拷进去后执行 `./install.sh ./agent-monitor_*_linux_amd64.tar.gz`（见下方离线安装）。
 
 macOS 没有 systemd，脚本只安装到 PATH，然后执行 `agent-monitor`。
 
@@ -59,6 +59,23 @@ go run main.go
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
 ```
+
+### 内网 / 离线安装
+
+发布包是纯静态二进制，安装过程不需要 Go 模块代理。把 `install.sh` 和对应平台的 `tar.gz` 一起拷进内网（之后的 GitHub Release 压缩包内也会带上安装脚本）：
+
+```bash
+# 本地压缩包，零外网
+./install.sh ./agent-monitor_v1.0.0-beta.3_linux_amd64.tar.gz
+
+# 已解压目录，或本机 make build 产出的 bin/
+./install.sh ./bin
+
+# 内网 HTTP 镜像（不访问 GitHub API，需指定版本）
+VERSION=v1.0.0-beta.3 BASE_URL=https://files.corp.local/agent-monitor ./install.sh
+```
+
+Docker 离线：在外网 `docker pull` 后 `docker save`，内网 `docker load`。
 
 ### 方式二：Go 原生安装（零依赖）
 
