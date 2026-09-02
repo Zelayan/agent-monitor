@@ -102,17 +102,17 @@ jobs:
           cp README.md install.sh "${OFFLINE_DIR}/"
           cp -r configs "${OFFLINE_DIR}/"
           chmod +x "${OFFLINE_DIR}/install.sh"
-          cat > "${OFFLINE_DIR}/OFFLINE.txt" <<EOF
-Linux offline bundle (amd64 + arm64). No GitHub or Go proxy required.
-
-  tar -xzf ${OFFLINE_NAME}.tar.gz
-  cd ${OFFLINE_NAME}
-  ./install.sh .
-
-Or pass the archive directly:
-
-  ./install.sh ./${OFFLINE_NAME}.tar.gz
-EOF
+          printf '%s\n' \
+            'Linux offline bundle (amd64 + arm64). No GitHub or Go proxy required.' \
+            '' \
+            "  tar -xzf ${OFFLINE_NAME}.tar.gz" \
+            "  cd ${OFFLINE_NAME}" \
+            '  ./install.sh .' \
+            '' \
+            'Or pass the archive directly:' \
+            '' \
+            "  ./install.sh ./${OFFLINE_NAME}.tar.gz" \
+            > "${OFFLINE_DIR}/OFFLINE.txt"
           tar -czf "release-assets/${OFFLINE_NAME}.tar.gz" -C dist "${OFFLINE_NAME}"
 
       - name: Generate Checksums
