@@ -22,8 +22,8 @@ func TestGlobalConfig_MatchesRequireTag(t *testing.T) {
 		t.Fatalf("expected plain prompt without #task to be rejected")
 	}
 
-	// 3. 多标签（逗号分隔）
-	multiCfg := GlobalConfig{RequireTag: "#task,#todo,[monitor]"}
+	// 3. 多标签（逗号分隔字符串）匹配
+	multiCfg := GlobalConfig{RequireTag: "#task, #todo, [monitor]"}
 	if !multiCfg.MatchesRequireTag("这是一个 [monitor] 任务") {
 		t.Fatalf("expected [monitor] to match")
 	}
@@ -32,6 +32,26 @@ func TestGlobalConfig_MatchesRequireTag(t *testing.T) {
 	}
 	if multiCfg.MatchesRequireTag("没有任何前缀的请求") {
 		t.Fatalf("expected no match")
+	}
+
+	// 4. JSON 数组形式的多标签测试
+	testDir, _ := os.MkdirTemp("", "agent-monitor-multi-tag-*")
+	defer os.RemoveAll(testDir)
+
+	jsonArrData := []byte(`{"require_tag": ["#task", "#todo", "#bug"]}`)
+	tmpArrFile := filepath.Join(testDir, "array-config.json")
+	_ = os.WriteFile(tmpArrFile, jsonArrData, 0644)
+	os.Setenv("AGENT_MONITOR_CONFIG", tmpArrFile)
+	arrCfg := LoadGlobalConfig()
+	os.Unsetenv("AGENT_MONITOR_CONFIG")
+	if !arrCfg.MatchesRequireTag("#bug 修复报错") {
+		t.Fatalf("expected #bug to match array config")
+	}
+	if !arrCfg.MatchesRequireTag("#task 正常工作") {
+		t.Fatalf("expected #task to match array config")
+	}
+	if arrCfg.MatchesRequireTag("无标签普通闲聊") {
+		t.Fatalf("expected plain prompt to fail array config")
 	}
 }
 

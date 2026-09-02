@@ -76,6 +76,14 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 			if err := json.Unmarshal(data, &projCfg); err == nil {
 				if tagVal, ok := projCfg["require_tag"].(string); ok {
 					cfg.RequireTag = tagVal
+				} else if tagList, ok := projCfg["require_tag"].([]interface{}); ok {
+					var tags []string
+					for _, item := range tagList {
+						if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+							tags = append(tags, strings.TrimSpace(s))
+						}
+					}
+					cfg.RequireTag = strings.Join(tags, ",")
 				}
 				if urlVal, ok := projCfg["server_url"].(string); ok && urlVal != "" {
 					cfg.ServerURL = urlVal
@@ -124,7 +132,26 @@ func LoadGlobalConfig() GlobalConfig {
 
 	var cfg GlobalConfig
 	if len(data) > 0 {
-		_ = json.Unmarshal(data, &cfg)
+		var rawMap map[string]interface{}
+		if err := json.Unmarshal(data, &rawMap); err == nil {
+			if tagVal, ok := rawMap["require_tag"].(string); ok {
+				cfg.RequireTag = tagVal
+			} else if tagList, ok := rawMap["require_tag"].([]interface{}); ok {
+				var tags []string
+				for _, item := range tagList {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						tags = append(tags, strings.TrimSpace(s))
+					}
+				}
+				cfg.RequireTag = strings.Join(tags, ",")
+			}
+			if urlVal, ok := rawMap["server_url"].(string); ok {
+				cfg.ServerURL = urlVal
+			}
+			if disVal, ok := rawMap["disabled"].(bool); ok {
+				cfg.Disabled = disVal
+			}
+		}
 	}
 
 	// 环境变量层级覆盖（优先级高于文件）
