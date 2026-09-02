@@ -54,6 +54,7 @@ type Task struct {
 	AbortReason    string         `json:"abortReason,omitempty"`    // 中断原因
 	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
 	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
+	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
@@ -71,6 +72,18 @@ type EventPayload struct {
 	TurnIndex  int    `json:"turn_index,omitempty"`  // 上报指定的轮次（可选）
 	PID        int    `json:"pid,omitempty"`         // 上报来源的进程 PID（可选）
 	PGID       int    `json:"pgid,omitempty"`        // 上报来源的进程组 PGID（可选）
+	KeyID      string `json:"key_id,omitempty"`      // 归属的项目/租户空间标识（可选）
+}
+
+// BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。
+func (t *Task) BelongsTo(targetKey string, isMaster bool) bool {
+	if isMaster || targetKey == "" || targetKey == "*" {
+		return true
+	}
+	if t.KeyID == "" {
+		return targetKey == "default" || targetKey == ""
+	}
+	return t.KeyID == targetKey
 }
 
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
@@ -125,6 +138,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 			Detail:         p.Detail,
 			PID:            p.PID,
 			PGID:           p.PGID,
+			KeyID:          p.KeyID,
 		}
 
 		return task
@@ -464,6 +478,9 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 		if p.PGID > 0 {
 			t.PGID = p.PGID
+		}
+		if p.KeyID != "" {
+			t.KeyID = p.KeyID
 		}
 		t.Turns = t.Runs             // 兼容 turns 别名
 		t.Timeline = curRun.Timeline // 兼容顶层 timeline

@@ -142,35 +142,42 @@ export AGENT_MONITOR_URL="http://192.168.1.100:8000"
 
 当将 Agent Monitor 部署于公网 VPS 或团队共享局域网时，强烈建议启用 **API Key 访问控制**，防止未授权访问或恶意删除：
 
-### 1. 服务端启用鉴权
+### 1. 服务端启用鉴权（支持单 Key、多项目 Key 隔离与 Master Key）
 在启动 `agent-monitor` 时设置环境变量或命令行标志：
 ```bash
-# 方式一：环境变量
+# 模式 A：单项目统一密钥
 export AGENT_MONITOR_API_KEY="your-strong-secret-token"
 agent-monitor
 
-# 方式二：命令行参数
-agent-monitor --api-key "your-strong-secret-token"
+# 模式 B：多项目命名空间隔离 + Master 全局管理 Key (推荐团队部署)
+# 格式：项目名=密钥，多个用逗号隔开
+export AGENT_MONITOR_API_KEYS="projA=token_alpha,projB=token_beta"
+export AGENT_MONITOR_MASTER_KEY="master-super-secret"
+agent-monitor
 ```
 
-### 2. 客户端 Reporter 配置 Token
-在本地开发机上通过配置继承或环境变量配置相同的 API Key：
+### 2. 客户端 Reporter 配置各自项目的专属 Token
+在本地各项目的代码根目录下执行：
 ```bash
-# 写入全局配置
-agent-reporter init-config --url "http://192.168.1.100:8000/api/event" --api-key "your-strong-secret-token"
+# 在项目 A 目录下：
+agent-reporter init-config --local --url "http://192.168.1.100:8000/api/event" --api-key "token_alpha"
 
-# 或通过环境变量
-export AGENT_MONITOR_API_KEY="your-strong-secret-token"
+# 在项目 B 目录下：
+agent-reporter init-config --local --url "http://192.168.1.100:8000/api/event" --api-key "token_beta"
 ```
+项目运行期间产生的会话将自动隔离至所属的项目空间。
 
-### 3. 前端 Web 看板填入 Token
-在浏览器访问看板时，点击右上角的 **🔑 鉴权设置** 图标，填入对应的 API Key 并保存。密钥将保存在当前浏览器的 `localStorage` 中，后续 SSE 实时流和任务管理将自动携带 Token。
+### 3. 前端 Web 看板空间切换与隔离
+在浏览器访问看板时，点击右上角的 **🔑 鉴权设置** 图标：
+- 填入 `token_alpha`：看板仅展示项目 A 的会话，SSE 实时流只接收项目 A 的更新，只允许控制/删除项目 A；
+- 填入 `token_beta`：隔离呈现项目 B；
+- 填入 `master-super-secret`：开启 👑 Master 全局上帝视角，可一览并管理所有项目的任务。
 
 测试联通性：
 ```bash
 curl -X POST "$AGENT_MONITOR_URL/api/event" \
   -H "Content-Type: application/json" \
-  -H "Authorization: Bearer your-strong-secret-token" \
+  -H "Authorization: Bearer token_alpha" \
   -d '{\"id\":\"ping-test\",\"event\":\"SessionStart\",\"agent\":\"Ping\",\"title\":\"Remote Connectivity Test\"}'
 ```
 远端仪表盘若实时显示 `Remote Connectivity Test` 任务卡片，即表示远端协同监控已成功建立！

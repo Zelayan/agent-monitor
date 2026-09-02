@@ -141,4 +141,52 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if killedTask.Status != "failed" || killedTask.ControlState != "killed" {
 		t.Fatalf("expected task to be killed, got status=%s controlState=%s", killedTask.Status, killedTask.ControlState)
 	}
+
+	// 6. Test Multi-Tenant KeyID Project Isolation
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-proj-a-1",
+		Agent:     "Cursor Agent",
+		Event:     "sessionStart",
+		Title:     "Project A Work",
+		KeyID:     "project-alpha",
+		Timestamp: time.Now().Unix(),
+	})
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-proj-b-1",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Title:     "Project B Work",
+		KeyID:     "project-beta",
+		Timestamp: time.Now().Unix(),
+	})
+
+	// Tenant Alpha only sees Project Alpha tasks
+	tasksAlpha := svc.GetAllTasksTenant("project-alpha", false)
+	if len(tasksAlpha) != 1 || tasksAlpha[0].ID != "sess-proj-a-1" {
+		t.Fatalf("expected only project-alpha task, got %+v", tasksAlpha)
+	}
+
+	// Tenant Beta only sees Project Beta tasks
+	tasksBeta := svc.GetAllTasksTenant("project-beta", false)
+	if len(tasksBeta) != 1 || tasksBeta[0].ID != "sess-proj-b-1" {
+		t.Fatalf("expected only project-beta task, got %+v", tasksBeta)
+	}
+
+	// Master sees all tasks
+	tasksMaster := svc.GetAllTasksTenant("master", true)
+	if len(tasksMaster) < 2 {
+		t.Fatalf("expected master to see all tasks, got %d", len(tasksMaster))
+	}
+
+	// Cross-tenant abort rejection
+	_, err = svc.AbortTaskTenant("sess-proj-a-1", "Hacker abort", "project-beta", false)
+	if err == nil {
+		t.Fatalf("expected permission denied when project-beta tries to abort project-alpha task")
+	}
+
+	// Authorized abort
+	abortedAlpha, err := svc.AbortTaskTenant("sess-proj-a-1", "Authorized abort", "project-alpha", false)
+	if err != nil || abortedAlpha.ControlState != "abort_requested" {
+		t.Fatalf("expected successful abort by project-alpha, got err=%v", err)
+	}
 }

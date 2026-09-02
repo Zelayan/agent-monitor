@@ -37,10 +37,20 @@ func main() {
 	if apiKey == "" {
 		apiKey = os.Getenv("MONITOR_API_KEY")
 	}
+	masterKey := os.Getenv("AGENT_MONITOR_MASTER_KEY")
+	if masterKey == "" {
+		masterKey = os.Getenv("MONITOR_MASTER_KEY")
+	}
+	apiKeys := os.Getenv("AGENT_MONITOR_API_KEYS")
+	if apiKeys == "" {
+		apiKeys = os.Getenv("MONITOR_API_KEYS")
+	}
 
 	flagPort := flag.String("port", "", "Server port (defaults to $PORT or 8000)")
 	flagDataDir := flag.String("data-dir", "", "Session data storage directory (defaults to $DATA_DIR or data/sessions)")
-	flagAPIKey := flag.String("api-key", "", "API Key for request authentication (defaults to $AGENT_MONITOR_API_KEY)")
+	flagAPIKey := flag.String("api-key", "", "Default API Key for request authentication (defaults to $AGENT_MONITOR_API_KEY)")
+	flagMasterKey := flag.String("master-key", "", "Master Key for global multi-project viewing and administration")
+	flagAPIKeys := flag.String("api-keys", "", "Multi-project API keys mapping (format: projA=key_1,projB=key_2)")
 	flag.Parse()
 
 	if *flagPort != "" {
@@ -51,6 +61,12 @@ func main() {
 	}
 	if *flagAPIKey != "" {
 		apiKey = *flagAPIKey
+	}
+	if *flagMasterKey != "" {
+		masterKey = *flagMasterKey
+	}
+	if *flagAPIKeys != "" {
+		apiKeys = *flagAPIKeys
 	}
 
 	// 1. 基础设施层：初始化持久化仓储
@@ -71,7 +87,9 @@ func main() {
 	// 4. 用户接口层 / HTTP 适配器：注册路由
 	handler := transport.NewHandler(svc, hub, indexHTML).
 		WithStaticFS(staticFS).
-		WithAPIKey(apiKey)
+		WithAPIKey(apiKey).
+		WithMasterKey(masterKey).
+		WithProjectKeys(apiKeys)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
@@ -79,7 +97,12 @@ func main() {
 	addr := ":" + port
 	fmt.Printf("\nAGENT MONITOR running on http://127.0.0.1%s\n", addr)
 	fmt.Printf("   Dashboard: http://127.0.0.1%s/\n", addr)
-	if apiKey != "" {
+	if masterKey != "" || apiKeys != "" {
+		fmt.Printf("   Security:  Multi-tenant Project Isolation enabled\n")
+		if masterKey != "" {
+			fmt.Printf("              Master Key configured for global administration\n")
+		}
+	} else if apiKey != "" {
 		fmt.Printf("   Security:  API Key enabled (Bearer / X-API-Key / ?token=)\n")
 	} else {
 		fmt.Printf("   Security:  Open access (set AGENT_MONITOR_API_KEY to enable authentication)\n")

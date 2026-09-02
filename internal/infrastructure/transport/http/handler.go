@@ -13,27 +13,67 @@ import (
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
+// AuthContext 封装经过鉴权识别后的租户空间身份。
+type AuthContext struct {
+	KeyID    string // 归属的项目空间名称（如 "proj-a"）
+	IsMaster bool   // 是否为 Master 全局管理员
+}
+
 // Handler 提供 Monitor 的 HTTP API 与前端页面路由处理。
 type Handler struct {
 	svc        *monitor.MonitorService
 	hub        *monitor.Hub
 	staticHTML []byte
 	staticFS   fs.FS
-	apiKey     string
+	apiKey     string            // 单 Key 或默认 Key
+	masterKey  string            // Master 全局管理 Key
+	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
 }
 
 // NewHandler 创建 HTTP 处理器实例。
 func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte) *Handler {
 	return &Handler{
-		svc:        svc,
-		hub:        hub,
-		staticHTML: staticHTML,
+		svc:         svc,
+		hub:         hub,
+		staticHTML:  staticHTML,
+		projectKeys: make(map[string]string),
 	}
 }
 
 // WithAPIKey 设置访问 API Key，非空时对 /api/* 接口启用鉴权。
 func (h *Handler) WithAPIKey(apiKey string) *Handler {
 	h.apiKey = strings.TrimSpace(apiKey)
+	return h
+}
+
+// WithMasterKey 设置全局 Master Key。
+func (h *Handler) WithMasterKey(masterKey string) *Handler {
+	h.masterKey = strings.TrimSpace(masterKey)
+	return h
+}
+
+// WithProjectKeys 设置多项目 Key 映射列表（格式支持 "projA=key_1,projB=key_2" 或直接逗号分隔多 key）。
+func (h *Handler) WithProjectKeys(rawKeys string) *Handler {
+	rawKeys = strings.TrimSpace(rawKeys)
+	if rawKeys == "" {
+		return h
+	}
+	for _, pair := range strings.Split(rawKeys, ",") {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
+		}
+		if idx := strings.Index(pair, "="); idx != -1 {
+			projName := strings.TrimSpace(pair[:idx])
+			tokenVal := strings.TrimSpace(pair[idx+1:])
+			if projName != "" && tokenVal != "" {
+				h.projectKeys[tokenVal] = projName
+			}
+		} else {
+			// 未带名字的直接用其 token 或 prefix 作为空间名
+			h.projectKeys[pair] = pair
+		}
+	}
 	return h
 }
 
@@ -69,42 +109,71 @@ func enableCORS(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
-func (h *Handler) checkAuth(r *http.Request) bool {
-	if h.apiKey == "" {
-		return true
+func (h *Handler) checkAuth(r *http.Request) (bool, AuthContext) {
+	ctx := AuthContext{
+		KeyID:    "",
+		IsMaster: false,
 	}
+
+	// 若未配置任何 apiKey、masterKey 与 projectKeys，处于完全开放模式（单机默认），默认拥有 Master 权限
+	if h.apiKey == "" && h.masterKey == "" && len(h.projectKeys) == 0 {
+		ctx.IsMaster = true
+		ctx.KeyID = ""
+		return true, ctx
+	}
+
+	token := ""
 
 	// 1. Authorization: Bearer <token>
 	authHeader := r.Header.Get("Authorization")
 	if authHeader != "" {
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
-			if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(parts[1])), []byte(h.apiKey)) == 1 {
-				return true
-			}
+			token = strings.TrimSpace(parts[1])
 		}
 	}
 
 	// 2. X-API-Key: <token>
-	if xKey := r.Header.Get("X-API-Key"); xKey != "" {
-		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(xKey)), []byte(h.apiKey)) == 1 {
-			return true
-		}
+	if token == "" {
+		token = strings.TrimSpace(r.Header.Get("X-API-Key"))
 	}
 
 	// 3. URL Query Parameter ?token=<token> 或 ?api_key=<token> (用于原生 EventSource SSE 长连接)
-	if qToken := r.URL.Query().Get("token"); qToken != "" {
-		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(qToken)), []byte(h.apiKey)) == 1 {
-			return true
-		}
+	if token == "" {
+		token = strings.TrimSpace(r.URL.Query().Get("token"))
 	}
-	if qKey := r.URL.Query().Get("api_key"); qKey != "" {
-		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(qKey)), []byte(h.apiKey)) == 1 {
-			return true
+	if token == "" {
+		token = strings.TrimSpace(r.URL.Query().Get("api_key"))
+	}
+
+	if token == "" {
+		return false, ctx
+	}
+
+	// 校验 Master Key
+	if h.masterKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(h.masterKey)) == 1 {
+		ctx.IsMaster = true
+		ctx.KeyID = "master"
+		return true, ctx
+	}
+
+	// 校验默认单一 apiKey
+	if h.apiKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(h.apiKey)) == 1 {
+		ctx.IsMaster = (h.masterKey == "" && len(h.projectKeys) == 0) // 若未开启多租户，单 Key 即全权
+		ctx.KeyID = "default"
+		return true, ctx
+	}
+
+	// 校验多项目 projectKeys 映射
+	for pToken, pName := range h.projectKeys {
+		if subtle.ConstantTimeCompare([]byte(token), []byte(pToken)) == 1 {
+			ctx.IsMaster = false
+			ctx.KeyID = pName
+			return true, ctx
 		}
 	}
 
-	return false
+	return false, ctx
 }
 
 func (h *Handler) writeUnauthorized(w http.ResponseWriter) {
@@ -119,7 +188,8 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkAuth(r) {
+	ok, authCtx := h.checkAuth(r)
+	if !ok {
 		h.writeUnauthorized(w)
 		return
 	}
@@ -138,23 +208,28 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-		res, err := h.svc.HandleHookEvent(p)
-		if err != nil {
-			http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		respData := map[string]interface{}{
-			"status": "ok",
-			"action": res.Action,
-		}
-		if res.Reason != "" {
-			respData["reason"] = res.Reason
-		}
-		_ = json.NewEncoder(w).Encode(respData)
+	// 将鉴权解析出的 KeyID 绑定到 EventPayload
+	if p.KeyID == "" && authCtx.KeyID != "" && authCtx.KeyID != "master" {
+		p.KeyID = authCtx.KeyID
 	}
+
+	res, err := h.svc.HandleHookEvent(p)
+	if err != nil {
+		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	respData := map[string]interface{}{
+		"status": "ok",
+		"action": res.Action,
+	}
+	if res.Reason != "" {
+		respData["reason"] = res.Reason
+	}
+	_ = json.NewEncoder(w).Encode(respData)
+}
 
 // HandleStream 提供 SSE 长连接流。
 func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
@@ -162,13 +237,14 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkAuth(r) {
+	ok, authCtx := h.checkAuth(r)
+	if !ok {
 		h.writeUnauthorized(w)
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	flusher, okFlusher := w.(http.Flusher)
+	if !okFlusher {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
@@ -177,11 +253,11 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	clientChan := h.hub.Subscribe()
+	clientChan := h.hub.SubscribeTenant(authCtx.KeyID, authCtx.IsMaster)
 	defer h.hub.Unsubscribe(clientChan)
 
-	// 1. 新连接先发送所有当前任务快照
-	tasks := h.svc.GetAllTasks()
+	// 1. 新连接先发送属于该项目空间的所有当前任务快照
+	tasks := h.svc.GetAllTasksTenant(authCtx.KeyID, authCtx.IsMaster)
 	for _, t := range tasks {
 		data, _ := json.Marshal(t)
 		fmt.Fprintf(w, "data: %s\n\n", string(data))
@@ -216,7 +292,8 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkAuth(r) {
+	ok, authCtx := h.checkAuth(r)
+	if !ok {
 		h.writeUnauthorized(w)
 		return
 	}
@@ -239,7 +316,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 			req.IDs = splitAndTrim(idsQuery, ",")
 		}
 
-		deleted := h.svc.DeleteTasks(req)
+		deleted := h.svc.DeleteTasksTenant(req, authCtx.KeyID, authCtx.IsMaster)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"cleared":    true,
 			"deletedIds": deleted,
@@ -248,7 +325,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	tasks := h.svc.GetAllTasks()
+	tasks := h.svc.GetAllTasksTenant(authCtx.KeyID, authCtx.IsMaster)
 	json.NewEncoder(w).Encode(tasks)
 }
 
@@ -258,7 +335,8 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !h.checkAuth(r) {
+	ok, authCtx := h.checkAuth(r)
+	if !ok {
 		h.writeUnauthorized(w)
 		return
 	}
@@ -282,7 +360,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if r.Body != nil {
 			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body)
 		}
-		abortedTask, err := h.svc.AbortTask(taskID, body.Reason)
+		abortedTask, err := h.svc.AbortTaskTenant(taskID, body.Reason, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
 			return
@@ -297,7 +375,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// 1.1 POST /api/tasks/{id}/kill 进程级强杀
 	if len(parts) == 2 && parts[1] == "kill" && r.Method == http.MethodPost {
-		killedTask, err := h.svc.KillTask(taskID)
+		killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
 			return
@@ -312,7 +390,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// 2. GET /api/tasks/{id} 单任务查询
 	if len(parts) == 1 && r.Method == http.MethodGet {
-		t := h.svc.GetTask(taskID)
+		t := h.svc.GetTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
 		if t == nil {
 			http.NotFound(w, r)
 			return
@@ -323,7 +401,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	// 3. DELETE /api/tasks/{id} 单任务删除
 	if len(parts) == 1 && r.Method == http.MethodDelete {
-		deleted := h.svc.DeleteTasks(monitor.DeleteTasksRequest{IDs: []string{taskID}})
+		deleted := h.svc.DeleteTasksTenant(monitor.DeleteTasksRequest{IDs: []string{taskID}}, authCtx.KeyID, authCtx.IsMaster)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"deleted": len(deleted) > 0,
 			"id":      taskID,

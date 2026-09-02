@@ -2,22 +2,35 @@ package monitor
 
 import "sync"
 
-// Hub 负责 SSE 客户端连接生命周期管理与事件广播。
+// ClientSubscription 记录客户端订阅的租户空间与权限模式。
+type ClientSubscription struct {
+	Ch       chan string
+	KeyID    string // 订阅的项目/租户空间
+	IsMaster bool   // 是否拥有全局 Master 视图
+}
+
+// HubMessage 封装广播消息与其所属的项目空间。
+type HubMessage struct {
+	KeyID string
+	Data  string
+}
+
+// Hub 负责 SSE 客户端连接生命周期管理与事件广播（支持多项目多租户隔离）。
 type Hub struct {
 	mu        sync.RWMutex
-	clients   map[chan string]bool
-	addClient chan chan string
+	clients   map[chan string]ClientSubscription
+	addClient chan ClientSubscription
 	rmClient  chan chan string
-	broadcast chan string
+	broadcast chan HubMessage
 }
 
 // NewHub 创建一个广播中心。
 func NewHub() *Hub {
 	return &Hub{
-		clients:   make(map[chan string]bool),
-		addClient: make(chan chan string),
+		clients:   make(map[chan string]ClientSubscription),
+		addClient: make(chan ClientSubscription),
 		rmClient:  make(chan chan string),
-		broadcast: make(chan string, 100),
+		broadcast: make(chan HubMessage, 100),
 	}
 }
 
@@ -25,9 +38,9 @@ func NewHub() *Hub {
 func (h *Hub) Run() {
 	for {
 		select {
-		case ch := <-h.addClient:
+		case sub := <-h.addClient:
 			h.mu.Lock()
-			h.clients[ch] = true
+			h.clients[sub.Ch] = sub
 			h.mu.Unlock()
 		case ch := <-h.rmClient:
 			h.mu.Lock()
@@ -36,10 +49,16 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 		case msg := <-h.broadcast:
 			h.mu.RLock()
-			for ch := range h.clients {
-				select {
-				case ch <- msg: // 非阻塞发送，避免慢客户端阻塞广播
-				default:
+			for ch, sub := range h.clients {
+				// 租户空间隔离：
+				// 1. Master 客户端接收全量项目流
+				// 2. 消息未指定空间（全局系统消息）推给所有客户端
+				// 3. 普通租户客户端仅接收与其 KeyID 匹配的消息
+				if sub.IsMaster || sub.KeyID == "*" || msg.KeyID == "" || sub.KeyID == msg.KeyID {
+					select {
+					case ch <- msg.Data: // 非阻塞发送，避免慢客户端阻塞广播
+					default:
+					}
 				}
 			}
 			h.mu.RUnlock()
@@ -47,10 +66,19 @@ func (h *Hub) Run() {
 	}
 }
 
-// Subscribe 注册一个新 SSE 客户端通道。
+// Subscribe 注册一个默认客户端通道（具有全局视角，兼容旧调用）。
 func (h *Hub) Subscribe() chan string {
+	return h.SubscribeTenant("", true)
+}
+
+// SubscribeTenant 注册一个绑定特定 KeyID 空间的 SSE 客户端通道。
+func (h *Hub) SubscribeTenant(keyID string, isMaster bool) chan string {
 	ch := make(chan string, 20)
-	h.addClient <- ch
+	h.addClient <- ClientSubscription{
+		Ch:       ch,
+		KeyID:    keyID,
+		IsMaster: isMaster,
+	}
 	return ch
 }
 
@@ -59,10 +87,15 @@ func (h *Hub) Unsubscribe(ch chan string) {
 	h.rmClient <- ch
 }
 
-// Broadcast 向所有连接的客户端广播消息（非阻塞，防止队列积压阻塞调用者）。
+// Broadcast 向所有客户端广播全局消息。
 func (h *Hub) Broadcast(msg string) {
+	h.BroadcastTenant("", msg)
+}
+
+// BroadcastTenant 向指定租户/Key空间客户端广播消息（同时抄送 Master 客户端）。
+func (h *Hub) BroadcastTenant(keyID string, msg string) {
 	select {
-	case h.broadcast <- msg:
+	case h.broadcast <- HubMessage{KeyID: keyID, Data: msg}:
 	default:
 	}
 }

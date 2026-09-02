@@ -336,3 +336,87 @@ func TestHandler_StaticFS(t *testing.T) {
 			t.Fatalf("expected control_state 'killed', got %v", killResp["control_state"])
 		}
 	}
+
+	func TestHandler_MultiTenantKeyIsolation(t *testing.T) {
+		repo := &mockRepo{tasks: make(map[string]*task.Task)}
+		hub := monitor.NewHub()
+		go hub.Run()
+
+		svc := monitor.NewMonitorService(repo, hub)
+		staticHTML := []byte("<html><body>Dashboard</body></html>")
+
+		// 配置两组项目 Key 和一组全局 Master Key
+		handler := NewHandler(svc, hub, staticHTML).
+			WithMasterKey("master-secret-root").
+			WithProjectKeys("team-alpha=alpha-token-123,team-beta=beta-token-456")
+
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+
+		// 1. Team Alpha 上报事件
+		pAlpha, _ := json.Marshal(task.EventPayload{
+			ID:    "task-alpha-1",
+			Agent: "Cursor Agent",
+			Event: "sessionStart",
+			Title: "Alpha Secret Feature",
+		})
+		reqAlpha := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(pAlpha))
+		reqAlpha.Header.Set("Authorization", "Bearer alpha-token-123")
+		wAlpha := httptest.NewRecorder()
+		mux.ServeHTTP(wAlpha, reqAlpha)
+		if wAlpha.Code != http.StatusOK {
+			t.Fatalf("expected 200 for team alpha report, got %d", wAlpha.Code)
+		}
+
+		// 2. Team Beta 上报事件
+		pBeta, _ := json.Marshal(task.EventPayload{
+			ID:    "task-beta-1",
+			Agent: "ZCode",
+			Event: "sessionStart",
+			Title: "Beta Private Research",
+		})
+		reqBeta := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(pBeta))
+		reqBeta.Header.Set("Authorization", "Bearer beta-token-456")
+		wBeta := httptest.NewRecorder()
+		mux.ServeHTTP(wBeta, reqBeta)
+		if wBeta.Code != http.StatusOK {
+			t.Fatalf("expected 200 for team beta report, got %d", wBeta.Code)
+		}
+
+		// 3. Team Alpha GET /api/tasks: 只能看到自己的 task-alpha-1，严禁看到 task-beta-1
+		reqGetAlpha := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
+		reqGetAlpha.Header.Set("Authorization", "Bearer alpha-token-123")
+		wGetAlpha := httptest.NewRecorder()
+		mux.ServeHTTP(wGetAlpha, reqGetAlpha)
+		if wGetAlpha.Code != http.StatusOK {
+			t.Fatalf("expected 200 for alpha tasks query, got %d", wGetAlpha.Code)
+		}
+		var listAlpha []*task.Task
+		json.NewDecoder(wGetAlpha.Body).Decode(&listAlpha)
+		if len(listAlpha) != 1 || listAlpha[0].ID != "task-alpha-1" {
+			t.Fatalf("isolation violation: alpha expected only task-alpha-1, got %+v", listAlpha)
+		}
+
+		// 4. Team Beta 越权尝试查询或中断 Team Alpha 的任务，必须返回 404 / 失败
+		reqBetaAbortAlpha := httptest.NewRequest(http.MethodPost, "/api/tasks/task-alpha-1/abort", nil)
+		reqBetaAbortAlpha.Header.Set("Authorization", "Bearer beta-token-456")
+		wBetaAbortAlpha := httptest.NewRecorder()
+		mux.ServeHTTP(wBetaAbortAlpha, reqBetaAbortAlpha)
+		if wBetaAbortAlpha.Code == http.StatusOK {
+			t.Fatalf("isolation breach: team beta should NOT be allowed to abort team alpha's task!")
+		}
+
+		// 5. Master Key 全局查看：能看到两个项目的所有任务
+		reqGetMaster := httptest.NewRequest(http.MethodGet, "/api/tasks", nil)
+		reqGetMaster.Header.Set("Authorization", "Bearer master-secret-root")
+		wGetMaster := httptest.NewRecorder()
+		mux.ServeHTTP(wGetMaster, reqGetMaster)
+		if wGetMaster.Code != http.StatusOK {
+			t.Fatalf("expected 200 for master tasks query, got %d", wGetMaster.Code)
+		}
+		var listMaster []*task.Task
+		json.NewDecoder(wGetMaster.Body).Decode(&listMaster)
+		if len(listMaster) != 2 {
+			t.Fatalf("master should see both tasks, got %d", len(listMaster))
+		}
+	}
