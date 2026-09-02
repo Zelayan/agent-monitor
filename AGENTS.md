@@ -92,6 +92,6 @@ main.go                   # agent-monitor Web 服务入口（嵌入 static/index
   - 本地构建：`make build`（输出 `bin/agent-monitor` 与 `bin/agent-reporter`）。
   - 跨平台交叉编译：`make build-all`（输出全平台二进制至 `dist/`）。
 - **自动化发布**：
-  - 推送 `v*` Tag（如 `git tag v1.0.0 && git push origin v1.0.0`）会自动触发 GitHub Actions：编译各平台压缩包并发布 GitHub Release；同时构建 linux/amd64 + linux/arm64 镜像，推送到 GHCR（`ghcr.io/zelayan/agent-monitor`）与 Docker Hub（`zelayan/agent-monitor`）。
-  - Docker Hub 需要仓库 Secrets：`DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`。
+  - 推送 `v*` Tag（如 `git tag v1.0.0 && git push origin v1.0.0`）会自动触发 GitHub Actions：编译各平台压缩包并发布 GitHub Release；同时构建 linux/amd64 + linux/arm64 镜像并始终推送到 GHCR（`ghcr.io/zelayan/agent-monitor`）。
+  - Docker Hub（`zelayan/agent-monitor`）仅在仓库 Secrets 配有 `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN` 时一并推送。
   - 安装脚本 `install.sh` 会自动拉取最新 Release 产物完成配置。

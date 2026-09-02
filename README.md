@@ -57,7 +57,7 @@ go install github.com/Zelayan/agent-monitor/cmd/reporter@latest
 
 ### 方式三：Docker 容器运行
 
-推送 `v*` Tag 后，linux/amd64 与 linux/arm64 镜像会同时发布到 GHCR 与 Docker Hub（`latest` 与对应版本号）。
+推送 `v*` Tag 后会构建 linux/amd64 与 linux/arm64 镜像，并发布到 GHCR（`latest` 与对应版本号）。配有 Docker Hub Secrets 时会同时推送到 Docker Hub。
 
 ```bash
 # GitHub Container Registry
