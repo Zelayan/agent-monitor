@@ -20,17 +20,49 @@ go run main.go
 PORT=9000 go run main.go
 ```
 
-## 构建与安装
+## 安装与分发
+
+### 方式一：一键安装脚本（推荐，macOS / Linux）
+
+自动识别系统与 CPU 架构，下载官方最新静态二进制并配置到 PATH：
 
 ```bash
-# 编译 Monitor 与 Reporter
+curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
+```
+
+### 方式二：Go 原生安装（零依赖）
+
+若本地已安装 Go 1.22+，可直接一键安装至 `$GOPATH/bin`：
+
+```bash
+# 安装 Monitor Web 仪表盘服务
+go install github.com/Zelayan/agent-monitor@latest
+
+# 安装 Hook 上报器
+go install github.com/Zelayan/agent-monitor/cmd/reporter@latest
+```
+
+### 方式三：Docker 容器运行
+
+```bash
+# 启动持久化监控容器
+docker run -d --name agent-monitor \
+  -p 8000:8000 \
+  -v $(pwd)/data:/app/data \
+  ghcr.io/zelayan/agent-monitor:latest
+```
+
+### 方式四：源码本地构建
+
+```bash
+# 本地编译 Monitor 与 Reporter 至 bin/
 make build
 
-# 跨平台一键编译全平台静态二进制
+# 跨平台一键编译全平台静态发布包至 dist/
 make build-all
 ```
 
-编译产物位于 `bin/` 目录：
+编译产物：
 - `bin/agent-monitor`：Monitor Web 仪表盘服务
 - `bin/agent-reporter`：面向 AI Agent 的零依赖 Hook 上报器（支持 macOS/Linux/Windows）
 
@@ -158,9 +190,10 @@ static/index.html        Monitor 前端（go:embed）
 cmd/reporter/            Go 原生零依赖 Hook 上报器命令行入口
 internal/reporter/       上报器核心逻辑（协议放行、过滤规则、Git/Transcript解析）
 scripts/reporter.py      通用 Hook 上报脚本（Python 备用兼容版本）
-configs/zcode-hooks.json ZCode Hook 配置模板
-configs/cursor-hooks.json Cursor Hook 配置模板
-.zcode/config.json       当前仓库的本地 ZCode Hook 启用配置
+configs/                 多 Agent Hook 配置模板（ZCode, Cursor, Claude Code, Aider 等）
+install.sh               全平台一键安装脚本
+Dockerfile               轻量容器镜像定义
+.github/workflows/       CI/CD 与多架构 Release 发布流水线
 AGENTS.md                给 Agent 的仓库约定
 Makefile                 构建与跨平台编译脚本
 ```

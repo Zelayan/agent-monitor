@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+
+      - name: Run Tests
+        run: |
+          go test -v -race ./...
+
+      - name: Build Cross-Platform Binaries
+        env:
+          CGO_ENABLED: 0
+          LDFLAGS: "-s -w"
+        run: |
+          mkdir -p release-assets
+          VERSION=${GITHUB_REF_NAME}
+          
+          # Target platforms: OS/ARCH
+          PLATFORMS=(
+            "darwin/arm64"
+            "darwin/amd64"
+            "linux/amd64"
+            "linux/arm64"
+            "windows/amd64"
+            "windows/arm64"
+          )
+          
+          for PLATFORM in "${PLATFORMS[@]}"; do
+            GOOS=${PLATFORM%/*}
+            GOARCH=${PLATFORM#*/}
+            EXT=""
+            if [ "$GOOS" = "windows" ]; then
+              EXT=".exe"
+            fi
+            
+            BUILD_DIR="dist/agent-monitor_${VERSION}_${GOOS}_${GOARCH}"
+            mkdir -p "${BUILD_DIR}"
+            
+            # Compile main monitor server
+            GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/agent-monitor${EXT}" main.go
+            
+            # Compile hook reporter
+            GOOS=$GOOS GOARCH=$GOARCH go build -ldflags="${LDFLAGS}" -o "${BUILD_DIR}/agent-reporter${EXT}" cmd/reporter/main.go
+            
+            # Copy documentation and config templates
+            cp README.md "${BUILD_DIR}/"
+            cp -r configs "${BUILD_DIR}/"
+            
+            # Archive package
+            ARCHIVE_NAME="agent-monitor_${VERSION}_${GOOS}_${GOARCH}"
+            if [ "$GOOS" = "windows" ]; then
+              (cd dist && zip -r "../release-assets/${ARCHIVE_NAME}.zip" "${ARCHIVE_NAME#dist/}")
+            else
+              tar -czf "release-assets/${ARCHIVE_NAME}.tar.gz" -C dist "${ARCHIVE_NAME#dist/}"
+            fi
+          done
+
+      - name: Generate Checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false

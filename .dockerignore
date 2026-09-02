@@ -1,0 +1,10 @@
+.git
+.github
+.zcode
+bin/
+dist/
+data/
+*.exe
+*.test
+*.tar.gz
+*.zip
