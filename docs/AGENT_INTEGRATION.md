@@ -84,14 +84,21 @@ Create or merge into `.cursor/hooks.json` (or `~/.cursor/hooks.json`):
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "agent-reporter --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
     "sessionStart": [{ "command": "agent-reporter --event sessionStart --agent 'Cursor Agent'" }],
-    "afterFileEdit": [{ "command": "agent-reporter --event afterFileEdit --agent 'Cursor Agent'" }],
+    "beforeSubmitPrompt": [{ "command": "agent-reporter --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
+    "preToolUse": [{ "command": "agent-reporter --event preToolUse --agent 'Cursor Agent'" }],
+    "postToolUseFailure": [{ "command": "agent-reporter --event postToolUseFailure --agent 'Cursor Agent'" }],
     "beforeShellExecution": [{ "command": "agent-reporter --event beforeShellExecution --agent 'Cursor Agent'" }],
-    "agentCompletion": [{ "command": "agent-reporter --event agentCompletion --agent 'Cursor Agent'" }]
+    "beforeMCPExecution": [{ "command": "agent-reporter --event beforeMCPExecution --agent 'Cursor Agent'" }],
+    "subagentStart": [{ "command": "agent-reporter --event subagentStart --agent 'Cursor Agent'" }],
+    "afterAgentResponse": [{ "command": "agent-reporter --event afterAgentResponse --agent 'Cursor Agent'" }],
+    "stop": [{ "command": "agent-reporter --event stop --agent 'Cursor Agent'" }],
+    "sessionEnd": [{ "command": "agent-reporter --event sessionEnd --agent 'Cursor Agent'" }]
   }
 }
 ```
+
+Use official Cursor hook names (`stop`, not `agentCompletion`). Project hooks run from the repo root; user hooks (`~/.cursor/hooks.json`) should use an absolute path to `agent-reporter`. Do not install the same events at both project and user level, or each event will fire twice.
 
 ### Recipe C: If you are ZCode
 Create or merge into `.zcode/config.json`:

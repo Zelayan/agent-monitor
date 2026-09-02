@@ -125,7 +125,9 @@ ZCode 支持在工作区 `.zcode/config.json` 或全局 `~/.zcode/cli/config.jso
 
 ## 接入 Cursor Hook
 
-把 `configs/cursor-hooks.json` 配进 Cursor 的 hooks（或把其中命令复制到你的 hooks 配置）。上报器会从 stdin 读取官方 payload，并向 Monitor 上报：
+把 `configs/cursor-hooks.json` 配进 Cursor 的 hooks（项目级 `.cursor/hooks.json` 或用户级 `~/.cursor/hooks.json`）。使用官方事件名：`sessionStart`、`beforeSubmitPrompt`、`preToolUse`、`postToolUseFailure`、`beforeShellExecution`、`beforeMCPExecution`、`subagentStart`、`afterAgentResponse`、`stop`、`sessionEnd`。
+
+上报器会从 stdin 读取官方 payload。Cursor 的完成事件是 `stop`（不是 `agentCompletion`）；`aborted` / `error` 会记入 Failed 列。用户级 hooks 的工作目录是 `~/.cursor/`，命令请写成 `agent-reporter` 的绝对路径。
 
 ```bash
 bin/agent-reporter --event sessionStart --agent 'Cursor Agent'
@@ -199,10 +201,10 @@ curl -s http://127.0.0.1:8000/api/event \
 
 `event` 会映射到 Monitor 列：
 
-- `sessionStart` / `onStart` / `SessionStart` / `UserPromptSubmit` → 正在运行
-- `agentCompletion` / `onComplete` / `complete` / `Stop` / `SessionEnd` → 已完成
-- `stop` / `failed` / `error` → 异常 / 中断
-- `toolUse` / `beforeShellExecution` / `afterFileEdit` / `toolFailure` → 操作轨迹（记录在时间线中）
+- `sessionStart` / `onStart` / `SessionStart` / `UserPromptSubmit` / `beforeSubmitPrompt` → 正在运行
+- `agentCompletion` / `onComplete` / `complete` / `Stop` / `stop` / `SessionEnd` / `sessionEnd` → 已完成
+- `failed` / `error` → 异常 / 中断（Cursor `stop` 且 status 为 `aborted`/`error` 时由上报器映射而来）
+- `toolUse` / `beforeShellExecution` / `afterAgentResponse` / `toolFailure` → 操作轨迹（记录在时间线中）
 
 同一 `id` 的多次上报会聚合成一条任务，并追加到时间线。
 

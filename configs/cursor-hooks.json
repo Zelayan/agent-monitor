@@ -1,10 +1,15 @@
 {
   "version": 1,
   "hooks": {
-    "beforeSubmitPrompt": [{ "command": "bin/agent-reporter --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
     "sessionStart": [{ "command": "bin/agent-reporter --event sessionStart --agent 'Cursor Agent'" }],
-    "afterFileEdit": [{ "command": "bin/agent-reporter --event afterFileEdit --agent 'Cursor Agent'" }],
+    "beforeSubmitPrompt": [{ "command": "bin/agent-reporter --event beforeSubmitPrompt --agent 'Cursor Agent'" }],
+    "preToolUse": [{ "command": "bin/agent-reporter --event preToolUse --agent 'Cursor Agent'" }],
+    "postToolUseFailure": [{ "command": "bin/agent-reporter --event postToolUseFailure --agent 'Cursor Agent'" }],
     "beforeShellExecution": [{ "command": "bin/agent-reporter --event beforeShellExecution --agent 'Cursor Agent'" }],
-    "agentCompletion": [{ "command": "bin/agent-reporter --event agentCompletion --agent 'Cursor Agent'" }]
+    "beforeMCPExecution": [{ "command": "bin/agent-reporter --event beforeMCPExecution --agent 'Cursor Agent'" }],
+    "subagentStart": [{ "command": "bin/agent-reporter --event subagentStart --agent 'Cursor Agent'" }],
+    "afterAgentResponse": [{ "command": "bin/agent-reporter --event afterAgentResponse --agent 'Cursor Agent'" }],
+    "stop": [{ "command": "bin/agent-reporter --event stop --agent 'Cursor Agent'" }],
+    "sessionEnd": [{ "command": "bin/agent-reporter --event sessionEnd --agent 'Cursor Agent'" }]
   }
 }
