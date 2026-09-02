@@ -3,6 +3,7 @@ package http
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ type Handler struct {
 	svc        *monitor.MonitorService
 	hub        *monitor.Hub
 	staticHTML []byte
+	staticFS   fs.FS
 }
 
 // NewHandler 创建 HTTP 处理器实例。
@@ -27,11 +29,20 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 	}
 }
 
+// WithStaticFS 设置静态资源文件系统（用于支持 /static/ 离线静态资源服务）。
+func (h *Handler) WithStaticFS(staticFS fs.FS) *Handler {
+	h.staticFS = staticFS
+	return h
+}
+
 // RegisterRoutes 在给定的 ServeMux 上注册路由。
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/event", h.HandleEvent)
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
+	if h.staticFS != nil {
+		mux.Handle("/static/", http.FileServer(http.FS(h.staticFS)))
+	}
 	mux.HandleFunc("/", h.HandleIndex)
 }
 

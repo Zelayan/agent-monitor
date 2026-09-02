@@ -6,7 +6,7 @@
 package main
 
 import (
-	_ "embed"
+	"embed"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +16,9 @@ import (
 	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
 	transport "github.com/Zelayan/agent-monitor/internal/infrastructure/transport/http"
 )
+
+//go:embed static/*
+var staticFS embed.FS
 
 //go:embed static/index.html
 var indexHTML []byte // 将 Monitor 页面嵌入二进制
@@ -46,7 +49,7 @@ func main() {
 	svc := monitor.NewMonitorService(repo, hub)
 
 	// 4. 用户接口层 / HTTP 适配器：注册路由
-	handler := transport.NewHandler(svc, hub, indexHTML)
+	handler := transport.NewHandler(svc, hub, indexHTML).WithStaticFS(staticFS)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)

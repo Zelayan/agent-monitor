@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/application/monitor"
@@ -124,5 +125,35 @@ func TestHandler_Endpoints(t *testing.T) {
 	tasksRemaining := svc.GetAllTasks()
 	if len(tasksRemaining) != 0 {
 		t.Fatalf("expected 0 tasks after delete, got %d", len(tasksRemaining))
+	}
+}
+
+func TestHandler_StaticFS(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	staticHTML := []byte("<html><body>Agent Monitor</body></html>")
+
+	mockFS := fstest.MapFS{
+		"static/vendor/test.js": &fstest.MapFile{
+			Data: []byte("console.log('offline');"),
+		},
+	}
+
+	handler := NewHandler(svc, hub, staticHTML).WithStaticFS(mockFS)
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/static/vendor/test.js", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 for static file, got %d", w.Code)
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte("console.log('offline');")) {
+		t.Fatalf("unexpected static content: %s", w.Body.String())
 	}
 }
