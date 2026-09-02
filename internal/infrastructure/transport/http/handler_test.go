@@ -323,4 +323,16 @@ func TestHandler_StaticFS(t *testing.T) {
 		if finalTask.Status != "failed" || finalTask.ControlState != "aborted" {
 			t.Fatalf("expected final task status failed and controlState aborted, got status=%s controlState=%s", finalTask.Status, finalTask.ControlState)
 		}
+
+		// 5. 测试 POST /api/tasks/{id}/kill 强杀端点
+		wKill := httptest.NewRecorder()
+		mux.ServeHTTP(wKill, httptest.NewRequest(http.MethodPost, "/api/tasks/sess-http-abort/kill", nil))
+		if wKill.Code != http.StatusOK {
+			t.Fatalf("expected 200 for kill endpoint, got %d", wKill.Code)
+		}
+		var killResp map[string]interface{}
+		json.NewDecoder(wKill.Body).Decode(&killResp)
+		if killResp["control_state"] != "killed" {
+			t.Fatalf("expected control_state 'killed', got %v", killResp["control_state"])
+		}
 	}

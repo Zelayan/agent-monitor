@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
@@ -173,6 +175,51 @@ func (s *MonitorService) GetTask(id string) *task.Task {
 		return t.Clone()
 	}
 	return nil
+}
+
+// KillTask 强制杀死指定会话关联的本地进程组，并将任务标记为终止终态。
+func (s *MonitorService) KillTask(id string) (*task.Task, error) {
+	s.mu.Lock()
+	t, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+
+	pid := t.PID
+	nowMs := time.Now().UnixMilli()
+	nowStr := time.Now().Format("15:04:05")
+
+	// 尝试向本地操作系统进程发送中断信号
+	if pid > 0 {
+		proc, err := os.FindProcess(pid)
+		if err == nil && proc != nil {
+			if err := proc.Signal(syscall.SIGTERM); err != nil {
+				_ = proc.Kill()
+			}
+		}
+	}
+
+	reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
+	t.MarkKilled(reason, nowMs, nowStr)
+
+	taskJSON, err := json.Marshal(t)
+	taskID := t.ID
+	taskCopy := t.Clone()
+	s.mu.Unlock()
+
+	if err == nil {
+		if s.repo != nil {
+			go func(id string, data []byte) {
+				_ = s.repo.SaveRaw(id, data)
+			}(taskID, taskJSON)
+		}
+		if s.hub != nil {
+			s.hub.Broadcast(string(taskJSON))
+		}
+	}
+
+	return taskCopy, nil
 }
 
 // GetAllTasks 返回当前所有任务的独立只读深拷贝副本。

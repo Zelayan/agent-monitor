@@ -123,4 +123,22 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if hookRes.Task.Status != "failed" || hookRes.Task.ControlState != "aborted" {
 		t.Fatalf("expected task to be terminated as failed/aborted, got status=%s controlState=%s", hookRes.Task.Status, hookRes.Task.ControlState)
 	}
+
+	// 5. Test KillTask Hard Kill
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-kill-test",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Title:     "Kill Test",
+		PID:       99999999, // nonexistent PID
+		Timestamp: time.Now().Unix(),
+	})
+
+	killedTask, err := svc.KillTask("sess-kill-test")
+	if err != nil {
+		t.Fatalf("KillTask failed: %v", err)
+	}
+	if killedTask.Status != "failed" || killedTask.ControlState != "killed" {
+		t.Fatalf("expected task to be killed, got status=%s controlState=%s", killedTask.Status, killedTask.ControlState)
+	}
 }

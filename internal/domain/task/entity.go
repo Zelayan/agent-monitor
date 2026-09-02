@@ -175,6 +175,29 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		t.recountLifetime()
 	}
 
+	// MarkKilled 标记当前会话已被进程级强杀。
+	func (t *Task) MarkKilled(reason string, nowMs int64, nowStr string) {
+		t.ControlState = "killed"
+		if reason == "" {
+			reason = "会话已被用户强制强杀 (SIGTERM/SIGKILL)"
+		}
+		t.AbortReason = reason
+		t.Status = "failed"
+		t.EndTime = nowMs
+		t.Detail = reason
+		if len(t.Runs) > 0 {
+			curRun := &t.Runs[len(t.Runs)-1]
+			curRun.closeAs("failed", nowMs)
+			curRun.Detail = reason
+			curRun.Timeline = append(curRun.Timeline, TimelineItem{
+				Time:  nowStr,
+				Event: "killed",
+				Desc:  reason,
+			})
+		}
+		t.recountLifetime()
+	}
+
 	// IsAbortRequested 检查是否处于请求中断状态。
 	func (t *Task) IsAbortRequested() bool {
 		return t.ControlState == "abort_requested"

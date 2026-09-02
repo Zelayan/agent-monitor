@@ -274,7 +274,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 	taskID := parts[0]
 
-	// 1. POST /api/tasks/{id}/abort 中断会话
+	// 1. POST /api/tasks/{id}/abort 软中断会话
 	if len(parts) == 2 && parts[1] == "abort" && r.Method == http.MethodPost {
 		var body struct {
 			Reason string `json:"reason"`
@@ -291,6 +291,21 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			"status":        "ok",
 			"control_state": "abort_requested",
 			"task":          abortedTask,
+		})
+		return
+	}
+
+	// 1.1 POST /api/tasks/{id}/kill 进程级强杀
+	if len(parts) == 2 && parts[1] == "kill" && r.Method == http.MethodPost {
+		killedTask, err := h.svc.KillTask(taskID)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":        "ok",
+			"control_state": "killed",
+			"task":          killedTask,
 		})
 		return
 	}
