@@ -106,9 +106,10 @@ jobs:
   docker:
     name: Push Docker Images
     runs-on: ubuntu-latest
+    environment: DOCKERHUB_USERNAME
     env:
-      HUB_USER: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USER || secrets.DOCKER_USER }}
-      HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_ACCESS_TOKEN || secrets.DOCKER_TOKEN }}
+      HUB_USER: ${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || secrets.DOCKERHUB_USER || secrets.DOCKER_USER || vars.DOCKERHUB_USERNAME || 'zelayan' }}
+      HUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKERHUB_PASSWORD || secrets.DOCKER_PASSWORD || secrets.DOCKERHUB_ACCESS_TOKEN || secrets.DOCKER_TOKEN || vars.DOCKERHUB_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
