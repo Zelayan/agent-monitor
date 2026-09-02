@@ -3,16 +3,18 @@ package reporter
 import (
 	"bufio"
 	"bytes"
-	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -1070,52 +1072,102 @@ func ResolveWorkspaceRoot(payload Payload) string {
 	return cwd
 }
 
-// GetGitInfo 获取 Git 仓库名与分支名（轻量级文件解析优先，超时与兜底保护）
+// GetGitInfo 获取 Git 仓库名与分支名（纯 Go 递归向上查找，支持 .git 目录及 submodule/worktree 的 gitdir 文件）
 func GetGitInfo(payload Payload) (string, string) {
-	cwd := ResolveWorkspaceRoot(payload)
-
-	repo := filepath.Base(cwd)
-	if repo == "" || repo == "." || repo == "/" {
-		repo = "workspace"
+	startDir := ResolveWorkspaceRoot(payload)
+	if startDir == "" {
+		startDir, _ = os.Getwd()
 	}
+
+	repoRoot, gitDir := findGitRoot(startDir)
+	if repoRoot == "" {
+		repo := filepath.Base(startDir)
+		if repo == "" || repo == "." || repo == "/" {
+			repo = "workspace"
+		}
+		return repo, "main"
+	}
+
+	repo := filepath.Base(repoRoot)
 	branch := "main"
 
-	// 1. 尝试直接从 .git/HEAD 极速读取当前分支，避免任何外部进程派生开销 (<0.1ms)
-	headPath := filepath.Join(cwd, ".git", "HEAD")
+	// 读取 gitDir/HEAD 解析分支
+	headPath := filepath.Join(gitDir, "HEAD")
 	if headData, err := os.ReadFile(headPath); err == nil {
 		headStr := strings.TrimSpace(string(headData))
 		if strings.HasPrefix(headStr, "ref: refs/heads/") {
 			branch = strings.TrimPrefix(headStr, "ref: refs/heads/")
-			return repo, branch
 		} else if len(headStr) >= 7 {
 			branch = headStr[:7] // Detached HEAD SHA
-			return repo, branch
-		}
-	}
-
-	// 2. 降级通过快速子进程探测
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
-
-	cmdRepo := exec.CommandContext(ctx, "git", "rev-parse", "--show-toplevel")
-	cmdRepo.Dir = cwd
-	if out, err := cmdRepo.Output(); err == nil {
-		top := strings.TrimSpace(string(out))
-		if top != "" {
-			repo = filepath.Base(top)
-		}
-	}
-
-	cmdBranch := exec.CommandContext(ctx, "git", "branch", "--show-current")
-	cmdBranch.Dir = cwd
-	if out, err := cmdBranch.Output(); err == nil {
-		b := strings.TrimSpace(string(out))
-		if b != "" {
-			branch = b
 		}
 	}
 
 	return repo, branch
+}
+
+// findGitRoot 沿目录树递归向上查找 .git，返回 (工作区根目录, 实际 gitdir 目录)，绝不派生外部进程
+func findGitRoot(dir string) (string, string) {
+	curr := filepath.Clean(dir)
+	for {
+		gitEntry := filepath.Join(curr, ".git")
+		fi, err := os.Stat(gitEntry)
+		if err == nil {
+			if fi.IsDir() {
+				// 普通 Git 仓库根目录
+				return curr, gitEntry
+			}
+			// Submodule 或 Worktree：.git 是一个包含 "gitdir: <path>" 的文件
+			if data, rErr := os.ReadFile(gitEntry); rErr == nil {
+				content := strings.TrimSpace(string(data))
+				if strings.HasPrefix(content, "gitdir:") {
+					relPath := strings.TrimSpace(strings.TrimPrefix(content, "gitdir:"))
+					if !filepath.IsAbs(relPath) {
+						relPath = filepath.Join(curr, relPath)
+					}
+					return curr, filepath.Clean(relPath)
+				}
+			}
+		}
+
+		parent := filepath.Dir(curr)
+		if parent == curr {
+			break // 到达根目录
+		}
+		curr = parent
+	}
+	return "", ""
+}
+
+// 快速本地网络熔断器（Fast Fail Circuit Breaker）
+const circuitBreakerCooldown = 5 * time.Second
+
+func circuitBreakerFile(serverURL string) string {
+	sum := sha256.Sum256([]byte(serverURL))
+	hashKey := hex.EncodeToString(sum[:8])
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-cb-%s.state", hashKey))
+}
+
+func isCircuitBreakerOpen(serverURL string) bool {
+	p := circuitBreakerFile(serverURL)
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	ts, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+	if err != nil {
+		return false
+	}
+	return time.Now().Unix()-ts < int64(circuitBreakerCooldown/time.Second)
+}
+
+func tripCircuitBreaker(serverURL string) {
+	p := circuitBreakerFile(serverURL)
+	_ = os.WriteFile(p, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0644)
+}
+
+func resetCircuitBreaker(serverURL string) {
+	p := circuitBreakerFile(serverURL)
+	_ = os.Remove(p)
 }
 
 // DeliverEvent 先补报本地 spool，再发送当前事件。Monitor 不可达时落盘，保证下次 Hook 能按序补报。
@@ -1130,11 +1182,32 @@ func DeliverEventWithKey(serverURL, apiKey string, report EventReport) {
 
 // DeliverEventWithAction 先补报本地 spool，再发送当前事件并返回服务端的控制决策。
 func DeliverEventWithAction(serverURL, apiKey string, report EventReport) (bool, ServerControlResponse) {
-	flushSpoolWithKey(serverURL, apiKey, spoolFlushLimit)
+	defaultCtrl := ServerControlResponse{Action: "allow"}
+
+	// 1. 快速熔断：若处于熔断冷却期，直接落盘并快速返回，耗时 < 0.1ms
+	if isCircuitBreakerOpen(serverURL) {
+		enqueueSpool(report)
+		return false, defaultCtrl
+	}
+
+	// 2. 尝试清空本地历史积压
+	flushOK := flushSpoolWithKey(serverURL, apiKey, spoolFlushLimit)
+	if !flushOK {
+		// flush 失败说明网络已断/服务端已挂，已自动触发熔断
+		// 严禁发起第二次网络超时（杜绝 1.6s 级联卡顿），直接落盘后快速放行
+		enqueueSpool(report)
+		return false, defaultCtrl
+	}
+
+	// 3. 发送当前事件
 	success, ctrl := SendEventWithAction(serverURL, apiKey, report)
 	if !success {
+		tripCircuitBreaker(serverURL)
 		enqueueSpool(report)
+		return false, ctrl
 	}
+
+	resetCircuitBreaker(serverURL)
 	return success, ctrl
 }
 
@@ -1149,91 +1222,143 @@ func spoolFile() string {
 	return filepath.Join(home, ".agent-monitor", "spool.jsonl")
 }
 
+func spoolLockFile() string {
+	return spoolFile() + ".lock"
+}
+
+// withSpoolLock 提供跨进程排他文件锁保护
+func withSpoolLock(fn func() error) error {
+	lockPath := spoolLockFile()
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		return err
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	return fn()
+}
+
+// truncateSpoolKeepTail 丢弃旧数据，仅保留文件尾部最新的 targetBytes 字节（按行对齐）
+func truncateSpoolKeepTail(path string, targetBytes int64) {
+	raw, err := os.ReadFile(path)
+	if err != nil || int64(len(raw)) <= targetBytes {
+		return
+	}
+	start := len(raw) - int(targetBytes)
+	idx := bytes.IndexByte(raw[start:], '\n')
+	if idx >= 0 {
+		start += idx + 1
+	}
+	_ = os.WriteFile(path, raw[start:], 0644)
+}
+
 func enqueueSpool(report EventReport) {
 	data, err := json.Marshal(report)
 	if err != nil {
 		return
 	}
-	path := spoolFile()
-	if info, err := os.Stat(path); err == nil && info.Size() >= maxSpoolFileBytes {
-		return
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	_, _ = f.Write(append(data, '\n'))
+
+	_ = withSpoolLock(func() error {
+		path := spoolFile()
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return err
+		}
+
+		// 检查大小：若达到 maxSpoolFileBytes (2MB)，保留后半部分 (1MB)，丢弃过旧数据
+		if info, err := os.Stat(path); err == nil && info.Size() >= maxSpoolFileBytes {
+			truncateSpoolKeepTail(path, maxSpoolFileBytes/2)
+		}
+
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+
+		_, _ = f.Write(append(data, '\n'))
+		return nil
+	})
 }
 
 func flushSpool(serverURL string, limit int) {
-	flushSpoolWithKey(serverURL, "", limit)
+	_ = flushSpoolWithKey(serverURL, "", limit)
 }
 
-func flushSpoolWithKey(serverURL, apiKey string, limit int) {
+func flushSpoolWithKey(serverURL, apiKey string, limit int) bool {
 	if limit <= 0 {
 		limit = spoolFlushLimit
 	}
-	path := spoolFile()
-	sending := path + ".sending"
-	if err := os.Rename(path, sending); err != nil {
-		return
-	}
-	raw, err := os.ReadFile(sending)
-	if err != nil {
-		_ = os.Rename(sending, path)
-		return
-	}
-	_ = os.Remove(sending)
 
 	var pending [][]byte
-	for _, line := range bytes.Split(raw, []byte("\n")) {
-		line = bytes.TrimSpace(line)
-		if len(line) == 0 {
-			continue
+	var path string
+
+	// 在跨进程文件锁保护下原子读取并提取 pending 队列
+	err := withSpoolLock(func() error {
+		path = spoolFile()
+		raw, rErr := os.ReadFile(path)
+		if rErr != nil || len(raw) == 0 {
+			return nil
 		}
-		pending = append(pending, line)
+
+		for _, line := range bytes.Split(raw, []byte("\n")) {
+			line = bytes.TrimSpace(line)
+			if len(line) > 0 {
+				pending = append(pending, line)
+			}
+		}
+		_ = os.Remove(path) // 排空时彻底移除文件，避免留存 0 字节空文件导致检查异常
+		return nil
+	})
+
+	if err != nil || len(pending) == 0 {
+		return true
 	}
 
 	for i, line := range pending {
 		if i >= limit {
-			appendSpoolLines(pending[i:])
-			return
+			restoreSpoolLines(pending[i:])
+			return true
 		}
 		var report EventReport
 		if err := json.Unmarshal(line, &report); err != nil {
-			continue
+			continue // 脏数据跳过
 		}
 		if ok, _ := SendEventWithAction(serverURL, apiKey, report); !ok {
-			appendSpoolLines(pending[i:])
-			return
+			tripCircuitBreaker(serverURL)
+			restoreSpoolLines(pending[i:])
+			return false
 		}
 	}
+	return true
 }
 
-func appendSpoolLines(lines [][]byte) {
+func restoreSpoolLines(lines [][]byte) {
 	if len(lines) == 0 {
 		return
 	}
-	path := spoolFile()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return
-	}
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	for _, line := range lines {
-		if len(line) == 0 {
-			continue
+	_ = withSpoolLock(func() error {
+		path := spoolFile()
+		existing, _ := os.ReadFile(path)
+
+		var buf bytes.Buffer
+		for _, l := range lines {
+			buf.Write(l)
+			buf.WriteByte('\n')
 		}
-		_, _ = f.Write(line)
-		_, _ = f.Write([]byte("\n"))
-	}
+		if len(existing) > 0 {
+			buf.Write(existing)
+		}
+		_ = os.WriteFile(path, buf.Bytes(), 0644)
+		return nil
+	})
 }
 
 // SendEvent 向 Monitor 发送单条事件，成功返回 true。失败由调用方 spool，绝不 panic。

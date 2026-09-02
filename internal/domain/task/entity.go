@@ -55,6 +55,7 @@ type Task struct {
 	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
 	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
 	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
+	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
@@ -150,6 +151,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 			return
 		}
 		t.ControlState = "abort_requested"
+		t.Version++
 		if reason == "" {
 			reason = "用户从 Web 看板请求中断会话"
 		}
@@ -169,6 +171,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	// MarkAborted 当拦截器成功阻断 Agent 或收到终止收口时，将任务标记为中断终态。
 	func (t *Task) MarkAborted(reason string, nowMs int64, nowStr string) {
 		t.ControlState = "aborted"
+		t.Version++
 		if reason == "" {
 			reason = "会话已被用户成功中断"
 		}
@@ -192,6 +195,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	// MarkKilled 标记当前会话已被进程级强杀。
 	func (t *Task) MarkKilled(reason string, nowMs int64, nowStr string) {
 		t.ControlState = "killed"
+		t.Version++
 		if reason == "" {
 			reason = "会话已被用户强制强杀 (SIGTERM/SIGKILL)"
 		}
@@ -482,6 +486,7 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		if p.KeyID != "" {
 			t.KeyID = p.KeyID
 		}
+		t.Version++
 		t.Turns = t.Runs             // 兼容 turns 别名
 		t.Timeline = curRun.Timeline // 兼容顶层 timeline
 }

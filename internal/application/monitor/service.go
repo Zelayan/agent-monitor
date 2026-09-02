@@ -12,20 +12,37 @@ import (
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
+// taskWriteRequest 封装按 Task 串行持久化的请求。
+type taskWriteRequest struct {
+	id   string
+	data []byte
+}
+
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
-	mu    sync.RWMutex
-	tasks map[string]*task.Task
-	repo  task.TaskRepository
-	hub   *Hub
+	mu        sync.RWMutex
+	tasks     map[string]*task.Task
+	repo      task.TaskRepository
+	hub       *Hub
+	writeChan chan taskWriteRequest // 异步串行持久化管道，消除无节制 goroutine 与磁盘乱序
+	stopChan  chan struct{}
+	ttlDays   int // 自动清理天数（默认 30 天，<=0 则不清理）
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
 func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
+	return NewMonitorServiceWithTTL(repo, hub, 30)
+}
+
+// NewMonitorServiceWithTTL 实例化应用服务并指定会话保留天数。
+func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *MonitorService {
 	s := &MonitorService{
-		tasks: make(map[string]*task.Task),
-		repo:  repo,
-		hub:   hub,
+		tasks:     make(map[string]*task.Task),
+		repo:      repo,
+		hub:       hub,
+		writeChan: make(chan taskWriteRequest, 5000), // 削峰缓冲
+		stopChan:  make(chan struct{}),
+		ttlDays:   ttlDays,
 	}
 
 	if repo != nil {
@@ -51,7 +68,100 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 		}
 	}
 
+	// 启动后台单协程消费者，保证同一 Task 的持久化绝对按版本时序原子落盘
+	go s.persistenceWorker()
+
+	// 启动后台 TTL 定时巡检协程
+	if s.ttlDays > 0 {
+		go s.janitorWorker()
+	}
+
 	return s
+}
+
+// persistenceWorker 顺序消费写入管道，彻底消除并发 goroutine 调度乱序导致的磁盘倒流
+func (s *MonitorService) persistenceWorker() {
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case req := <-s.writeChan:
+			if s.repo != nil && req.id != "" && len(req.data) > 0 {
+				if err := s.repo.SaveRaw(req.id, req.data); err != nil {
+					log.Printf("[Application] Error persisting task %s: %v", req.id, err)
+				}
+			}
+		}
+	}
+}
+
+// enqueuePersist 尝试将序列化数据推入写入队列
+func (s *MonitorService) enqueuePersist(id string, data []byte) {
+	if s.repo == nil || id == "" || len(data) == 0 {
+		return
+	}
+	select {
+	case s.writeChan <- taskWriteRequest{id: id, data: data}:
+	default:
+		// 若队列暴涨触发极端背压，直接在独立 goroutine 写入
+		go func(taskID string, taskData []byte) {
+			_ = s.repo.SaveRaw(taskID, taskData)
+		}(id, data)
+	}
+}
+
+// janitorWorker 定时巡检清理已完成且超期的任务
+func (s *MonitorService) janitorWorker() {
+	ticker := time.NewTicker(2 * time.Hour)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.stopChan:
+			return
+		case <-ticker.C:
+			s.cleanExpiredTasks()
+		}
+	}
+}
+
+func (s *MonitorService) cleanExpiredTasks() {
+	if s.ttlDays <= 0 {
+		return
+	}
+	cutoffMs := time.Now().AddDate(0, 0, -s.ttlDays).UnixMilli()
+	var toDelete []string
+
+	s.mu.Lock()
+	for id, t := range s.tasks {
+		if t != nil && (t.Status == "completed" || t.Status == "failed") {
+			endTime := t.EndTime
+			if endTime == 0 {
+				endTime = t.StartTime
+			}
+			if endTime > 0 && endTime < cutoffMs {
+				delete(s.tasks, id)
+				toDelete = append(toDelete, id)
+			}
+		}
+	}
+	s.mu.Unlock()
+
+	if s.repo != nil && len(toDelete) > 0 {
+		for _, id := range toDelete {
+			_ = s.repo.Delete(id)
+		}
+		log.Printf("[Application] Janitor cleaned up %d expired tasks (older than %d days)", len(toDelete), s.ttlDays)
+	}
+}
+
+// Close 停止后台 worker
+func (s *MonitorService) Close() {
+	select {
+	case <-s.stopChan:
+	default:
+		close(s.stopChan)
+	}
 }
 
 // HookEventResult 封装事件处理后的 Task 实体快照及向 Reporter 下发的控制指令。
@@ -90,162 +200,149 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 	reason := ""
 
 	// 控制反转：如果当前会话已被请求中断，且当前 Hook 为前置拦截点，立即下发 deny 并标记为终态
-	if t.IsAbortRequested() && isPreActionHook(p.Event) {
-		action = "deny"
-		reason = t.AbortReason
+		if t.IsAbortRequested() && isPreActionHook(p.Event) {
+			action = "deny"
+			reason = t.AbortReason
+			if reason == "" {
+				reason = "Session aborted from Agent Monitor Dashboard"
+			}
+			t.MarkAborted(reason, nowMs, nowStr)
+		} else {
+			t.ApplyEvent(p, nowMs, nowStr)
+		}
+
+		taskID := t.ID
+		taskKeyID := t.KeyID
+		taskCopy := t.Clone()
+		s.mu.Unlock() // 【锁范围最小化：立即释放锁，杜绝持锁执行 CPU 密集序列化】
+
+		taskJSON, err := json.Marshal(taskCopy)
+		if err != nil {
+			return HookEventResult{Task: taskCopy, Action: action, Reason: reason}, fmt.Errorf("failed to marshal task: %w", err)
+		}
+
+		// 异步持久化：写入串行队列，消除 goroutine 激增与磁盘乱序倒流
+		s.enqueuePersist(taskID, taskJSON)
+
+		// 广播事件（向该租户空间及 Master 广播）
+		if s.hub != nil {
+			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+		}
+
+		return HookEventResult{
+			Task:   taskCopy,
+			Action: action,
+			Reason: reason,
+		}, nil
+	}
+
+	// AbortTask 标记指定会话为中断请求状态，并向该租户客户端广播状态变更。
+	func (s *MonitorService) AbortTask(id string, reason string) (*task.Task, error) {
+		return s.AbortTaskTenant(id, reason, "", true)
+	}
+
+	// AbortTaskTenant 在指定租户权限下标记会话为中断请求状态。
+	func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string, isMaster bool) (*task.Task, error) {
+		s.mu.Lock()
+		t, exists := s.tasks[id]
+		if !exists {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("task not found: %s", id)
+		}
+		if !t.BelongsTo(keyID, isMaster) {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("permission denied for task: %s", id)
+		}
+
+		nowMs := time.Now().UnixMilli()
+		nowStr := time.Now().Format("15:04:05")
+
 		if reason == "" {
-			reason = "Session aborted from Agent Monitor Dashboard"
+			reason = "用户从 Web 看板中断了会话"
 		}
-		t.MarkAborted(reason, nowMs, nowStr)
-	} else {
-		t.ApplyEvent(p, nowMs, nowStr)
-	}
+		t.RequestAbort(reason, nowMs, nowStr)
 
-	taskJSON, err := json.Marshal(t)
-	taskID := t.ID
-	taskCopy := t.Clone()
-	s.mu.Unlock()
+		taskID := t.ID
+		taskKeyID := t.KeyID
+		taskCopy := t.Clone()
+		s.mu.Unlock() // 释放锁
 
-	if err != nil {
-		return HookEventResult{Task: taskCopy, Action: action, Reason: reason}, fmt.Errorf("failed to marshal task: %w", err)
-	}
-
-	// 异步持久化：写入不可变快照字节切片，彻底消除数据竞争
-	if s.repo != nil {
-		go func(id string, data []byte) {
-			if err := s.repo.SaveRaw(id, data); err != nil {
-				log.Printf("[Application] Error saving task %s: %v", id, err)
-			}
-		}(taskID, taskJSON)
-	}
-
-	// 广播事件（向该租户空间及 Master 广播）
-	if s.hub != nil {
-		s.hub.BroadcastTenant(t.KeyID, string(taskJSON))
-	}
-
-	return HookEventResult{
-		Task:   taskCopy,
-		Action: action,
-		Reason: reason,
-	}, nil
-}
-
-// AbortTask 标记指定会话为中断请求状态，并向该租户客户端广播状态变更。
-func (s *MonitorService) AbortTask(id string, reason string) (*task.Task, error) {
-	return s.AbortTaskTenant(id, reason, "", true)
-}
-
-// AbortTaskTenant 在指定租户权限下标记会话为中断请求状态。
-func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string, isMaster bool) (*task.Task, error) {
-	s.mu.Lock()
-	t, exists := s.tasks[id]
-	if !exists {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("task not found: %s", id)
-	}
-	if !t.BelongsTo(keyID, isMaster) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("permission denied for task: %s", id)
-	}
-
-	nowMs := time.Now().UnixMilli()
-	nowStr := time.Now().Format("15:04:05")
-
-	if reason == "" {
-		reason = "用户从 Web 看板中断了会话"
-	}
-	t.RequestAbort(reason, nowMs, nowStr)
-
-	taskJSON, err := json.Marshal(t)
-	taskID := t.ID
-	taskKeyID := t.KeyID
-	taskCopy := t.Clone()
-	s.mu.Unlock()
-
-	if err == nil {
-		if s.repo != nil {
-			go func(id string, data []byte) {
-				_ = s.repo.SaveRaw(id, data)
-			}(taskID, taskJSON)
-		}
-		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
-		}
-	}
-
-	return taskCopy, nil
-}
-
-// GetTask 返回指定 ID 任务的只读深拷贝副本。
-func (s *MonitorService) GetTask(id string) *task.Task {
-	return s.GetTaskTenant(id, "", true)
-}
-
-// GetTaskTenant 根据 ID 及 KeyID 空间返回匹配的任务只读深拷贝副本。
-func (s *MonitorService) GetTaskTenant(id string, keyID string, isMaster bool) *task.Task {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if t, ok := s.tasks[id]; ok && t != nil && t.BelongsTo(keyID, isMaster) {
-		return t.Clone()
-	}
-	return nil
-}
-
-// KillTask 强制杀死指定会话关联的本地进程组，并将任务标记为终止终态。
-func (s *MonitorService) KillTask(id string) (*task.Task, error) {
-	return s.KillTaskTenant(id, "", true)
-}
-
-// KillTaskTenant 在指定租户权限下强制杀死会话关联的本地进程组。
-func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) (*task.Task, error) {
-	s.mu.Lock()
-	t, exists := s.tasks[id]
-	if !exists {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("task not found: %s", id)
-	}
-	if !t.BelongsTo(keyID, isMaster) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("permission denied for task: %s", id)
-	}
-
-	pid := t.PID
-	nowMs := time.Now().UnixMilli()
-	nowStr := time.Now().Format("15:04:05")
-
-	// 尝试向本地操作系统进程发送中断信号
-	if pid > 0 {
-		proc, err := os.FindProcess(pid)
-		if err == nil && proc != nil {
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
-				_ = proc.Kill()
+		taskJSON, err := json.Marshal(taskCopy)
+		if err == nil {
+			s.enqueuePersist(taskID, taskJSON)
+			if s.hub != nil {
+				s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 			}
 		}
+
+		return taskCopy, nil
 	}
 
-	reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
-	t.MarkKilled(reason, nowMs, nowStr)
-
-	taskJSON, err := json.Marshal(t)
-	taskID := t.ID
-	taskKeyID := t.KeyID
-	taskCopy := t.Clone()
-	s.mu.Unlock()
-
-	if err == nil {
-		if s.repo != nil {
-			go func(id string, data []byte) {
-				_ = s.repo.SaveRaw(id, data)
-			}(taskID, taskJSON)
-		}
-		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
-		}
+	// GetTask 返回指定 ID 任务的只读深拷贝副本。
+	func (s *MonitorService) GetTask(id string) *task.Task {
+		return s.GetTaskTenant(id, "", true)
 	}
 
-	return taskCopy, nil
-}
+	// GetTaskTenant 根据 ID 及 KeyID 空间返回匹配的任务只读深拷贝副本。
+	func (s *MonitorService) GetTaskTenant(id string, keyID string, isMaster bool) *task.Task {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		if t, ok := s.tasks[id]; ok && t != nil && t.BelongsTo(keyID, isMaster) {
+			return t.Clone()
+		}
+		return nil
+	}
+
+	// KillTask 强制杀死指定会话关联的本地进程组，并将任务标记为终止终态。
+	func (s *MonitorService) KillTask(id string) (*task.Task, error) {
+		return s.KillTaskTenant(id, "", true)
+	}
+
+	// KillTaskTenant 在指定租户权限下强制杀死会话关联的本地进程组。
+	func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) (*task.Task, error) {
+		s.mu.Lock()
+		t, exists := s.tasks[id]
+		if !exists {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("task not found: %s", id)
+		}
+		if !t.BelongsTo(keyID, isMaster) {
+			s.mu.Unlock()
+			return nil, fmt.Errorf("permission denied for task: %s", id)
+		}
+
+		pid := t.PID
+		nowMs := time.Now().UnixMilli()
+		nowStr := time.Now().Format("15:04:05")
+
+		// 尝试向本地操作系统进程发送中断信号
+		if pid > 0 {
+			proc, err := os.FindProcess(pid)
+			if err == nil && proc != nil {
+				if err := proc.Signal(syscall.SIGTERM); err != nil {
+					_ = proc.Kill()
+				}
+			}
+		}
+
+		reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
+		t.MarkKilled(reason, nowMs, nowStr)
+
+		taskID := t.ID
+		taskKeyID := t.KeyID
+		taskCopy := t.Clone()
+		s.mu.Unlock() // 释放锁
+
+		taskJSON, err := json.Marshal(taskCopy)
+		if err == nil {
+			s.enqueuePersist(taskID, taskJSON)
+			if s.hub != nil {
+				s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+			}
+		}
+
+		return taskCopy, nil
+	}
 
 // GetAllTasks 返回当前所有任务的独立只读深拷贝副本。
 func (s *MonitorService) GetAllTasks() []*task.Task {

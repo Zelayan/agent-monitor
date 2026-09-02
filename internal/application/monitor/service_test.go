@@ -189,4 +189,24 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if err != nil || abortedAlpha.ControlState != "abort_requested" {
 		t.Fatalf("expected successful abort by project-alpha, got err=%v", err)
 	}
+
+	// 7. Test Janitor TTL Clean
+	svc.ttlDays = 1 // 1 天前过期
+	oldTaskPayload := task.EventPayload{
+		ID:        "sess-expired-old",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Timestamp: time.Now().AddDate(0, 0, -5).Unix(), // 5 天前
+	}
+	_, _ = svc.HandleHookEvent(oldTaskPayload)
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-expired-old",
+		Event:     "agentCompletion",
+		Timestamp: time.Now().AddDate(0, 0, -5).Unix(),
+	})
+
+	svc.cleanExpiredTasks()
+	if tObj := svc.GetTask("sess-expired-old"); tObj != nil {
+		t.Fatalf("expected expired task to be cleaned up by janitor, but still exists")
+	}
 }

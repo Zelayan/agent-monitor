@@ -447,3 +447,51 @@ func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
 			t.Fatalf("session should still be tracked in turn 2")
 		}
 	}
+
+	func TestPureGoFindGitRoot(t *testing.T) {
+		tempDir := t.TempDir()
+		gitDir := filepath.Join(tempDir, ".git")
+		_ = os.MkdirAll(gitDir, 0755)
+		_ = os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feature-pure-go\n"), 0644)
+
+		subDir := filepath.Join(tempDir, "sub", "pkg", "deep")
+		_ = os.MkdirAll(subDir, 0755)
+
+		// 在子目录下探测仓库与分支
+		payload := Payload{
+			Cwd: subDir,
+		}
+		repo, branch := GetGitInfo(payload)
+		if repo != filepath.Base(tempDir) {
+			t.Fatalf("expected repo %q, got %q", filepath.Base(tempDir), repo)
+		}
+		if branch != "feature-pure-go" {
+			t.Fatalf("expected branch feature-pure-go, got %q", branch)
+		}
+	}
+
+	func TestCircuitBreakerAndSpoolTruncation(t *testing.T) {
+		fakeServer := "http://127.0.0.1:54321/api/event"
+		resetCircuitBreaker(fakeServer)
+		defer resetCircuitBreaker(fakeServer)
+
+		if isCircuitBreakerOpen(fakeServer) {
+			t.Fatalf("circuit breaker should be closed initially")
+		}
+
+		tripCircuitBreaker(fakeServer)
+		if !isCircuitBreakerOpen(fakeServer) {
+			t.Fatalf("circuit breaker should be open after trip")
+		}
+
+		// 测试 Spool 截断
+		spool := filepath.Join(t.TempDir(), "spool_trunc.jsonl")
+		largeData := bytes.Repeat([]byte("{\"id\":\"test\",\"data\":\"1234567890\"}\n"), 100)
+		_ = os.WriteFile(spool, largeData, 0644)
+
+		truncateSpoolKeepTail(spool, int64(len(largeData)/2))
+		reloaded, _ := os.ReadFile(spool)
+		if len(reloaded) >= len(largeData) {
+			t.Fatalf("expected truncated file to be smaller than original")
+		}
+	}
