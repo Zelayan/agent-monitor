@@ -143,25 +143,35 @@ func DetectAgentName(cfgAgent, payloadAgent string) string {
 	if os.Getenv("CONTINUE_SESSION_ID") != "" || os.Getenv("CONTINUE_GLOBAL_DIR") != "" {
 		return "Continue"
 	}
-	// 7. Cursor
-	if os.Getenv("CURSOR_PROJECT_DIR") != "" || os.Getenv("CURSOR_TRANSCRIPT_PATH") != "" || strings.Contains(execCmd, "cursor") {
-		return "Cursor Agent"
+		// 7. Cursor
+		if os.Getenv("CURSOR_PROJECT_DIR") != "" || os.Getenv("CURSOR_TRANSCRIPT_PATH") != "" || strings.Contains(execCmd, "cursor") {
+			return "Cursor Agent"
+		}
+		// 8. Codex CLI / Codex Desktop
+		if os.Getenv("CODEX_SESSION_ID") != "" || os.Getenv("CODEX_PROJECT_DIR") != "" || os.Getenv("CODEX_WORKSPACE_ROOT") != "" || strings.Contains(execCmd, "codex") {
+			if os.Getenv("CODEX_DESKTOP_VERSION") != "" || os.Getenv("CODEX_APP") != "" || strings.Contains(execCmd, "codex desktop") || strings.Contains(execCmd, "codex.app") {
+				return "Codex Desktop"
+			}
+			return "Codex CLI"
+		}
+
+		return "AI Agent"
 	}
 
-	return "AI Agent"
-}
-
-// ExtractSessionID 提取唯一的会话标识
-func ExtractSessionID(payload Payload) string {
-	for _, envK := range []string{
-		"ZCODE_SESSION_ID",
-		"CLAUDE_SESSION_ID",
-		"CURSOR_SESSION_ID",
-		"AIDER_SESSION_ID",
-		"TRAE_SESSION_ID",
-		"CONTINUE_SESSION_ID",
-		"AGENT_SESSION_ID",
-	} {
+	// ExtractSessionID 提取唯一的会话标识
+	func ExtractSessionID(payload Payload) string {
+		for _, envK := range []string{
+			"CODEX_SESSION_ID",
+			"CODEX_THREAD_ID",
+			"CODEX_RUN_ID",
+			"ZCODE_SESSION_ID",
+			"CLAUDE_SESSION_ID",
+			"CURSOR_SESSION_ID",
+			"AIDER_SESSION_ID",
+			"TRAE_SESSION_ID",
+			"CONTINUE_SESSION_ID",
+			"AGENT_SESSION_ID",
+		} {
 		if v := os.Getenv(envK); v != "" {
 			return v
 		}
@@ -216,7 +226,7 @@ func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
 		}
 
 		switch agentName {
-		case "Cursor", "Cursor Agent":
+		case "Cursor", "Cursor Agent", "Codex", "Codex CLI", "Codex Desktop":
 			if event == "beforeSubmitPrompt" || event == "UserPromptSubmit" {
 				out, _ := json.Marshal(map[string]interface{}{
 					"continue":     false,
@@ -878,32 +888,42 @@ func TranscriptCandidates(payload Payload, sessionID string) []string {
 		paths = append(paths, envP)
 	}
 
-	var roots []string
-	for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
-		if p := os.Getenv(envK); p != "" {
-			roots = append(roots, p)
-		}
-	}
-	roots = append(roots, payload.WorkspaceRoots...)
-
-	home, err := os.UserHomeDir()
-	if err == nil {
-		for _, root := range roots {
-			if root == "" {
-				continue
+		var roots []string
+		for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CODEX_PROJECT_DIR", "CODEX_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
+			if p := os.Getenv(envK); p != "" {
+				roots = append(roots, p)
 			}
-			slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
-			// Cursor transcripts
-			baseCursor := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
-			paths = append(paths, filepath.Join(baseCursor, sessionID+".jsonl"))
-			paths = append(paths, filepath.Join(baseCursor, sessionID+".txt"))
-
-			// Claude Code transcripts
-			baseClaude := filepath.Join(home, ".claude", "projects", slug, "transcripts", sessionID)
-			paths = append(paths, filepath.Join(baseClaude, sessionID+".jsonl"))
-			paths = append(paths, filepath.Join(root, ".claude", "transcripts", sessionID+".jsonl"))
 		}
-	}
+		roots = append(roots, payload.WorkspaceRoots...)
+
+		home, err := os.UserHomeDir()
+		if err == nil {
+			// 全局通用 Codex 会话路径
+			baseCodex := filepath.Join(home, ".codex", "sessions", sessionID)
+			paths = append(paths, filepath.Join(baseCodex, "transcript.jsonl"))
+			paths = append(paths, filepath.Join(home, ".codex", "sessions", sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(home, ".codex", "history.jsonl"))
+
+			for _, root := range roots {
+				if root == "" {
+					continue
+				}
+				slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
+				// Cursor transcripts
+				baseCursor := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
+				paths = append(paths, filepath.Join(baseCursor, sessionID+".jsonl"))
+				paths = append(paths, filepath.Join(baseCursor, sessionID+".txt"))
+
+				// Claude Code transcripts
+				baseClaude := filepath.Join(home, ".claude", "projects", slug, "transcripts", sessionID)
+				paths = append(paths, filepath.Join(baseClaude, sessionID+".jsonl"))
+				paths = append(paths, filepath.Join(root, ".claude", "transcripts", sessionID+".jsonl"))
+
+				// Codex project transcripts
+				paths = append(paths, filepath.Join(home, ".codex", "projects", slug, "transcripts", sessionID+".jsonl"))
+				paths = append(paths, filepath.Join(root, ".codex", "sessions", sessionID+".jsonl"))
+			}
+		}
 
 	seen := make(map[string]bool)
 	var out []string
@@ -970,7 +990,7 @@ func ResolveWorkspaceRoot(payload Payload) string {
 	if payload.Cwd != "" {
 		return payload.Cwd
 	}
-	for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
+	for _, envK := range []string{"ZCODE_PROJECT_DIR", "CURSOR_PROJECT_DIR", "CODEX_PROJECT_DIR", "CODEX_WORKSPACE_ROOT", "CODEX_CWD", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
 		if v := os.Getenv(envK); v != "" {
 			return v
 		}

@@ -223,6 +223,18 @@ func TestDetectAgentName(t *testing.T) {
 	if name := DetectAgentName("", ""); name != "Claude Code" {
 		t.Errorf("expected Claude Code, got %s", name)
 	}
+
+	// Test Codex CLI and Desktop detection
+	t.Setenv("CLAUDE_SESSION_ID", "")
+	t.Setenv("CODEX_SESSION_ID", "codex-sess-123")
+	if name := DetectAgentName("", ""); name != "Codex CLI" {
+		t.Errorf("expected Codex CLI, got %s", name)
+	}
+
+	t.Setenv("CODEX_DESKTOP_VERSION", "1.0.0")
+	if name := DetectAgentName("", ""); name != "Codex Desktop" {
+		t.Errorf("expected Codex Desktop, got %s", name)
+	}
 }
 
 func TestExtractSessionID(t *testing.T) {
@@ -237,6 +249,10 @@ func TestExtractSessionID(t *testing.T) {
 	t.Setenv("CLAUDE_SESSION_ID", "claude-sess-99")
 	if id := ExtractSessionID(p); id != "claude-sess-99" {
 		t.Errorf("expected env priority claude-sess-99, got %s", id)
+	}
+	t.Setenv("CODEX_SESSION_ID", "codex-thread-888")
+	if id := ExtractSessionID(p); id != "codex-thread-888" {
+		t.Errorf("expected Codex session ID codex-thread-888, got %s", id)
 	}
 }
 

@@ -1,13 +1,13 @@
 # Agent Integration Manual (For AI Coding Agents)
 
-This document is specifically structured for **AI Coding Agents** (currently officially supporting **Cursor Agent** and **ZCode**; others like Claude Code, Aider, Windsurf, Trae, Continue are in progress) to automatically inspect their host environment and self-configure lifecycle hooks to report session events into **Agent Monitor**.
+This document is specifically structured for **AI Coding Agents** (officially supporting **Cursor Agent**, **ZCode**, **Codex CLI**, and **Codex Desktop**; others like Claude Code, Aider, Windsurf, Trae, Continue are in progress) to automatically inspect their host environment and self-configure lifecycle hooks to report session events into **Agent Monitor**.
 
 ---
 
 ## 1. Goal & Requirements
 When a user asks you to *"integrate Agent Monitor"* or *"configure monitoring hooks"*, follow the steps below sequentially:
 1. Ensure the `agent-reporter` CLI binary is installed and executable in PATH.
-2. Determine which AI Coding Agent you currently are (Officially Supported: **Cursor**, **ZCode**).
+2. Determine which AI Coding Agent you currently are (Officially Supported: **Cursor**, **ZCode**, **Codex CLI**, **Codex Desktop**).
 3. Automatically create or update the appropriate workspace/global hook configuration file.
 4. Send a test ping to verify connectivity with `http://127.0.0.1:8000/api/event`.
 
@@ -44,6 +44,7 @@ Inspect your active environment variables to determine your agent type:
 - **Officially Supported**:
   - If `CURSOR_PROJECT_DIR` or `.cursor/` exists $\rightarrow$ **Cursor Agent** (✅ Production Ready)
   - If `ZCODE_SESSION_ID` or `ZCODE_PROJECT_DIR` is set $\rightarrow$ **ZCode** (✅ Production Ready)
+  - If `CODEX_SESSION_ID` or `CODEX_PROJECT_DIR` is set (or command `codex`) $\rightarrow$ **Codex CLI / Codex Desktop** (✅ Production Ready)
 - **Pending / Roadmap (Under Development)**:
   - If `CLAUDE_SESSION_ID` or `CLAUDE_PROJECT_DIR` is set $\rightarrow$ **Claude Code** (⏳ In Progress)
   - If `AIDER_SESSION_ID` or running inside Aider $\rightarrow$ **Aider** (⏳ In Progress)
@@ -106,7 +107,30 @@ Create or merge into `.zcode/config.json`:
 }
 ```
 
-### Recipe C: Other Agents (⏳ Pending / Experimental)
+### Recipe C: If you are Codex CLI / Codex Desktop (✅ Production Ready)
+Create or merge into `.codex/hooks.json` (or `~/.codex/hooks.json`):
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [{ "command": "agent-reporter --event sessionStart --agent 'Codex CLI'" }],
+    "beforeSubmitPrompt": [{ "command": "agent-reporter --event beforeSubmitPrompt --agent 'Codex CLI'" }],
+    "preToolUse": [{ "command": "agent-reporter --event preToolUse --agent 'Codex CLI'" }],
+    "postToolUseFailure": [{ "command": "agent-reporter --event postToolUseFailure --agent 'Codex CLI'" }],
+    "beforeShellExecution": [{ "command": "agent-reporter --event beforeShellExecution --agent 'Codex CLI'" }],
+    "beforeMCPExecution": [{ "command": "agent-reporter --event beforeMCPExecution --agent 'Codex CLI'" }],
+    "subagentStart": [{ "command": "agent-reporter --event subagentStart --agent 'Codex CLI'" }],
+    "afterAgentResponse": [{ "command": "agent-reporter --event afterAgentResponse --agent 'Codex CLI'" }],
+    "stop": [{ "command": "agent-reporter --event stop --agent 'Codex CLI'" }],
+    "sessionEnd": [{ "command": "agent-reporter --event sessionEnd --agent 'Codex CLI'" }]
+  }
+}
+```
+
+*Tip: For CLI wrapper usage in shells (`~/.zshrc` / `~/.bashrc`), you can also wrap `codex` command directly with `agent-reporter`.*
+
+### Recipe D: Other Agents (⏳ Pending / Experimental)
 
 <details>
 <summary><b>Claude Code (Preview)</b></summary>

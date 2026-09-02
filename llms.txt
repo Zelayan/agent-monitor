@@ -1,6 +1,6 @@
 # Agent Monitor
 
-> Real-time, multi-session workflow monitor and timeline visualizer for AI Coding Agents. Officially supports Cursor Agent and ZCode (others like Claude Code, Aider, Windsurf, Trae in progress).
+> Real-time, multi-session workflow monitor and timeline visualizer for AI Coding Agents. Officially supports Cursor Agent, ZCode, and Codex (CLI & Desktop).
 
 Agent Monitor provides a local dark-themed web dashboard and an ultra-fast, zero-dependency CLI event reporter (`agent-reporter`) that intercepts AI agent lifecycle hooks with microsecond latency and streams live multi-turn execution traces to the UI over Server-Sent Events (SSE).
 
@@ -28,4 +28,5 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 - **Cursor Agent** (Officially Supported): `.cursor/hooks.json` with `sessionStart`, `beforeSubmitPrompt`, `preToolUse`, `postToolUseFailure`, `beforeShellExecution`, `beforeMCPExecution`, `subagentStart`, `afterAgentResponse`, `stop`, `sessionEnd`.
 - **ZCode** (Officially Supported): `.zcode/config.json` with `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUseFailure`, `Stop`.
+- **Codex CLI / Desktop** (Officially Supported): `.codex/hooks.json` with `sessionStart`, `beforeSubmitPrompt`, `preToolUse`, `postToolUseFailure`, `beforeShellExecution`, `beforeMCPExecution`, `subagentStart`, `afterAgentResponse`, `stop`, `sessionEnd`.
 - **Other Agents (In Progress / Pending)**: Claude Code, Aider, Continue, Windsurf, Trae. See docs/AGENT_INTEGRATION.md for experimental recipes.

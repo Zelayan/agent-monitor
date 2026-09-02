@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "description": "Codex CLI & Codex Desktop Hook Configuration for Agent Monitor",
+  "hooks": {
+    "sessionStart": [{ "command": "agent-reporter --event sessionStart --agent 'Codex CLI'" }],
+    "beforeSubmitPrompt": [{ "command": "agent-reporter --event beforeSubmitPrompt --agent 'Codex CLI'" }],
+    "preToolUse": [{ "command": "agent-reporter --event preToolUse --agent 'Codex CLI'" }],
+    "postToolUseFailure": [{ "command": "agent-reporter --event postToolUseFailure --agent 'Codex CLI'" }],
+    "beforeShellExecution": [{ "command": "agent-reporter --event beforeShellExecution --agent 'Codex CLI'" }],
+    "beforeMCPExecution": [{ "command": "agent-reporter --event beforeMCPExecution --agent 'Codex CLI'" }],
+    "subagentStart": [{ "command": "agent-reporter --event subagentStart --agent 'Codex CLI'" }],
+    "afterAgentResponse": [{ "command": "agent-reporter --event afterAgentResponse --agent 'Codex CLI'" }],
+    "stop": [{ "command": "agent-reporter --event stop --agent 'Codex CLI'" }],
+    "sessionEnd": [{ "command": "agent-reporter --event sessionEnd --agent 'Codex CLI'" }]
+  }
+}

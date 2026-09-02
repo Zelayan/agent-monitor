@@ -12,7 +12,7 @@
 [![CI Tests](https://img.shields.io/github/actions/workflow/status/Zelayan/agent-monitor/release.yml?label=Tests&logo=githubactions)](https://github.com/Zelayan/agent-monitor/actions)
 
 <p align="center">
-  首发深度适配 <b>Cursor</b> 与 <b>ZCode</b>，统一监控 AI 编程助手的执行全生命周期（其他 Agent 待适配中）。<br/>
+  首发深度适配 <b>Cursor</b>、<b>ZCode</b> 与 <b>Codex (CLI / Desktop)</b>，统一监控 AI 编程助手的执行全生命周期（其他 Agent 待适配中）。<br/>
   基于 Go 标准库构建，0 外部依赖单二进制，纳秒级 Fail-Safe 拦截，100% 离线内嵌运行，支持 PWA 原生桌面窗口。
 </p>
 
@@ -58,13 +58,13 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 - **🔔 桌面原生通知（Web Notifications）**：任务从运行到完成或异常中断时向操作系统发送原生桌面弹窗，点击即可快速唤起并展开该任务详情。
 - **🔒 API Key 访问控制**：支持通过 `AGENT_MONITOR_API_KEY`（或 `--api-key`）开启轻量鉴权，防范公网/局域网未授权写入与误清空。
 - **⏱️ 多轮 Run 会话矩阵（Multi-Turn Timeline）**：自动聚合单会话内的多轮交互，按轮次隔离耗时，清晰还原工具调用（Bash、Edit、Read 等）的完整树状轨迹。
-- **🔍 智能多 Agent 动态嗅探**：首发深度适配 **Cursor** 与 **ZCode** 全生命周期 Hook，自动推断运行环境；其他 Agent（Claude Code、Aider 等）持续待适配中。
+- **🔍 智能多 Agent 动态嗅探**：首发深度适配 **Cursor**、**ZCode** 与 **Codex (CLI / Desktop)** 全生命周期 Hook，自动推断运行环境；其他 Agent（Claude Code、Aider 等）持续待适配中。
 
 ---
 
 ## 🤖 让 AI 自动为你接入
 
-在任何由 AI 驱动的项目工作区（如 Cursor / ZCode）中，直接发送以下指令，AI 即可根据本项目预置的 [llms.txt](llms.txt) 和配置指南自动完成 Hook 接入：
+在任何由 AI 驱动的项目工作区（如 Cursor / ZCode / Codex）中，直接发送以下指令，AI 即可根据本项目预置的 [llms.txt](llms.txt) 和配置指南自动完成 Hook 接入：
 
 ```text
 请参考当前系统中的 AGENT MONITOR 配置规范，阅读 https://raw.githubusercontent.com/Zelayan/agent-monitor/main/llms.txt，
@@ -81,13 +81,14 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 | :--- | :--- | :--- | :--- | :--- |
 | **Cursor** | ✅ **已正式适配** | Cursor Hooks | `.cursor/hooks.json` | `{"command": "agent-reporter"}` |
 | **ZCode** | ✅ **已正式适配** | 扩展 Hook | `.zcode/hooks.json` | 见下方配置示例 |
+| **Codex CLI / Desktop** | ✅ **已正式适配** | Codex Hooks / Wrapper | `.codex/hooks.json` | `{"command": "agent-reporter"}` |
 | **Claude Code** | ⏳ *待适配* | Session Config | `~/.claude/config.json` | 规划待适配中 |
 | **Aider** | ⏳ *待适配* | 终端通知 | `.aider.conf.yml` | 规划待适配中 |
 | **Windsurf / Trae** | ⏳ *待适配* | 扩展 Hook | - | 规划待适配中 |
 | **自定义脚本** | 🛠️ *REST API* | HTTP POST | 任何脚本或自动化 | `POST http://127.0.0.1:8000/api/event` |
 
 <details>
-<summary><b>展开查看 ZCode / Cursor 配置示例</b></summary>
+<summary><b>展开查看 ZCode / Cursor / Codex 配置示例</b></summary>
 
 #### ZCode 配置 (`.zcode/hooks.json`)
 ```json
@@ -103,6 +104,18 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 ```
 
 #### Cursor 配置 (`.cursor/hooks.json`)
+```json
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [{ "command": "agent-reporter" }],
+    "afterAgentResponse": [{ "command": "agent-reporter" }],
+    "stop": [{ "command": "agent-reporter" }]
+  }
+}
+```
+
+#### Codex 配置 (`.codex/hooks.json`)
 ```json
 {
   "version": 1,

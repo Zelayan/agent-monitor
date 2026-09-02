@@ -1,6 +1,6 @@
 # AGENT MONITOR — 开发与协作规范
 
-面向 AI Coding Agent（首发深度支持 Cursor、ZCode，其他 Agent 持续待适配中）的多会话实时监视器。
+面向 AI Coding Agent（首发深度支持 Cursor、ZCode、Codex CLI 与 Codex Desktop，其他 Agent 持续待适配中）的多会话实时监视器。
 基于 Go 语言构建，前端通过 `go:embed` 内嵌，支持纳秒级 Hook 事件接收、SSE 实时状态广播与多轮会话时间线追踪。
 
 ---
