@@ -88,4 +88,39 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if len(svc.GetAllTasks()) != 0 {
 		t.Errorf("expected 0 tasks after clear, got %d", len(svc.GetAllTasks()))
 	}
+
+	// 4. Test Abort and Soft Deny Inversion
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-abort-test",
+		Agent:     "Cursor Agent",
+		Event:     "sessionStart",
+		Title:     "Abort Test",
+		Timestamp: time.Now().Unix(),
+	})
+
+	abortedTask, err := svc.AbortTask("sess-abort-test", "Stopped from UI")
+	if err != nil {
+		t.Fatalf("AbortTask failed: %v", err)
+	}
+	if abortedTask.ControlState != "abort_requested" {
+		t.Fatalf("expected controlState abort_requested, got %s", abortedTask.ControlState)
+	}
+
+	// Next preToolUse hook should be denied
+	hookRes, err := svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-abort-test",
+		Agent:     "Cursor Agent",
+		Event:     "preToolUse",
+		Detail:    "Running dangerous command",
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("HandleHookEvent after abort failed: %v", err)
+	}
+	if hookRes.Action != "deny" {
+		t.Fatalf("expected action 'deny', got %q", hookRes.Action)
+	}
+	if hookRes.Task.Status != "failed" || hookRes.Task.ControlState != "aborted" {
+		t.Fatalf("expected task to be terminated as failed/aborted, got status=%s controlState=%s", hookRes.Task.Status, hookRes.Task.ControlState)
+	}
 }

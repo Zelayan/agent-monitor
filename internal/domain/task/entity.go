@@ -50,6 +50,10 @@ type Task struct {
 	LastHook       string         `json:"lastHook"`                 // 最近一次 hook
 	Detail         string         `json:"detail"`                   // 当前操作详情
 	Timeline       []TimelineItem `json:"timeline,omitempty"`       // 兼容顶层时间线（映射为当轮）
+	ControlState   string         `json:"controlState,omitempty"`   // 控制状态："" | "abort_requested" | "aborted"
+	AbortReason    string         `json:"abortReason,omitempty"`    // 中断原因
+	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
+	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
@@ -65,6 +69,8 @@ type EventPayload struct {
 	Timestamp  int64  `json:"timestamp"`             // Unix 秒；为 0 则用服务端当前时间
 	Detail     string `json:"detail"`                // 本次操作的简要说明
 	TurnIndex  int    `json:"turn_index,omitempty"`  // 上报指定的轮次（可选）
+	PID        int    `json:"pid,omitempty"`         // 上报来源的进程 PID（可选）
+	PGID       int    `json:"pgid,omitempty"`        // 上报来源的进程组 PGID（可选）
 }
 
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
@@ -101,26 +107,78 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		Timeline:  make([]TimelineItem, 0),
 	}
 
-	task := &Task{
-		ID:             p.ID,
-		Agent:          p.Agent,
-		Repo:           p.Repo,
-		Branch:         p.Branch,
-		RootGoal:       rootGoal,
-		Title:          title,
-		Prompt:         p.Prompt,
-		Status:         "running",
-		StartTime:      nowMs,
-		ActiveRunStart: nowMs,
-		ActiveRunIndex: 1,
-		TotalRuns:      1,
-		Runs:           []Turn{firstTurn},
-		LastHook:       p.Event,
-		Detail:         p.Detail,
+		task := &Task{
+			ID:             p.ID,
+			Agent:          p.Agent,
+			Repo:           p.Repo,
+			Branch:         p.Branch,
+			RootGoal:       rootGoal,
+			Title:          title,
+			Prompt:         p.Prompt,
+			Status:         "running",
+			StartTime:      nowMs,
+			ActiveRunStart: nowMs,
+			ActiveRunIndex: 1,
+			TotalRuns:      1,
+			Runs:           []Turn{firstTurn},
+			LastHook:       p.Event,
+			Detail:         p.Detail,
+			PID:            p.PID,
+			PGID:           p.PGID,
+		}
+
+		return task
 	}
 
-	return task
-}
+	// RequestAbort 标记当前会话请求中断。
+	func (t *Task) RequestAbort(reason string, nowMs int64, nowStr string) {
+		if t.Status == "completed" || t.Status == "failed" {
+			return
+		}
+		t.ControlState = "abort_requested"
+		if reason == "" {
+			reason = "用户从 Web 看板请求中断会话"
+		}
+		t.AbortReason = reason
+		t.Detail = "用户请求中断中..."
+		if len(t.Runs) > 0 {
+			curRun := &t.Runs[len(t.Runs)-1]
+			curRun.Detail = "用户请求中断中..."
+			curRun.Timeline = append(curRun.Timeline, TimelineItem{
+				Time:  nowStr,
+				Event: "abortRequested",
+				Desc:  reason,
+			})
+		}
+	}
+
+	// MarkAborted 当拦截器成功阻断 Agent 或收到终止收口时，将任务标记为中断终态。
+	func (t *Task) MarkAborted(reason string, nowMs int64, nowStr string) {
+		t.ControlState = "aborted"
+		if reason == "" {
+			reason = "会话已被用户成功中断"
+		}
+		t.AbortReason = reason
+		if len(t.Runs) > 0 {
+			curRun := &t.Runs[len(t.Runs)-1]
+			curRun.closeAs("failed", nowMs)
+			curRun.Detail = reason
+			curRun.Timeline = append(curRun.Timeline, TimelineItem{
+				Time:  nowStr,
+				Event: "aborted",
+				Desc:  reason,
+			})
+		}
+		t.Status = "failed"
+		t.EndTime = nowMs
+		t.Detail = reason
+		t.recountLifetime()
+	}
+
+	// IsAbortRequested 检查是否处于请求中断状态。
+	func (t *Task) IsAbortRequested() bool {
+		return t.ControlState == "abort_requested"
+	}
 
 // IsStartHook 判断事件是否为一轮对话的开端（新 Prompt / 会话启动）。
 func IsStartHook(event string) bool {
@@ -376,10 +434,16 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 
-	t.LastHook = p.Event
-	t.Detail = p.Detail
-	t.Turns = t.Runs             // 兼容 turns 别名
-	t.Timeline = curRun.Timeline // 兼容顶层 timeline
+		t.LastHook = p.Event
+		t.Detail = p.Detail
+		if p.PID > 0 {
+			t.PID = p.PID
+		}
+		if p.PGID > 0 {
+			t.PGID = p.PGID
+		}
+		t.Turns = t.Runs             // 兼容 turns 别名
+		t.Timeline = curRun.Timeline // 兼容顶层 timeline
 }
 
 // Clone 返回当前 Task 聚合根的独立深拷贝副本，确保并发安全。

@@ -316,6 +316,10 @@
         <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
       <div class="flex items-center gap-1.5">
+        <button id="btn-drawer-abort" type="button" class="hidden px-2 py-1 rounded border border-rose-800/80 bg-rose-950/40 font-mono text-[10px] text-rose-300 hover:bg-rose-900/60 hover:text-white flex items-center gap-1 transition-colors" title="Abort Session / 中断此 Agent 执行">
+          <svg class="w-3 h-3 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect width="6" height="6" x="9" y="9"/></svg>
+          <span id="lbl-drawer-abort">中断执行</span>
+        </button>
         <button id="btn-delete-session" type="button" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-rose-400 hover:border-rose-500 hover:text-rose-200 flex items-center gap-1" title="Delete this session / 删除此会话">
           <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
           <span id="lbl-drawer-del">删除会话</span>
@@ -556,6 +560,10 @@
         authSave: '保存',
         authClear: '清除密钥',
         authRequired: '401 未授权：请配置有效 API Key',
+        btnAbort: '中断',
+        drawerAbort: '中断执行',
+        confirmAbort: '确认向此 Agent 发送中断指令？下一次工具执行将被直接阻断。',
+        statusAborting: '中断中...',
       },
       en: {
         htmlLang: 'en',
@@ -620,6 +628,10 @@
         authSave: 'Save',
         authClear: 'Clear Key',
         authRequired: '401 Unauthorized: Valid API key required',
+        btnAbort: 'Abort',
+        drawerAbort: 'Abort Session',
+        confirmAbort: 'Send abort instruction to this agent? Next tool execution will be blocked immediately.',
+        statusAborting: 'ABORTING...',
       },
     };
 
@@ -874,6 +886,16 @@
             class="w-4 h-4 rounded bg-zinc-900 border-line text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer">
         </div>` : '';
 
+      const isAborting = tObj.controlState === 'abort_requested';
+      const abortBtnHTML = isRunning ? `
+        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
+          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-60 cursor-wait' : ''}"
+          ${isAborting ? 'disabled' : ''}
+          title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
+          ${isAborting ? t('statusAborting') : '🛑 ' + t('btnAbort')}
+        </button>
+      ` : '';
+
       return `
         <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} ${selectBorder} p-3 rounded text-[13px] relative"
           data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
@@ -883,7 +905,10 @@
               ${checkboxHTML}
               ${agentBadge(tObj.agent)}
             </div>
-            <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate ml-1">${esc(repoLabel(tObj))}</span>
+            <div class="flex items-center gap-1.5 min-w-0">
+              ${abortBtnHTML}
+              <span class="font-mono text-[10px] tabular-nums text-zinc-500 truncate ml-1">${esc(repoLabel(tObj))}</span>
+            </div>
           </div>
 
           <!-- 会话主体根目标 -->
@@ -1233,6 +1258,25 @@
 
       populateRunDropdown(runs);
       renderSelectedRunDetails(task, runs);
+
+      const btnAbort = document.getElementById('btn-drawer-abort');
+      const lblAbort = document.getElementById('lbl-drawer-abort');
+      if (btnAbort) {
+        if (task.status === 'running') {
+          btnAbort.classList.remove('hidden');
+          if (task.controlState === 'abort_requested') {
+            btnAbort.classList.add('opacity-70', 'cursor-wait');
+            btnAbort.disabled = true;
+            if (lblAbort) lblAbort.textContent = t('statusAborting');
+          } else {
+            btnAbort.classList.remove('opacity-70', 'cursor-wait');
+            btnAbort.disabled = false;
+            if (lblAbort) lblAbort.textContent = t('drawerAbort');
+          }
+        } else {
+          btnAbort.classList.add('hidden');
+        }
+      }
     }
 
     function setDaemon(online) {
@@ -1580,6 +1624,35 @@
       render();
     }
 
+    // 3.1 中断正在执行中的 Agent 会话
+    async function abortSession(id) {
+      if (!id) return;
+      const tObj = tasksMap.get(id);
+      if (!tObj || tObj.status !== 'running') return;
+
+      const confirmed = await showConfirmModal({
+        title: t('modalDangerTitle'),
+        message: t('confirmAbort'),
+        confirmText: t('btnConfirm'),
+        cancelText: t('btnCancel'),
+        danger: true
+      });
+      if (!confirmed) return;
+
+      try {
+        const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/abort`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: 'User aborted from Web Dashboard' })
+        });
+        if (resp && resp.ok) {
+          tObj.controlState = 'abort_requested';
+          tObj.detail = t('statusAborting');
+          render();
+        }
+      } catch (_) { /* local fallback */ }
+    }
+
     // 4. 批量选择模式控制
     function toggleSelectMode(enable) {
       isSelectMode = typeof enable === 'boolean' ? enable : !isSelectMode;
@@ -1688,6 +1761,7 @@
     document.getElementById('btn-batch-delete').addEventListener('click', deleteSelectedBatch);
     document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleSelectMode(false));
     document.getElementById('btn-delete-session').addEventListener('click', () => deleteSingleSession(selectedId));
+    document.getElementById('btn-drawer-abort').addEventListener('click', () => abortSession(selectedId));
     document.getElementById('btn-notify').addEventListener('click', toggleNotification);
     document.getElementById('btn-auth').addEventListener('click', () => showAuthModal(false));
 

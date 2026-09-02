@@ -52,8 +52,24 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 	return s
 }
 
-// HandleHookEvent 处理来自 Hook 的上报事件。
-func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error) {
+// HookEventResult 封装事件处理后的 Task 实体快照及向 Reporter 下发的控制指令。
+type HookEventResult struct {
+	Task   *task.Task
+	Action string // "allow" | "deny" | "abort"
+	Reason string
+}
+
+func isPreActionHook(event string) bool {
+	switch event {
+	case "beforeShellExecution", "beforeMCPExecution", "preToolUse", "PreToolUse", "PermissionRequest", "subagentStart", "beforeSubmitPrompt", "UserPromptSubmit":
+		return true
+	default:
+		return false
+	}
+}
+
+// HandleHookEvent 处理来自 Hook 的上报事件，并根据当前控制状态返回决策指令。
+func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, error) {
 	if p.Timestamp == 0 {
 		p.Timestamp = time.Now().Unix()
 	}
@@ -67,7 +83,21 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error
 		t = task.NewTask(p, nowMs)
 		s.tasks[t.ID] = t
 	}
-	t.ApplyEvent(p, nowMs, nowStr)
+
+	action := "allow"
+	reason := ""
+
+	// 控制反转：如果当前会话已被请求中断，且当前 Hook 为前置拦截点，立即下发 deny 并标记为终态
+	if t.IsAbortRequested() && isPreActionHook(p.Event) {
+		action = "deny"
+		reason = t.AbortReason
+		if reason == "" {
+			reason = "Session aborted from Agent Monitor Dashboard"
+		}
+		t.MarkAborted(reason, nowMs, nowStr)
+	} else {
+		t.ApplyEvent(p, nowMs, nowStr)
+	}
 
 	taskJSON, err := json.Marshal(t)
 	taskID := t.ID
@@ -75,7 +105,7 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error
 	s.mu.Unlock()
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal task: %w", err)
+		return HookEventResult{Task: taskCopy, Action: action, Reason: reason}, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
 	// 异步持久化：写入不可变快照字节切片，彻底消除数据竞争
@@ -92,7 +122,57 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (*task.Task, error
 		s.hub.Broadcast(string(taskJSON))
 	}
 
+	return HookEventResult{
+		Task:   taskCopy,
+		Action: action,
+		Reason: reason,
+	}, nil
+}
+
+// AbortTask 标记指定会话为中断请求状态，并向所有客户端广播状态变更。
+func (s *MonitorService) AbortTask(id string, reason string) (*task.Task, error) {
+	s.mu.Lock()
+	t, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+
+	nowMs := time.Now().UnixMilli()
+	nowStr := time.Now().Format("15:04:05")
+
+	if reason == "" {
+		reason = "用户从 Web 看板中断了会话"
+	}
+	t.RequestAbort(reason, nowMs, nowStr)
+
+	taskJSON, err := json.Marshal(t)
+	taskID := t.ID
+	taskCopy := t.Clone()
+	s.mu.Unlock()
+
+	if err == nil {
+		if s.repo != nil {
+			go func(id string, data []byte) {
+				_ = s.repo.SaveRaw(id, data)
+			}(taskID, taskJSON)
+		}
+		if s.hub != nil {
+			s.hub.Broadcast(string(taskJSON))
+		}
+	}
+
 	return taskCopy, nil
+}
+
+// GetTask 返回指定 ID 任务的只读深拷贝副本。
+func (s *MonitorService) GetTask(id string) *task.Task {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if t, ok := s.tasks[id]; ok && t != nil {
+		return t.Clone()
+	}
+	return nil
 }
 
 // GetAllTasks 返回当前所有任务的独立只读深拷贝副本。

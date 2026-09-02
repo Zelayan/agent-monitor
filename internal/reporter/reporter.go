@@ -196,6 +196,68 @@ type EventReport struct {
 	Title      string `json:"title,omitempty"`
 	Prompt     string `json:"prompt,omitempty"`
 	AIResponse string `json:"ai_response,omitempty"`
+	PID        int    `json:"pid,omitempty"`
+	PGID       int    `json:"pgid,omitempty"`
+}
+
+// ServerControlResponse 是 Monitor 服务端返回的决策指令。
+type ServerControlResponse struct {
+	Status string `json:"status"`           // "ok"
+	Action string `json:"action,omitempty"` // "allow" | "deny" | "abort"
+	Reason string `json:"reason,omitempty"`
+}
+
+// RespondWithAction 根据服务端的控制决策输出阻断协议或默认放行协议。
+func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
+	if ctrl.Action == "deny" || ctrl.Action == "abort" {
+		reason := ctrl.Reason
+		if reason == "" {
+			reason = "Workflow aborted from Agent Monitor Dashboard"
+		}
+
+		switch agentName {
+		case "Cursor", "Cursor Agent":
+			if event == "beforeSubmitPrompt" || event == "UserPromptSubmit" {
+				out, _ := json.Marshal(map[string]interface{}{
+					"continue":     false,
+					"user_message": reason,
+				})
+				fmt.Println(string(out))
+			} else {
+				out, _ := json.Marshal(map[string]interface{}{
+					"permission":   "deny",
+					"user_message": reason,
+				})
+				fmt.Println(string(out))
+			}
+			os.Exit(0)
+
+		case "ZCode", "Claude Code":
+			// ZCode / Claude Code 规范：Exit Code 2 显式阻断
+			out, _ := json.Marshal(map[string]interface{}{
+				"hookSpecificOutput": map[string]string{
+					"permissionDecision": "deny",
+				},
+				"systemMessage": reason,
+			})
+			fmt.Println(string(out))
+			os.Exit(2)
+
+		default:
+			// 通用协议：同时包含 permission: deny 与 continue: false
+			out, _ := json.Marshal(map[string]interface{}{
+				"permission": "deny",
+				"continue":   false,
+				"message":    reason,
+			})
+			fmt.Println(string(out))
+			os.Exit(2)
+		}
+		return
+	}
+
+	// 默认安全放行
+	RespondAndExit(event)
 }
 
 // GetHookResponse 根据事件名返回对应的 Hook 协议 JSON 响应
@@ -452,35 +514,37 @@ func Run(cfg Config, inputReader io.Reader) {
 		detail = detail[:160]
 	}
 
-	data := EventReport{
-		ID:        sessionID,
-		Agent:     agentName,
-		Repo:      fmt.Sprintf("%s:%s", repo, branch),
-		Event:     mappedEvent,
-		Timestamp: time.Now().Unix(),
-		Detail:    detail,
-		TurnIndex: turnCount,
-		Title:     title,
-	}
-	if len(currentPrompt) > 4000 {
-		data.Prompt = currentPrompt[:4000]
-	} else {
-		data.Prompt = currentPrompt
-	}
-	if aiResponseText != "" {
-		data.AIResponse = aiResponseText
-	}
+		data := EventReport{
+			ID:        sessionID,
+			Agent:     agentName,
+			Repo:      fmt.Sprintf("%s:%s", repo, branch),
+			Event:     mappedEvent,
+			Timestamp: time.Now().Unix(),
+			Detail:    detail,
+			TurnIndex: turnCount,
+			Title:     title,
+			PID:       os.Getpid(),
+			PGID:      os.Getppid(),
+		}
+		if len(currentPrompt) > 4000 {
+			data.Prompt = currentPrompt[:4000]
+		} else {
+			data.Prompt = currentPrompt
+		}
+		if aiResponseText != "" {
+			data.AIResponse = aiResponseText
+		}
 
-		// 10. 先补报失败队列，再发当前事件；Monitor 宕机时落盘，绝不阻断 Hook
-		DeliverEventWithKey(cfg.ServerURL, cfg.APIKey, data)
+		// 10. 先补报失败队列，再发当前事件；接收服务端返回的控制决策
+		_, ctrl := DeliverEventWithAction(cfg.ServerURL, cfg.APIKey, data)
 
 		// 10.1 若为会话终止或收口事件，清理临时追踪标记
 		if eventName == "Stop" || eventName == "stop" || eventName == "SessionEnd" || eventName == "sessionEnd" {
 			unmarkSessionTracked(sessionID)
 		}
 
-		// 11. 正常响应 Hook 协议
-		RespondAndExit(eventName)
+		// 11. 根据控制决策输出响应协议（支持从 Web 看板反向中断/拒绝）
+		RespondWithAction(eventName, agentName, ctrl)
 }
 
 func parsePayload(r io.Reader) Payload {
@@ -965,15 +1029,22 @@ func GetGitInfo(payload Payload) (string, string) {
 
 // DeliverEvent 先补报本地 spool，再发送当前事件。Monitor 不可达时落盘，保证下次 Hook 能按序补报。
 func DeliverEvent(serverURL string, report EventReport) {
-	DeliverEventWithKey(serverURL, "", report)
+	_, _ = DeliverEventWithAction(serverURL, "", report)
 }
 
 // DeliverEventWithKey 支持附带 API Key 进行补发和投递。
 func DeliverEventWithKey(serverURL, apiKey string, report EventReport) {
+	_, _ = DeliverEventWithAction(serverURL, apiKey, report)
+}
+
+// DeliverEventWithAction 先补报本地 spool，再发送当前事件并返回服务端的控制决策。
+func DeliverEventWithAction(serverURL, apiKey string, report EventReport) (bool, ServerControlResponse) {
 	flushSpoolWithKey(serverURL, apiKey, spoolFlushLimit)
-	if !SendEventWithKey(serverURL, apiKey, report) {
+	success, ctrl := SendEventWithAction(serverURL, apiKey, report)
+	if !success {
 		enqueueSpool(report)
 	}
+	return success, ctrl
 }
 
 func spoolFile() string {
@@ -1045,7 +1116,7 @@ func flushSpoolWithKey(serverURL, apiKey string, limit int) {
 		if err := json.Unmarshal(line, &report); err != nil {
 			continue
 		}
-		if !SendEventWithKey(serverURL, apiKey, report) {
+		if ok, _ := SendEventWithAction(serverURL, apiKey, report); !ok {
 			appendSpoolLines(pending[i:])
 			return
 		}
@@ -1076,19 +1147,29 @@ func appendSpoolLines(lines [][]byte) {
 
 // SendEvent 向 Monitor 发送单条事件，成功返回 true。失败由调用方 spool，绝不 panic。
 func SendEvent(serverURL string, report EventReport) bool {
-	return SendEventWithKey(serverURL, "", report)
+	success, _ := SendEventWithAction(serverURL, "", report)
+	return success
 }
 
 // SendEventWithKey 向 Monitor 发送单条事件并附带 API Key 鉴权头。
 func SendEventWithKey(serverURL, apiKey string, report EventReport) bool {
+	success, _ := SendEventWithAction(serverURL, apiKey, report)
+	return success
+}
+
+// SendEventWithAction 向 Monitor 发送单条事件并解析返回的决策指令。
+func SendEventWithAction(serverURL, apiKey string, report EventReport) (bool, ServerControlResponse) {
+	var controlResp ServerControlResponse
+	controlResp.Action = "allow"
+
 	data, err := json.Marshal(report)
 	if err != nil {
-		return false
+		return false, controlResp
 	}
 
 	req, err := http.NewRequest("POST", serverURL, bytes.NewReader(data))
 	if err != nil {
-		return false
+		return false, controlResp
 	}
 	req.Header.Set("Content-Type", "application/json")
 
@@ -1104,9 +1185,17 @@ func SendEventWithKey(serverURL, apiKey string, report EventReport) bool {
 
 	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {
-		return false
+		return false, controlResp
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
-	return resp.StatusCode >= 200 && resp.StatusCode < 300
+
+	respBody, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		_ = json.Unmarshal(respBody, &controlResp)
+		if controlResp.Action == "" {
+			controlResp.Action = "allow"
+		}
+		return true, controlResp
+	}
+	return false, controlResp
 }

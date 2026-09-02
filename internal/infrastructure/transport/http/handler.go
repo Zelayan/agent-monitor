@@ -48,6 +48,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/event", h.HandleEvent)
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
+	mux.HandleFunc("/api/tasks/", h.HandleTaskDetail)
 	mux.HandleFunc("/manifest.json", h.HandleManifest)
 	mux.HandleFunc("/sw.js", h.HandleServiceWorker)
 	if h.staticFS != nil {
@@ -137,15 +138,23 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := h.svc.HandleHookEvent(p); err != nil {
-		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+		res, err := h.svc.HandleHookEvent(p)
+		if err != nil {
+			http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
-}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		respData := map[string]interface{}{
+			"status": "ok",
+			"action": res.Action,
+		}
+		if res.Reason != "" {
+			respData["reason"] = res.Reason
+		}
+		_ = json.NewEncoder(w).Encode(respData)
+	}
 
 // HandleStream 提供 SSE 长连接流。
 func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +250,73 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 	tasks := h.svc.GetAllTasks()
 	json.NewEncoder(w).Encode(tasks)
+}
+
+// HandleTaskDetail 处理单个任务的具体操作（如 /api/tasks/{id}/abort, /api/tasks/{id}）。
+func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
+	if enableCORS(w, r) {
+		return
+	}
+
+	if !h.checkAuth(r) {
+		h.writeUnauthorized(w)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+
+	subPath := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
+	parts := strings.Split(strings.Trim(subPath, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	taskID := parts[0]
+
+	// 1. POST /api/tasks/{id}/abort 中断会话
+	if len(parts) == 2 && parts[1] == "abort" && r.Method == http.MethodPost {
+		var body struct {
+			Reason string `json:"reason"`
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body)
+		}
+		abortedTask, err := h.svc.AbortTask(taskID, body.Reason)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":        "ok",
+			"control_state": "abort_requested",
+			"task":          abortedTask,
+		})
+		return
+	}
+
+	// 2. GET /api/tasks/{id} 单任务查询
+	if len(parts) == 1 && r.Method == http.MethodGet {
+		t := h.svc.GetTask(taskID)
+		if t == nil {
+			http.NotFound(w, r)
+			return
+		}
+		json.NewEncoder(w).Encode(t)
+		return
+	}
+
+	// 3. DELETE /api/tasks/{id} 单任务删除
+	if len(parts) == 1 && r.Method == http.MethodDelete {
+		deleted := h.svc.DeleteTasks(monitor.DeleteTasksRequest{IDs: []string{taskID}})
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"deleted": len(deleted) > 0,
+			"id":      taskID,
+		})
+		return
+	}
+
+	http.Error(w, "Method not allowed or endpoint not found", http.StatusNotFound)
 }
 
 func splitAndTrim(s, sep string) []string {

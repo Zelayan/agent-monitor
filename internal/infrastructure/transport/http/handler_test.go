@@ -252,3 +252,75 @@ func TestHandler_StaticFS(t *testing.T) {
 			t.Fatalf("expected 200 for dashboard index without key, got %d", wIndex.Code)
 		}
 	}
+
+	func TestHandler_AbortEndpoint(t *testing.T) {
+		repo := &mockRepo{tasks: make(map[string]*task.Task)}
+		hub := monitor.NewHub()
+		go hub.Run()
+
+		svc := monitor.NewMonitorService(repo, hub)
+		staticHTML := []byte("<html><body>Dashboard</body></html>")
+		handler := NewHandler(svc, hub, staticHTML)
+		mux := http.NewServeMux()
+		handler.RegisterRoutes(mux)
+
+		// 1. 创建任务
+		pStart := task.EventPayload{
+			ID:        "sess-http-abort",
+			Agent:     "Cursor Agent",
+			Event:     "sessionStart",
+			Title:     "To be aborted",
+			Timestamp: time.Now().Unix(),
+		}
+		pStartBytes, _ := json.Marshal(pStart)
+		wStart := httptest.NewRecorder()
+		mux.ServeHTTP(wStart, httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(pStartBytes)))
+		if wStart.Code != http.StatusOK {
+			t.Fatalf("expected 200 for start event, got %d", wStart.Code)
+		}
+
+		// 2. 调用 /api/tasks/{id}/abort
+		abortBody, _ := json.Marshal(map[string]string{"reason": "Stop now"})
+		wAbort := httptest.NewRecorder()
+		mux.ServeHTTP(wAbort, httptest.NewRequest(http.MethodPost, "/api/tasks/sess-http-abort/abort", bytes.NewReader(abortBody)))
+		if wAbort.Code != http.StatusOK {
+			t.Fatalf("expected 200 for abort endpoint, got %d", wAbort.Code)
+		}
+		var abortResp map[string]interface{}
+		json.NewDecoder(wAbort.Body).Decode(&abortResp)
+		if abortResp["control_state"] != "abort_requested" {
+			t.Fatalf("expected control_state abort_requested, got %v", abortResp["control_state"])
+		}
+
+		// 3. 下一个 Hook 事件上报时应该收到 action: deny
+		pTool := task.EventPayload{
+			ID:        "sess-http-abort",
+			Agent:     "Cursor Agent",
+			Event:     "beforeShellExecution",
+			Detail:    "rm -rf /",
+			Timestamp: time.Now().Unix(),
+		}
+		pToolBytes, _ := json.Marshal(pTool)
+		wTool := httptest.NewRecorder()
+		mux.ServeHTTP(wTool, httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(pToolBytes)))
+		if wTool.Code != http.StatusOK {
+			t.Fatalf("expected 200 for tool event, got %d", wTool.Code)
+		}
+		var toolResp map[string]interface{}
+		json.NewDecoder(wTool.Body).Decode(&toolResp)
+		if toolResp["action"] != "deny" {
+			t.Fatalf("expected action 'deny', got %v", toolResp["action"])
+		}
+
+		// 4. 查询单任务 GET /api/tasks/{id} 状态已为 failed
+		wGet := httptest.NewRecorder()
+		mux.ServeHTTP(wGet, httptest.NewRequest(http.MethodGet, "/api/tasks/sess-http-abort", nil))
+		if wGet.Code != http.StatusOK {
+			t.Fatalf("expected 200 for single task query, got %d", wGet.Code)
+		}
+		var finalTask task.Task
+		json.NewDecoder(wGet.Body).Decode(&finalTask)
+		if finalTask.Status != "failed" || finalTask.ControlState != "aborted" {
+			t.Fatalf("expected final task status failed and controlState aborted, got status=%s controlState=%s", finalTask.Status, finalTask.ControlState)
+		}
+	}

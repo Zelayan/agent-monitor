@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGetHookResponse(t *testing.T) {
@@ -341,7 +342,35 @@ func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
 	if got[0].Event != "afterAgentResponse" || got[1].Event != "sessionStart" {
 		t.Fatalf("order = %s then %s", got[0].Event, got[1].Event)
 	}
-	if _, err := os.Stat(spool); !os.IsNotExist(err) {
-		t.Fatalf("spool should be drained, stat err=%v", err)
+		if _, err := os.Stat(spool); !os.IsNotExist(err) {
+			t.Fatalf("spool should be drained, stat err=%v", err)
+		}
 	}
-}
+
+	func TestSendEventWithAction_ControlInversion(t *testing.T) {
+		// 模拟 Monitor 返回 deny 指令
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"status":"ok","action":"deny","reason":"Manually aborted from dashboard"}`))
+		}))
+		defer server.Close()
+
+		report := EventReport{
+			ID:        "sess-control-test",
+			Agent:     "Cursor Agent",
+			Event:     "preToolUse",
+			Timestamp: time.Now().Unix(),
+		}
+
+		ok, ctrl := SendEventWithAction(server.URL, "", report)
+		if !ok {
+			t.Fatalf("expected send to succeed")
+		}
+		if ctrl.Action != "deny" {
+			t.Fatalf("expected ctrl.Action 'deny', got %q", ctrl.Action)
+		}
+		if ctrl.Reason != "Manually aborted from dashboard" {
+			t.Fatalf("expected ctrl.Reason 'Manually aborted from dashboard', got %q", ctrl.Reason)
+		}
+	}
