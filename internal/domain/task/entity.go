@@ -202,6 +202,40 @@ func (t *Task) recountLifetime() {
 	t.Duration = FormatDuration(totalSec)
 }
 
+// CloseOrphanRuns 将非最后一轮仍停在 running 的空洞收口。
+// 用于「上一轮 stop 丢失后又开了新轮」以及从磁盘恢复历史会话。
+func (t *Task) CloseOrphanRuns(nowMs int64, nowStr string) bool {
+	if t == nil || len(t.Runs) < 2 {
+		return false
+	}
+	if nowStr == "" {
+		nowStr = time.Unix(nowMs/1000, 0).Format("15:04:05")
+	}
+	changed := false
+	last := len(t.Runs) - 1
+	for i := 0; i < last; i++ {
+		run := &t.Runs[i]
+		if run.Status != "running" && run.Status != "" {
+			continue
+		}
+		endMs := nowMs
+		if nextStart := t.Runs[i+1].StartTime; nextStart > 0 {
+			endMs = nextStart
+		}
+		run.closeAs("completed", endMs)
+		run.Timeline = append(run.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "runSuperseded",
+			Desc:  "下一轮已开始，本轮自动收口",
+		})
+		changed = true
+	}
+	if changed {
+		t.recountLifetime()
+	}
+	return changed
+}
+
 // StartNewTurn 为会话开启新的一轮执行周期。若上一轮仍在 running，先将其收口，避免矩阵出现空洞。
 func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
 	if len(t.Runs) > 0 {
@@ -251,6 +285,7 @@ func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
 
 // ApplyEvent 将 Hook 上报事件应用到当前 Task 聚合根并更新状态机。
 func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
+	t.CloseOrphanRuns(nowMs, nowStr)
 	if t.ShouldStartNewTurn(p) {
 		t.StartNewTurn(p, nowMs, nowStr)
 	}

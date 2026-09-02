@@ -33,6 +33,13 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 		} else {
 			for _, t := range persisted {
 				if t != nil && t.ID != "" {
+					if t.CloseOrphanRuns(time.Now().UnixMilli(), time.Now().Format("15:04:05")) {
+						if data, err := json.Marshal(t); err == nil {
+							if err := repo.SaveRaw(t.ID, data); err != nil {
+								log.Printf("[Application] Warning: failed to persist healed task %s: %v", t.ID, err)
+							}
+						}
+					}
 					s.tasks[t.ID] = t
 				}
 			}

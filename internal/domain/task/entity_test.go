@@ -330,3 +330,39 @@ func TestTask_NewPromptWithoutTurnIndexStillAdvances(t *testing.T) {
 		t.Fatalf("previous run should close, got %s / %s", task.Runs[0].Status, task.Runs[1].Status)
 	}
 }
+
+func TestTask_CloseOrphanRunsHealsMatrixHole(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-hole",
+		Event:  "sessionStart",
+		Prompt: "问 A",
+	}, 1000000)
+	task.Runs = []Turn{
+		{Index: 1, Prompt: "问 A", Status: "completed", StartTime: 1000000, EndTime: 1010000, Duration: "00m 10s", Timeline: []TimelineItem{}},
+		{Index: 2, Prompt: "问 B", Status: "running", StartTime: 1020000, Timeline: []TimelineItem{}},
+		{Index: 3, Prompt: "问 C", Status: "completed", StartTime: 1030000, EndTime: 1040000, Duration: "00m 10s", Timeline: []TimelineItem{}},
+	}
+	task.TotalRuns = 3
+	task.Status = "completed"
+
+	if !task.CloseOrphanRuns(1050000, "10:00:50") {
+		t.Fatal("expected hole to be healed")
+	}
+	if task.Runs[1].Status != "completed" {
+		t.Fatalf("run 2 should be closed, got %s", task.Runs[1].Status)
+	}
+	if task.Runs[1].EndTime != 1030000 {
+		t.Fatalf("run 2 should end when run 3 started, got %d", task.Runs[1].EndTime)
+	}
+
+	// 后续完成事件不能再把中间轮打回 running
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-hole",
+		Event:     "agentCompletion",
+		Detail:    "already done",
+		TurnIndex: 3,
+	}, 1060000, "10:01:00")
+	if task.Runs[0].Status != "completed" || task.Runs[1].Status != "completed" || task.Runs[2].Status != "completed" {
+		t.Fatalf("matrix hole returned: %s / %s / %s", task.Runs[0].Status, task.Runs[1].Status, task.Runs[2].Status)
+	}
+}
