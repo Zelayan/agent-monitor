@@ -357,10 +357,14 @@ if ai_response_text:
     data["ai_response"] = ai_response_text
 
 try:
+    headers = {"Content-Type": "application/json"}
+    api_key = os.environ.get("AGENT_MONITOR_API_KEY") or os.environ.get("MONITOR_API_KEY")
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     req = urllib.request.Request(
         "http://127.0.0.1:8000/api/event",
         data=json.dumps(data).encode("utf-8"),
-        headers={"Content-Type": "application/json"}
+        headers=headers,
     )
     urllib.request.urlopen(req, timeout=0.8)
 except Exception:

@@ -138,7 +138,57 @@ func TestLoadConfigForWorkspace_ProjectOverride(t *testing.T) {
 	if cfgB.RequireTag != "" {
 		t.Fatalf("expected project B require_tag to be overridden to empty, got %q", cfgB.RequireTag)
 	}
-	if cfgB.ServerURL != "http://192.168.1.50:8000/api/event" {
-		t.Fatalf("expected project B server_url to be overridden, got %q", cfgB.ServerURL)
+		if cfgB.ServerURL != "http://192.168.1.50:8000/api/event" {
+			t.Fatalf("expected project B server_url to be overridden, got %q", cfgB.ServerURL)
+		}
 	}
-}
+
+	func TestGlobalConfig_APIKeySupport(t *testing.T) {
+		tmpDir, err := os.MkdirTemp("", "agent-monitor-apikey-test-*")
+		if err != nil {
+			t.Fatalf("failed to create temp dir: %v", err)
+		}
+		defer os.RemoveAll(tmpDir)
+
+		cfgPath := filepath.Join(tmpDir, "config.json")
+		os.Setenv("AGENT_MONITOR_CONFIG", cfgPath)
+		defer os.Unsetenv("AGENT_MONITOR_CONFIG")
+
+		// 1. 写入包含 API Key 的配置文件
+		cfg := GlobalConfig{
+			APIKey:    "test-secret-key-123",
+			ServerURL: "http://127.0.0.1:8000/api/event",
+		}
+		if err := WriteDefaultConfigFile(cfg, cfgPath); err != nil {
+			t.Fatalf("failed to write config: %v", err)
+		}
+
+		// 2. 加载验证
+		loaded := LoadGlobalConfig()
+		if loaded.APIKey != "test-secret-key-123" {
+			t.Fatalf("expected APIKey 'test-secret-key-123', got %q", loaded.APIKey)
+		}
+
+		// 3. 项目级覆盖测试
+		projDir := filepath.Join(tmpDir, "my-project")
+		_ = os.MkdirAll(projDir, 0755)
+		projCfg := GlobalConfig{
+			APIKey: "project-override-key",
+		}
+		if err := WriteDefaultConfigFile(projCfg, filepath.Join(projDir, ".agent-monitor.json")); err != nil {
+			t.Fatalf("failed to write project config: %v", err)
+		}
+		loadedWorkspace := LoadConfigForWorkspace(projDir)
+		if loadedWorkspace.APIKey != "project-override-key" {
+			t.Fatalf("expected project APIKey 'project-override-key', got %q", loadedWorkspace.APIKey)
+		}
+
+		// 4. 环境变量覆盖最高优先级
+		os.Setenv("AGENT_MONITOR_API_KEY", "env-top-secret")
+		defer os.Unsetenv("AGENT_MONITOR_API_KEY")
+
+		loadedEnv := LoadConfigForWorkspace(projDir)
+		if loadedEnv.APIKey != "env-top-secret" {
+			t.Fatalf("expected env APIKey 'env-top-secret', got %q", loadedEnv.APIKey)
+		}
+	}

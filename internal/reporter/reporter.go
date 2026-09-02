@@ -63,6 +63,7 @@ type Config struct {
 	Turn       int
 	ServerURL  string
 	RequireTag string
+	APIKey     string
 }
 
 // Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
@@ -326,75 +327,79 @@ func Run(cfg Config, inputReader io.Reader) {
 		return
 	}
 
-	if cfg.ServerURL == "" {
-		if effectiveCfg.ServerURL != "" {
-			cfg.ServerURL = effectiveCfg.ServerURL
-		} else {
-			cfg.ServerURL = "http://127.0.0.1:8000/api/event"
-		}
-	}
-
-	// 命令行显式传入的参数具有最高优先级
-	if cfg.RequireTag != "" {
-		effectiveCfg.RequireTag = cfg.RequireTag
-	}
-
-	// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
-	agentName := DetectAgentName(cfg.Agent, payload.Agent)
-
-	// 2. 确定 Hook 事件名
-	eventName := cfg.Event
-	if eventName == "" {
-		eventName = payload.HookEventName
-	}
-	if eventName == "" {
-		eventName = payload.HookName
-	}
-	if eventName == "" {
-		eventName = payload.Event
-	}
-	if eventName == "" {
-		eventName = "unknown"
-	}
-
-	// 3. 获取 Session ID
-	sessionID := ExtractSessionID(payload)
-
-	// 4. 事件过滤
-	toolName := payload.ToolName
-	if toolName == "" {
-		toolName = payload.Tool
-	}
-
-	isFailure := IsFailureEvent(eventName)
-
-	if shouldDropEvent(eventName) {
-		flushSpool(cfg.ServerURL, spoolFlushLimit)
-		RespondAndExit(eventName)
-		return
-	}
-
-	if isPreOrPostToolUse(eventName) {
-		if !isFailure {
-			if IgnoredTools[toolName] {
-				flushSpool(cfg.ServerURL, spoolFlushLimit)
-				RespondAndExit(eventName)
-				return
-			}
-			if eventName == "PostToolUse" || eventName == "postToolUse" {
-				flushSpool(cfg.ServerURL, spoolFlushLimit)
-				RespondAndExit(eventName)
-				return
-			}
-			// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
-			// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
-			if eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
-				flushSpool(cfg.ServerURL, spoolFlushLimit)
-				RespondAndExit(eventName)
-				return
+		if cfg.ServerURL == "" {
+			if effectiveCfg.ServerURL != "" {
+				cfg.ServerURL = effectiveCfg.ServerURL
+			} else {
+				cfg.ServerURL = "http://127.0.0.1:8000/api/event"
 			}
 		}
-	}
+
+		if cfg.APIKey == "" && effectiveCfg.APIKey != "" {
+			cfg.APIKey = effectiveCfg.APIKey
+		}
+
+		// 命令行显式传入的参数具有最高优先级
+		if cfg.RequireTag != "" {
+			effectiveCfg.RequireTag = cfg.RequireTag
+		}
+
+		// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
+		agentName := DetectAgentName(cfg.Agent, payload.Agent)
+
+		// 2. 确定 Hook 事件名
+		eventName := cfg.Event
+		if eventName == "" {
+			eventName = payload.HookEventName
+		}
+		if eventName == "" {
+			eventName = payload.HookName
+		}
+		if eventName == "" {
+			eventName = payload.Event
+		}
+		if eventName == "" {
+			eventName = "unknown"
+		}
+
+		// 3. 获取 Session ID
+		sessionID := ExtractSessionID(payload)
+
+		// 4. 事件过滤
+		toolName := payload.ToolName
+		if toolName == "" {
+			toolName = payload.Tool
+		}
+
+		isFailure := IsFailureEvent(eventName)
+
+		if shouldDropEvent(eventName) {
+			flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+			RespondAndExit(eventName)
+			return
+		}
+
+		if isPreOrPostToolUse(eventName) {
+			if !isFailure {
+				if IgnoredTools[toolName] {
+					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+					RespondAndExit(eventName)
+					return
+				}
+				if eventName == "PostToolUse" || eventName == "postToolUse" {
+					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+					RespondAndExit(eventName)
+					return
+				}
+				// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
+				// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
+				if eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
+					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+					RespondAndExit(eventName)
+					return
+				}
+			}
+		}
 
 		// 5. 提取多轮 Prompt 与标题
 		turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
@@ -467,7 +472,7 @@ func Run(cfg Config, inputReader io.Reader) {
 	}
 
 		// 10. 先补报失败队列，再发当前事件；Monitor 宕机时落盘，绝不阻断 Hook
-		DeliverEvent(cfg.ServerURL, data)
+		DeliverEventWithKey(cfg.ServerURL, cfg.APIKey, data)
 
 		// 10.1 若为会话终止或收口事件，清理临时追踪标记
 		if eventName == "Stop" || eventName == "stop" || eventName == "SessionEnd" || eventName == "sessionEnd" {
@@ -960,8 +965,13 @@ func GetGitInfo(payload Payload) (string, string) {
 
 // DeliverEvent 先补报本地 spool，再发送当前事件。Monitor 不可达时落盘，保证下次 Hook 能按序补报。
 func DeliverEvent(serverURL string, report EventReport) {
-	flushSpool(serverURL, spoolFlushLimit)
-	if !SendEvent(serverURL, report) {
+	DeliverEventWithKey(serverURL, "", report)
+}
+
+// DeliverEventWithKey 支持附带 API Key 进行补发和投递。
+func DeliverEventWithKey(serverURL, apiKey string, report EventReport) {
+	flushSpoolWithKey(serverURL, apiKey, spoolFlushLimit)
+	if !SendEventWithKey(serverURL, apiKey, report) {
 		enqueueSpool(report)
 	}
 }
@@ -998,6 +1008,10 @@ func enqueueSpool(report EventReport) {
 }
 
 func flushSpool(serverURL string, limit int) {
+	flushSpoolWithKey(serverURL, "", limit)
+}
+
+func flushSpoolWithKey(serverURL, apiKey string, limit int) {
 	if limit <= 0 {
 		limit = spoolFlushLimit
 	}
@@ -1031,7 +1045,7 @@ func flushSpool(serverURL string, limit int) {
 		if err := json.Unmarshal(line, &report); err != nil {
 			continue
 		}
-		if !SendEvent(serverURL, report) {
+		if !SendEventWithKey(serverURL, apiKey, report) {
 			appendSpoolLines(pending[i:])
 			return
 		}
@@ -1062,6 +1076,11 @@ func appendSpoolLines(lines [][]byte) {
 
 // SendEvent 向 Monitor 发送单条事件，成功返回 true。失败由调用方 spool，绝不 panic。
 func SendEvent(serverURL string, report EventReport) bool {
+	return SendEventWithKey(serverURL, "", report)
+}
+
+// SendEventWithKey 向 Monitor 发送单条事件并附带 API Key 鉴权头。
+func SendEventWithKey(serverURL, apiKey string, report EventReport) bool {
 	data, err := json.Marshal(report)
 	if err != nil {
 		return false
@@ -1072,6 +1091,16 @@ func SendEvent(serverURL string, report EventReport) bool {
 		return false
 	}
 	req.Header.Set("Content-Type", "application/json")
+
+	if apiKey == "" {
+		apiKey = os.Getenv("AGENT_MONITOR_API_KEY")
+		if apiKey == "" {
+			apiKey = os.Getenv("MONITOR_API_KEY")
+		}
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
 
 	resp, err := defaultHTTPClient.Do(req)
 	if err != nil {

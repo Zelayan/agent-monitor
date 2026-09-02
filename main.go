@@ -7,6 +7,7 @@ package main
 
 import (
 	"embed"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -32,6 +33,25 @@ func main() {
 	if dataDir == "" {
 		dataDir = "data/sessions"
 	}
+	apiKey := os.Getenv("AGENT_MONITOR_API_KEY")
+	if apiKey == "" {
+		apiKey = os.Getenv("MONITOR_API_KEY")
+	}
+
+	flagPort := flag.String("port", "", "Server port (defaults to $PORT or 8000)")
+	flagDataDir := flag.String("data-dir", "", "Session data storage directory (defaults to $DATA_DIR or data/sessions)")
+	flagAPIKey := flag.String("api-key", "", "API Key for request authentication (defaults to $AGENT_MONITOR_API_KEY)")
+	flag.Parse()
+
+	if *flagPort != "" {
+		port = *flagPort
+	}
+	if *flagDataDir != "" {
+		dataDir = *flagDataDir
+	}
+	if *flagAPIKey != "" {
+		apiKey = *flagAPIKey
+	}
 
 	// 1. 基础设施层：初始化持久化仓储
 	repo, err := persistence.NewJSONRepository(dataDir)
@@ -49,14 +69,22 @@ func main() {
 	svc := monitor.NewMonitorService(repo, hub)
 
 	// 4. 用户接口层 / HTTP 适配器：注册路由
-	handler := transport.NewHandler(svc, hub, indexHTML).WithStaticFS(staticFS)
+	handler := transport.NewHandler(svc, hub, indexHTML).
+		WithStaticFS(staticFS).
+		WithAPIKey(apiKey)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)
 
 	addr := ":" + port
 	fmt.Printf("\nAGENT MONITOR running on http://127.0.0.1%s\n", addr)
-	fmt.Printf("   Dashboard: http://127.0.0.1%s/\n\n", addr)
+	fmt.Printf("   Dashboard: http://127.0.0.1%s/\n", addr)
+	if apiKey != "" {
+		fmt.Printf("   Security:  API Key enabled (Bearer / X-API-Key / ?token=)\n")
+	} else {
+		fmt.Printf("   Security:  Open access (set AGENT_MONITOR_API_KEY to enable authentication)\n")
+	}
+	fmt.Println()
 
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatalf("Server failed: %v", err)

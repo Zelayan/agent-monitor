@@ -1,6 +1,7 @@
 package http
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -18,6 +19,7 @@ type Handler struct {
 	hub        *monitor.Hub
 	staticHTML []byte
 	staticFS   fs.FS
+	apiKey     string
 }
 
 // NewHandler 创建 HTTP 处理器实例。
@@ -27,6 +29,12 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 		hub:        hub,
 		staticHTML: staticHTML,
 	}
+}
+
+// WithAPIKey 设置访问 API Key，非空时对 /api/* 接口启用鉴权。
+func (h *Handler) WithAPIKey(apiKey string) *Handler {
+	h.apiKey = strings.TrimSpace(apiKey)
+	return h
 }
 
 // WithStaticFS 设置静态资源文件系统（用于支持 /static/ 离线静态资源服务）。
@@ -51,7 +59,7 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 func enableCORS(w http.ResponseWriter, r *http.Request) bool {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -60,9 +68,58 @@ func enableCORS(w http.ResponseWriter, r *http.Request) bool {
 	return false
 }
 
+func (h *Handler) checkAuth(r *http.Request) bool {
+	if h.apiKey == "" {
+		return true
+	}
+
+	// 1. Authorization: Bearer <token>
+	authHeader := r.Header.Get("Authorization")
+	if authHeader != "" {
+		parts := strings.SplitN(authHeader, " ", 2)
+		if len(parts) == 2 && strings.EqualFold(parts[0], "bearer") {
+			if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(parts[1])), []byte(h.apiKey)) == 1 {
+				return true
+			}
+		}
+	}
+
+	// 2. X-API-Key: <token>
+	if xKey := r.Header.Get("X-API-Key"); xKey != "" {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(xKey)), []byte(h.apiKey)) == 1 {
+			return true
+		}
+	}
+
+	// 3. URL Query Parameter ?token=<token> 或 ?api_key=<token> (用于原生 EventSource SSE 长连接)
+	if qToken := r.URL.Query().Get("token"); qToken != "" {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(qToken)), []byte(h.apiKey)) == 1 {
+			return true
+		}
+	}
+	if qKey := r.URL.Query().Get("api_key"); qKey != "" {
+		if subtle.ConstantTimeCompare([]byte(strings.TrimSpace(qKey)), []byte(h.apiKey)) == 1 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (h *Handler) writeUnauthorized(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Write([]byte(`{"error":"Unauthorized: valid API key required"}`))
+}
+
 // HandleEvent 处理 Hook POST 上报。
 func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	if enableCORS(w, r) {
+		return
+	}
+
+	if !h.checkAuth(r) {
+		h.writeUnauthorized(w)
 		return
 	}
 
@@ -93,6 +150,11 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 // HandleStream 提供 SSE 长连接流。
 func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	if enableCORS(w, r) {
+		return
+	}
+
+	if !h.checkAuth(r) {
+		h.writeUnauthorized(w)
 		return
 	}
 
@@ -142,6 +204,11 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 // HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	if enableCORS(w, r) {
+		return
+	}
+
+	if !h.checkAuth(r) {
+		h.writeUnauthorized(w)
 		return
 	}
 
