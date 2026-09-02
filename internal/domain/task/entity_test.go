@@ -167,3 +167,40 @@ func TestTask_CursorStopCompletes(t *testing.T) {
 		t.Fatalf("mapped aborted stop should fail, got %s", failed.Status)
 	}
 }
+
+func TestTask_CursorAfterAgentResponseAndStopDedupsAIReply(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-cursor-dup",
+		Agent:  "Cursor Agent",
+		Event:  "sessionStart",
+		Prompt: "启动一下 8000",
+	}, 1000000)
+
+	reply := "AI 回复: **Agent Monitor 已在 8000 端口启动。**"
+	task.ApplyEvent(EventPayload{
+		ID:         "sess-cursor-dup",
+		Event:      "afterAgentResponse",
+		Detail:     reply,
+		AIResponse: "**Agent Monitor 已在 8000 端口启动。**",
+	}, 1010000, "02:03:36")
+	task.ApplyEvent(EventPayload{
+		ID:         "sess-cursor-dup",
+		Event:      "agentCompletion",
+		Detail:     reply,
+		AIResponse: "**Agent Monitor 已在 8000 端口启动。**",
+	}, 1010000, "02:03:36")
+
+	tl := task.Runs[0].Timeline
+	aiCount := 0
+	for _, item := range tl {
+		if item.Desc == reply {
+			aiCount++
+		}
+	}
+	if aiCount != 1 {
+		t.Fatalf("expected 1 AI reply breadcrumb, got %d in %+v", aiCount, tl)
+	}
+	if task.Status != "completed" || task.Runs[0].Status != "completed" {
+		t.Fatalf("stop should still complete the run, got task=%s run=%s", task.Status, task.Runs[0].Status)
+	}
+}

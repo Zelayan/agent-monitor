@@ -106,6 +106,14 @@ func TestExtractDetail(t *testing.T) {
 	if d := ExtractDetail(failClaude, "PostToolUseFailure", "Bash", true); d != "command timed out" {
 		t.Errorf("ExtractDetail(failure) = %q", d)
 	}
+
+	aiPayload := Payload{Text: "**Agent Monitor 已在 8000 端口启动。**"}
+	if d := ExtractDetail(aiPayload, "afterAgentResponse", "", false); d != "AI 回复: **Agent Monitor 已在 8000 端口启动。**" {
+		t.Errorf("ExtractDetail(afterAgentResponse) = %q", d)
+	}
+	if d := ExtractDetail(Payload{}, "stop", "", false); d != "任务执行完成" {
+		t.Errorf("ExtractDetail(stop) = %q", d)
+	}
 }
 
 func TestSendEvent(t *testing.T) {

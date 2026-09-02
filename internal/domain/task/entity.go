@@ -212,11 +212,12 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
-	// 时间线防抖去重：避免连续追加完全相同的事件和说明
+	// 时间线防抖去重：连续相同说明不追加。
+	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
 	shouldAppend := true
 	if len(curRun.Timeline) > 0 {
 		last := curRun.Timeline[len(curRun.Timeline)-1]
-		if last.Event == p.Event && last.Desc == p.Detail {
+		if last.Desc == p.Detail {
 			shouldAppend = false
 		}
 	}

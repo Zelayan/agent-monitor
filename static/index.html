@@ -61,7 +61,85 @@
     #run-dropdown-menu::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 4px; }
     #run-dropdown-menu::-webkit-scrollbar-track { background: transparent; }
     input[type="search"]::-webkit-search-cancel-button { display: none; }
+
+    /* AI 回复 Markdown（紧凑暗色，对齐 Linear / Sentry） */
+    .md-body {
+      font-size: 12px;
+      line-height: 1.65;
+      color: #e4e4e7;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    .md-body > *:first-child { margin-top: 0; }
+    .md-body > *:last-child { margin-bottom: 0; }
+    .md-body p { margin: 0.4em 0; }
+    .md-body h1, .md-body h2, .md-body h3, .md-body h4 {
+      font-weight: 600;
+      color: #fafafa;
+      margin: 0.7em 0 0.3em;
+      line-height: 1.3;
+    }
+    .md-body h1 { font-size: 14px; }
+    .md-body h2 { font-size: 13px; }
+    .md-body h3, .md-body h4 { font-size: 12px; }
+    .md-body ul, .md-body ol { margin: 0.35em 0; padding-left: 1.25em; }
+    .md-body ul { list-style: disc; }
+    .md-body ol { list-style: decimal; }
+    .md-body li { margin: 0.12em 0; display: list-item; }
+    .md-body li > p { margin: 0.15em 0; }
+    .md-body code {
+      font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 11px;
+      background: #18181b;
+      border: 1px solid #27272a;
+      border-radius: 3px;
+      padding: 0.08em 0.32em;
+      color: #d4d4d8;
+    }
+    .md-body pre {
+      margin: 0.5em 0;
+      padding: 0.6em 0.75em;
+      background: #09090b;
+      border: 1px solid #27272a;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    .md-body pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 11px;
+      color: #d4d4d8;
+    }
+    .md-body a {
+      color: #a1a1aa;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+    }
+    .md-body a:hover { color: #e4e4e7; }
+    .md-body blockquote {
+      margin: 0.45em 0;
+      padding: 0.15em 0 0.15em 0.7em;
+      border-left: 2px solid #3f3f46;
+      color: #a1a1aa;
+    }
+    .md-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0.5em 0;
+      font-size: 11px;
+    }
+    .md-body th, .md-body td {
+      border: 1px solid #27272a;
+      padding: 0.28em 0.5em;
+      text-align: left;
+    }
+    .md-body th { background: #18181b; color: #d4d4d8; font-weight: 500; }
+    .md-body hr { border: none; border-top: 1px solid #27272a; margin: 0.7em 0; }
+    .md-body strong { color: #fafafa; font-weight: 600; }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/marked@4.3.0/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.6/dist/purify.min.js"></script>
 </head>
 <body class="min-h-screen text-zinc-200 font-sans antialiased selection:bg-zinc-800 overflow-x-hidden">
 
@@ -298,7 +376,7 @@
         <div class="font-mono text-[10px] text-zinc-500 uppercase flex items-center justify-between" id="lbl-drawer-ai">
           AI RESPONSE & SUMMARY
         </div>
-        <p id="run-detail-ai" class="text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-[#1e1e22] font-sans"></p>
+        <div id="run-detail-ai" class="md-body mt-1 max-h-72 overflow-y-auto bg-black/40 p-2.5 rounded border border-[#1e1e22]"></div>
       </div>
 
       <!-- Sentry 风格 Hook 面包屑 (Lifecycle Hook Breadcrumbs) -->
@@ -514,6 +592,35 @@
       return String(s ?? '').replace(/[&<>"']/g, (c) => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
       }[c]));
+    }
+
+    if (typeof marked !== 'undefined' && marked.setOptions) {
+      marked.setOptions({ gfm: true, breaks: true, headerIds: false, mangle: false });
+    }
+    if (typeof DOMPurify !== 'undefined' && DOMPurify.addHook) {
+      DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if (node.tagName === 'A') {
+          node.setAttribute('target', '_blank');
+          node.setAttribute('rel', 'noopener noreferrer');
+        }
+      });
+    }
+
+    function renderMarkdown(src) {
+      const raw = String(src ?? '');
+      if (!raw) return '';
+      let html;
+      try {
+        html = (typeof marked !== 'undefined')
+          ? marked.parse(raw)
+          : esc(raw).replace(/\n/g, '<br>');
+      } catch (err) {
+        html = esc(raw).replace(/\n/g, '<br>');
+      }
+      if (typeof DOMPurify !== 'undefined') {
+        return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
+      }
+      return html;
     }
 
     function agentSlug(name) {
@@ -913,19 +1020,36 @@
 
       const aiEl = document.getElementById('run-detail-ai');
       if (aiEl) {
+        const baseClass = 'md-body mt-1 max-h-72 overflow-y-auto bg-black/40 p-2.5 rounded';
+        let mdKey = '';
+        let html = '';
+        let extraClass = 'border border-[#1e1e22]';
+        let fallbackText = '';
         if (run.aiResponse) {
-          aiEl.textContent = run.aiResponse;
-          aiEl.className = "text-xs text-zinc-200 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-emerald-900/40 text-emerald-200/90 font-sans";
+          mdKey = 'ai:' + run.aiResponse;
+          html = renderMarkdown(run.aiResponse);
+          extraClass = 'border border-emerald-900/40';
         } else if (isRunning) {
-          aiEl.textContent = t('aiThinking');
-          aiEl.className = "text-xs text-amber-400/80 italic mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-amber-900/30 font-sans";
+          mdKey = 'thinking:' + t('aiThinking');
+          extraClass = 'border border-amber-900/30 text-amber-400/80 italic';
+          fallbackText = t('aiThinking');
         } else {
-          aiEl.textContent = t('noAIResponse');
-          aiEl.className = "text-xs text-zinc-500 italic mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-52 overflow-y-auto bg-black/40 p-2.5 rounded border border-[#1e1e22] font-sans";
+          mdKey = 'empty:' + t('noAIResponse');
+          extraClass = 'border border-[#1e1e22] text-zinc-500 italic';
+          fallbackText = t('noAIResponse');
+        }
+        aiEl.className = `${baseClass} ${extraClass}`;
+        if (aiEl.dataset.mdKey !== mdKey) {
+          aiEl.dataset.mdKey = mdKey;
+          if (html) {
+            aiEl.innerHTML = html;
+          } else {
+            aiEl.textContent = fallbackText;
+          }
         }
       }
 
-      const events = run.timeline || [];
+      const events = (run.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
       document.getElementById('run-detail-event-count').innerText = `${events.length} events`;
 
       const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
@@ -941,9 +1065,12 @@
           } else if (e.event === 'toolUse') {
             tagClass = 'text-sky-300 bg-sky-950/60 border-sky-800/60';
             tagText = 'TOOL';
-          } else if (e.event === 'afterAgentResponse' || e.event === 'agentCompletion') {
+          } else if (e.event === 'afterAgentResponse') {
             tagClass = 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60';
             tagText = 'AI';
+          } else if (e.event === 'agentCompletion') {
+            tagClass = 'text-emerald-300 bg-emerald-950/60 border-emerald-800/60';
+            tagText = 'DONE';
           } else if (e.event === 'sessionStart') {
             tagClass = 'text-zinc-300 bg-zinc-800/80 border-zinc-700/60';
             tagText = 'START';

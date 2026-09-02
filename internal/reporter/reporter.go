@@ -357,7 +357,9 @@ func Run(cfg Config, inputReader io.Reader) {
 	if (mappedEvent == "agentCompletion" || eventName == "afterAgentResponse") && aiResponseText == "" {
 		aiResponseText = ExtractAIResponseFromTranscripts(payload, sessionID)
 	}
-	if aiResponseText != "" && (mappedEvent == "agentCompletion" || eventName == "afterAgentResponse") {
+	// 只有 afterAgentResponse 把摘要写进时间线；stop/agentCompletion 保持「任务执行完成」，
+	// 避免 Cursor 连打两个 hook 时面包屑出现两条一模一样的「AI 回复」。
+	if aiResponseText != "" && eventName == "afterAgentResponse" {
 		aiSummary := ShortTitle(aiResponseText)
 		if aiSummary != "" {
 			detail = fmt.Sprintf("AI 回复: %s", aiSummary)
