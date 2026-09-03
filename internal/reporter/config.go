@@ -268,85 +268,85 @@ func LoadGlobalConfig() GlobalConfig {
 	return cfg
 }
 
-// MatchesRequireTag 检查文本是否命中任一配置的 require_tag（如 "#task"）
-func (c *GlobalConfig) MatchesRequireTag(texts ...string) bool {
-	tagStr := strings.TrimSpace(c.RequireTag)
-	if tagStr == "" {
-		return true // 未设置任何过滤标签，默认全量放行
-	}
-
-	tags := strings.Split(tagStr, ",")
-	for _, t := range tags {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			continue
+	// MatchesRequireTag 检查文本是否命中任一配置的 require_tag（如 "#task"）
+	func (c *GlobalConfig) MatchesRequireTag(texts ...string) bool {
+		tagStr := strings.TrimSpace(c.RequireTag)
+		if tagStr == "" {
+			return true // 未设置任何过滤标签，默认全量放行
 		}
-		for _, text := range texts {
-			if strings.Contains(text, t) {
-				return true
+
+		tags := strings.Split(tagStr, ",")
+		for _, t := range tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
 			}
-		}
-	}
-	return false
-}
-
-// MatchesDeleteTag 检查文本是否包含指定删除/取消追踪标签（如 "#drop", "#untrack"）
-// 为防止代码子串误触，要求按独立 Token / 词边界匹配
-func (c *GlobalConfig) MatchesDeleteTag(texts ...string) bool {
-	tagStr := strings.TrimSpace(c.DeleteTag)
-	if tagStr == "" || tagStr == "none" {
-		return false
-	}
-
-	tags := strings.Split(tagStr, ",")
-	for _, t := range tags {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			continue
-		}
-		// 匹配以空格、标点或行首行尾为边界的标签，支持忽略大小写
-		pattern := `(?i)(?:^|[\s,;，。！？!?]|^)` + regexp.QuoteMeta(t) + `(?:$|[\s,;，。！？!?]|$)`
-		re, err := regexp.Compile(pattern)
-		if err != nil {
-			// 正则编译兜底
 			for _, text := range texts {
 				if strings.Contains(text, t) {
 					return true
 				}
 			}
-			continue
 		}
-		for _, text := range texts {
-			if re.MatchString(text) {
-				return true
+		return false
+	}
+
+	// MatchesDeleteTag 检查文本是否包含指定删除/取消追踪标签（如 "#drop", "#untrack"）
+	// 为防止代码子串误触，要求按独立 Token / 词边界匹配
+	func (c *GlobalConfig) MatchesDeleteTag(texts ...string) bool {
+		tagStr := strings.TrimSpace(c.DeleteTag)
+		if tagStr == "" || tagStr == "none" {
+			return false
+		}
+
+		tags := strings.Split(tagStr, ",")
+		for _, t := range tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			// 匹配以空格、标点或行首行尾为边界的标签，支持忽略大小写
+			pattern := `(?i)(?:^|[\s,;，。！？!?]|^)` + regexp.QuoteMeta(t) + `(?:$|[\s,;，。！？!?]|$)`
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				// 正则编译兜底
+				for _, text := range texts {
+					if strings.Contains(text, t) {
+						return true
+					}
+				}
+				continue
+			}
+			for _, text := range texts {
+				if re.MatchString(text) {
+					return true
+				}
 			}
 		}
+		return false
 	}
-	return false
-}
 
-// WriteDefaultConfigFile 将配置写入指定路径
-func WriteDefaultConfigFile(cfg GlobalConfig, targetPath string) error {
-	if targetPath == "" {
-		targetPath = DefaultConfigPath()
-	}
-	dir := filepath.Dir(targetPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-	// 不忽略空字段，确保如 require_tag: "" 能被显式写出以覆盖全局
-	m := map[string]interface{}{
-		"require_tag": cfg.RequireTag,
-		"delete_tag":  cfg.DeleteTag,
-		"server_url":  cfg.ServerURL,
-		"disabled":    cfg.Disabled,
-	}
-	if cfg.APIKey != "" {
-		m["api_key"] = cfg.APIKey
-	}
-	if len(cfg.FilterRepos) > 0 {
-		m["filter_repos"] = cfg.FilterRepos
-	}
+	// WriteDefaultConfigFile 将配置写入指定路径
+	func WriteDefaultConfigFile(cfg GlobalConfig, targetPath string) error {
+		if targetPath == "" {
+			targetPath = DefaultConfigPath()
+		}
+		dir := filepath.Dir(targetPath)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return err
+		}
+		// 不忽略空字段，确保如 require_tag: "" 能被显式写出以覆盖全局
+		m := map[string]interface{}{
+			"require_tag": cfg.RequireTag,
+			"delete_tag":  cfg.DeleteTag,
+			"server_url":  cfg.ServerURL,
+			"disabled":    cfg.Disabled,
+		}
+		if cfg.APIKey != "" {
+			m["api_key"] = cfg.APIKey
+		}
+		if len(cfg.FilterRepos) > 0 {
+			m["filter_repos"] = cfg.FilterRepos
+		}
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

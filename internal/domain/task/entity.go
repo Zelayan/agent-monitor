@@ -133,7 +133,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	}
 
 	subCount := 0
-	if p.Event == "subagentStart" {
+	if p.Event == "subagentStart" && p.ParentID == "" {
 		subCount = 1
 	}
 
@@ -537,9 +537,6 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 	if p.ParentID != "" && t.ParentID == "" {
 		t.ParentID = p.ParentID
 	}
-	if p.Event == "subagentStart" {
-		t.SubagentCount++
-	}
 
 	// 时间线防抖去重：连续相同说明不追加。
 	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
@@ -551,6 +548,10 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 	if shouldAppend {
+		// 仅在真实向外派发非重复子代理时递增（防重试抖动统计虚高）
+		if p.Event == "subagentStart" && p.ParentID == "" {
+			t.SubagentCount++
+		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
 			Time:         nowStr,
 			Event:        p.Event,
