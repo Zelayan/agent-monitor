@@ -367,14 +367,14 @@
               <svg class="w-3 h-3 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
               <div class="flex flex-col">
                 <span class="text-[11px]" id="lbl-drawer-kill">强杀进程</span>
-                <span class="text-[9px] text-zinc-500">SIGTERM / SIGKILL</span>
+                <span class="text-[9px] text-zinc-500" id="lbl-drawer-kill-sub">SIGTERM / SIGKILL</span>
               </div>
             </button>
             <button id="btn-delete-session" type="button" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-rose-400 hover:bg-rose-950/40 text-left transition-colors" title="Delete this session / 删除此会话">
               <svg class="w-3 h-3 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
               <div class="flex flex-col">
                 <span class="text-[11px]" id="lbl-drawer-del">删除会话</span>
-                <span class="text-[9px] text-zinc-500">从本地历史清理</span>
+                <span class="text-[9px] text-zinc-500" id="lbl-drawer-del-sub">从本地历史清理</span>
               </div>
             </button>
           </div>
@@ -568,6 +568,7 @@
         actAll: '清空全部会话 (含运行中)',
         actSelect: '批量选择清理...',
         drawerDel: '删除会话',
+        drawerDelSub: '从本地历史清理',
         batchSelected: '已选择 {n} 项任务',
         batchSelectAll: '全选',
         batchInvert: '反选',
@@ -630,6 +631,8 @@
         statusKilled: '已强杀',
         btnExport: '导出',
         moreActions: '更多操作',
+        drawerDelSub: '从本地历史清理',
+        drawerKillSub: 'SIGTERM / SIGKILL',
       },
       en: {
         htmlLang: 'en',
@@ -643,6 +646,7 @@
         actAll: 'Clear All Sessions (inc. Active)',
         actSelect: 'Batch Selection Mode...',
         drawerDel: 'Delete Session',
+        drawerDelSub: 'Remove from local history',
         batchSelected: '{n} session(s) selected',
         batchSelectAll: 'Select All',
         batchInvert: 'Invert',
@@ -701,6 +705,7 @@
         statusAborting: 'ABORTING...',
         btnKill: 'Kill',
         drawerKill: 'Force Kill Process',
+        drawerKillSub: 'SIGTERM / SIGKILL',
         confirmKill: 'Warning: Force kill this agent process via SIGTERM/SIGKILL for frozen/hung loops. Proceed with kill?',
         statusKilled: 'KILLED',
         btnExport: 'Export',
@@ -738,6 +743,8 @@
       document.getElementById('lbl-act-all').textContent = t('actAll');
       document.getElementById('lbl-act-select').textContent = t('actSelect');
       document.getElementById('lbl-drawer-del').textContent = t('drawerDel');
+      const lblDelSub = document.getElementById('lbl-drawer-del-sub');
+      if (lblDelSub) lblDelSub.textContent = t('drawerDelSub');
       document.getElementById('header-running').textContent = t('headerRunning');
       document.getElementById('header-completed').textContent = t('headerCompleted');
       document.getElementById('header-failed').textContent = t('headerFailed');
