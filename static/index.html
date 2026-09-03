@@ -886,12 +886,38 @@
       }];
     }
 
+    function cleanGoalText(text) {
+      if (!text) return '';
+      let s = String(text).trim();
+      const lines = s.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length === 0) return '';
+      let first = lines[0];
+      const prefixes = ['#task', '#Task', '[board]', '[Board]', '任务:', '任务：', 'TODO:', 'todo:'];
+      let changed = true;
+      while (changed) {
+        changed = false;
+        first = first.trim();
+        for (const p of prefixes) {
+          if (first.startsWith(p)) {
+            first = first.slice(p.length).trim();
+            changed = true;
+          }
+        }
+      }
+      return first || lines[0];
+    }
+
     function sessionDisplayTitle(task) {
-      const title = String((task && task.title) || '').trim();
-      if (title) return title;
-      const goal = String((task && task.rootGoal) || '').trim();
-      if (!goal) return 'untitled workflow';
-      return goal.split('\n').map((l) => l.trim()).find(Boolean) || 'untitled workflow';
+      if (!task) return 'untitled workflow';
+      if (task.goalSummary && String(task.goalSummary).trim()) {
+        return cleanGoalText(task.goalSummary);
+      }
+      if (task.rootGoal && String(task.rootGoal).trim()) {
+        return cleanGoalText(task.rootGoal);
+      }
+      const title = String(task.title || '').trim();
+      if (title) return cleanGoalText(title);
+      return 'untitled workflow';
     }
 
     function repoLabel(tObj) {
@@ -977,11 +1003,20 @@
           ? 'border-l-emerald-600' 
           : 'border-l-rose-500';
 
-      const sparklineHTML = renderTickSparkline(runs);
+      const overallGoal = sessionDisplayTitle(tObj);
+      const fullGoalTooltip = String(tObj.goalSummary || tObj.rootGoal || tObj.title || '').trim();
 
-      const latestAction = latestRun.aiResponse
-        ? latestRun.aiResponse.split('\n')[0].substring(0, 90)
-        : (latestRun.detail || latestRun.prompt || tObj.detail || tObj.title || 'Processing...');
+      const latestPrompt = cleanGoalText(latestRun.prompt || latestRun.title || '');
+      const latestAI = latestRun.aiResponse ? latestRun.aiResponse.split('\n')[0].trim() : '';
+
+      let latestActionText = '';
+      if (latestAI) {
+        latestActionText = latestAI.substring(0, 90);
+      } else if (latestPrompt && latestPrompt !== overallGoal) {
+        latestActionText = latestPrompt;
+      } else {
+        latestActionText = latestRun.detail || tObj.detail || latestRun.prompt || 'Processing...';
+      }
 
       const isSelected = selectedTaskIds.has(tObj.id);
       const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
@@ -1022,17 +1057,17 @@
             </div>
           </div>
 
-          <!-- 会话主体根目标 -->
-          <h3 class="text-[13px] font-medium text-zinc-100 line-clamp-1 mb-1 leading-snug break-words">
-            ${esc(sessionDisplayTitle(tObj))}
+          <!-- 会话主体总目标 -->
+          <h3 class="text-[13px] font-semibold text-zinc-100 line-clamp-1 mb-1 leading-snug break-words" title="${esc(fullGoalTooltip)}">
+            ${esc(overallGoal)}
           </h3>
 
           <!-- 微型刻度条 Sparkline -->
           ${sparklineHTML}
 
           <!-- 最新活跃 Run 动作 -->
-          <div class="text-zinc-200 text-xs mb-2 line-clamp-1 font-sans">
-            <span class="font-mono text-[11px] text-indigo-400 font-semibold">Run #${runs.length}:</span> ${esc(latestAction)}
+          <div class="text-zinc-300 text-xs mb-2 line-clamp-1 font-sans">
+            <span class="font-mono text-[11px] text-indigo-400 font-semibold">Run #${runs.length}:</span> ${esc(latestActionText)}
           </div>
 
           <!-- 底部复合耗时与状态 -->
