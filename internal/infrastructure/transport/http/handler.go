@@ -228,6 +228,12 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	if res.Reason != "" {
 		respData["reason"] = res.Reason
 	}
+	if res.AdditionalContext != "" {
+		respData["additional_context"] = res.AdditionalContext
+	}
+	if res.AgentMessage != "" {
+		respData["agent_message"] = res.AgentMessage
+	}
 	_ = json.NewEncoder(w).Encode(respData)
 }
 
@@ -369,6 +375,31 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			"status":        "ok",
 			"control_state": "abort_requested",
 			"task":          abortedTask,
+		})
+		return
+	}
+
+	// 1.05 POST /api/tasks/{id}/steer 动态向 Agent 注入上下文/指导
+	if len(parts) == 2 && (parts[1] == "steer" || parts[1] == "inject-context") && r.Method == http.MethodPost {
+		var body struct {
+			Context string `json:"context"`
+			Message string `json:"message"`
+		}
+		if r.Body != nil {
+			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body)
+		}
+		msg := body.Context
+		if msg == "" {
+			msg = body.Message
+		}
+		steeredTask, err := h.svc.InjectContextTenant(taskID, msg, authCtx.KeyID, authCtx.IsMaster)
+		if err != nil {
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ok",
+			"task":   steeredTask,
 		})
 		return
 	}

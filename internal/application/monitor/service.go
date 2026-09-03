@@ -30,6 +30,7 @@ type MonitorService struct {
 	ttlDays    int // 自动清理天数（默认 30 天，<=0 则不清理）
 	summarizer *TitleSummarizer
 	titleJobs  sync.Map // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
+	steerQueue map[string][]string // map[taskID][]contextToInject 动态上下文注入队列
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
@@ -40,12 +41,13 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 // NewMonitorServiceWithTTL 实例化应用服务并指定会话保留天数。
 func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *MonitorService {
 	s := &MonitorService{
-		tasks:     make(map[string]*task.Task),
-		repo:      repo,
-		hub:       hub,
-		writeChan: make(chan taskWriteRequest, 5000), // 削峰缓冲
-		stopChan:  make(chan struct{}),
-		ttlDays:   ttlDays,
+		tasks:      make(map[string]*task.Task),
+		repo:       repo,
+		hub:        hub,
+		writeChan:  make(chan taskWriteRequest, 5000), // 削峰缓冲
+		stopChan:   make(chan struct{}),
+		ttlDays:    ttlDays,
+		steerQueue: make(map[string][]string),
 	}
 
 	if repo != nil {
@@ -185,9 +187,11 @@ func (s *MonitorService) Close() {
 
 // HookEventResult 封装事件处理后的 Task 实体快照及向 Reporter 下发的控制指令。
 type HookEventResult struct {
-	Task   *task.Task
-	Action string // "allow" | "deny" | "abort"
-	Reason string
+	Task              *task.Task
+	Action            string // "allow" | "deny" | "abort"
+	Reason            string
+	AdditionalContext string // 动态塞入 Agent 上下文 (postToolUse 等)
+	AgentMessage      string // 随工具审查一同注入给模型的指导/提醒
 }
 
 func isPreActionHook(event string) bool {
@@ -229,17 +233,37 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 
 	action := "allow"
 	reason := ""
+	additionalCtx := ""
+	agentMsg := ""
 
-	// 控制反转：如果当前会话已被请求中断，且当前 Hook 为前置拦截点，立即下发 deny 并标记为终态
+	// 控制反转：如果当前会话已被请求中断，且当前 Hook 为前置拦截点，下发 deny 拒绝工具执行
 	if t.IsAbortRequested() && isPreActionHook(p.Event) {
 		action = "deny"
 		reason = t.AbortReason
 		if reason == "" {
 			reason = "Session aborted from Agent Monitor Dashboard"
 		}
-		t.MarkAborted(reason, nowMs, nowStr)
+		// 关键改进：不立即 MarkAborted() 强行转为终态，而是记录动作拒绝并保持 abort_requested
+		t.RecordActionDenial(fmt.Sprintf("拦截动作: %s (%s)", p.Detail, reason), nowMs, nowStr)
+		// 注入系统级强指令
+		agentMsg = "CRITICAL: The user has intentionally aborted this session from the control panel. Do not invoke any more tools. Acknowledge and stop immediately."
 	} else {
 		t.ApplyEvent(p, nowMs, nowStr)
+	}
+
+	// 动态上下文注入：检查当前会话是否有排队的提示词需要注入给 Agent
+	if msgs, ok := s.steerQueue[t.ID]; ok && len(msgs) > 0 {
+		additionalCtx = strings.Join(msgs, "\n\n")
+		delete(s.steerQueue, t.ID)
+		// 记入时间线
+		if len(t.Runs) > 0 {
+			curRun := &t.Runs[len(t.Runs)-1]
+			curRun.Timeline = append(curRun.Timeline, task.TimelineItem{
+				Time:  nowStr,
+				Event: "contextInjected",
+				Desc:  fmt.Sprintf("动态注入上下文: %s", additionalCtx),
+			})
+		}
 	}
 
 	taskID := t.ID
@@ -249,7 +273,7 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err != nil {
-		return HookEventResult{Task: taskCopy, Action: action, Reason: reason}, fmt.Errorf("failed to marshal task: %w", err)
+		return HookEventResult{Task: taskCopy, Action: action, Reason: reason, AdditionalContext: additionalCtx, AgentMessage: agentMsg}, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
 	// 异步持久化：写入串行队列，消除 goroutine 激增与磁盘乱序倒流
@@ -265,9 +289,11 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 	}
 
 	return HookEventResult{
-		Task:   taskCopy,
-		Action: action,
-		Reason: reason,
+		Task:              taskCopy,
+		Action:            action,
+		Reason:            reason,
+		AdditionalContext: additionalCtx,
+		AgentMessage:      agentMsg,
 	}, nil
 }
 
@@ -311,6 +337,37 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	}
 
 	return taskCopy, nil
+}
+
+// InjectContextTenant 向指定会话注入动态上下文/提示词，将在下一次 Hook 交互时返回给 Agent。
+func (s *MonitorService) InjectContextTenant(id string, contextText string, keyID string, isMaster bool) (*task.Task, error) {
+	s.mu.Lock()
+	t, exists := s.tasks[id]
+	if !exists {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+	if !t.BelongsTo(keyID, isMaster) {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("permission denied for task: %s", id)
+	}
+
+	text := strings.TrimSpace(contextText)
+	if text == "" {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("context text cannot be empty")
+	}
+
+	s.steerQueue[id] = append(s.steerQueue[id], text)
+
+	taskCopy := t.Clone()
+	s.mu.Unlock()
+	return taskCopy, nil
+}
+
+// InjectContext 向指定会话注入动态上下文。
+func (s *MonitorService) InjectContext(id string, contextText string) (*task.Task, error) {
+	return s.InjectContextTenant(id, contextText, "", true)
 }
 
 // GetTask 返回指定 ID 任务的只读深拷贝副本。

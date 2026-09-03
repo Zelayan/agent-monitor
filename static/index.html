@@ -393,7 +393,29 @@
     <div class="mt-3 sm:mt-4 pb-3 sm:pb-4 border-b border-[#1e1e22]">
       <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
       <h2 id="drawer-root-title" class="text-xs sm:text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
-      <div class="mt-2">
+      
+      <!-- 实时人机协同 / 动态上下文注入 (Live Steer & Context Injection) -->
+      <div id="drawer-steer-section" class="mt-2.5 p-2 bg-[#121316] border border-indigo-900/40 rounded-md">
+        <div class="font-mono text-[10px] text-zinc-400 uppercase mb-1.5 flex items-center justify-between">
+          <span class="flex items-center gap-1.5 text-indigo-400 font-semibold">
+            <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+            </svg>
+            <span id="lbl-drawer-steer">向 AGENT 注入指引 / 上下文 (LIVE STEER)</span>
+          </span>
+          <span id="lbl-drawer-steer-hint" class="text-[9px] text-zinc-500 font-mono">在下个Hook生效</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="drawer-steer-input" type="text" placeholder="例如：注意不要修改 main.go，并严格保持测试全绿..."
+            class="flex-1 h-7 px-2.5 rounded bg-black/50 border border-line text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500/70">
+          <button id="btn-drawer-steer" type="button"
+            class="h-7 px-2.5 rounded bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-mono text-xs font-medium transition-colors shadow-sm shrink-0">
+            注入
+          </button>
+        </div>
+      </div>
+
+      <div class="mt-2.5">
         <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-session-goal">SESSION GOAL</div>
         <p id="drawer-session-goal" class="text-xs text-zinc-300 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-32 overflow-y-auto overscroll-contain bg-black/30 p-2.5 rounded border border-line"></p>
       </div>
@@ -633,6 +655,10 @@
         moreActions: '更多操作',
         drawerDelSub: '从本地历史清理',
         drawerKillSub: 'SIGTERM / SIGKILL',
+        drawerSteer: '向 AGENT 注入指引 / 上下文 (LIVE STEER)',
+        drawerSteerHint: '在下个Hook生效',
+        drawerSteerPlaceholder: '例如：注意不要修改 main.go，并严格保持测试全绿...',
+        btnSteer: '注入',
       },
       en: {
         htmlLang: 'en',
@@ -710,6 +736,10 @@
         statusKilled: 'KILLED',
         btnExport: 'Export',
         moreActions: 'More Actions',
+        drawerSteer: 'INJECT CONTEXT / GUIDANCE (LIVE STEER)',
+        drawerSteerHint: 'Active on next Hook',
+        drawerSteerPlaceholder: 'e.g. Ensure all tests stay green, do not touch main.go...',
+        btnSteer: 'Inject',
       },
     };
 
@@ -793,11 +823,20 @@
       if (lblDrawerDelSub) lblDrawerDelSub.textContent = t('drawerDelSub');
       const lblExport = document.getElementById('lbl-export-btn');
       if (lblExport) lblExport.textContent = t('btnExport');
+      const lblSteer = document.getElementById('lbl-drawer-steer');
+      if (lblSteer) lblSteer.textContent = t('drawerSteer');
+      const lblSteerHint = document.getElementById('lbl-drawer-steer-hint');
+      if (lblSteerHint) lblSteerHint.textContent = t('drawerSteerHint');
+      const inputSteerEl = document.getElementById('drawer-steer-input');
+      if (inputSteerEl) inputSteerEl.placeholder = t('drawerSteerPlaceholder');
+      const btnSteerEl = document.getElementById('btn-drawer-steer');
+      if (btnSteerEl) btnSteerEl.textContent = t('btnSteer');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
       setDaemon(isOnline);
       lastFilterSignature = '';
+      if (selectedId) refreshDrawer();
       render();
     }
 
@@ -997,11 +1036,14 @@
 
       const lifetimeSec = (tObj.totalLifetime || 0) + (isRunning ? curRunSec : 0);
 
-      const accent = isRunning 
-        ? 'border-l-amber-500' 
-        : tObj.status === 'completed' 
-          ? 'border-l-emerald-600' 
-          : 'border-l-rose-500';
+      const isAborting = tObj.controlState === 'abort_requested';
+      const accent = isAborting
+        ? 'border-l-amber-500 ring-1 ring-amber-500/30'
+        : isRunning 
+          ? 'border-l-amber-500' 
+          : tObj.status === 'completed' 
+            ? 'border-l-emerald-600' 
+            : 'border-l-rose-500';
 
       const overallGoal = sessionDisplayTitle(tObj);
       const fullGoalTooltip = String(tObj.goalSummary || tObj.rootGoal || tObj.title || '').trim();
@@ -1030,10 +1072,10 @@
       const isAborting = tObj.controlState === 'abort_requested';
       const abortBtnHTML = isRunning ? `
         <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
-          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-60 cursor-wait' : ''}"
+          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
           title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
-          ${isAborting ? t('statusAborting') : '🛑 ' + t('btnAbort')}
+          ${isAborting ? '⏳ ' + t('statusAborting') : '🛑 ' + t('btnAbort')}
         </button>
       ` : '';
 
@@ -1491,6 +1533,16 @@
           btnKill.classList.add('hidden');
         }
       }
+
+      const steerSection = document.getElementById('drawer-steer-section');
+      if (steerSection) {
+        // 仅在任务处于 running 且未处于中断完成状态时显示注入输入框
+        if (task.status === 'running' && task.controlState !== 'aborted' && task.controlState !== 'killed') {
+          steerSection.classList.remove('hidden');
+        } else {
+          steerSection.classList.add('hidden');
+        }
+      }
     }
 
     function setDaemon(online) {
@@ -1908,6 +1960,28 @@
       } catch (_) { /* local fallback */ }
     }
 
+    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer)
+    async function steerSession(id, message) {
+      if (!id || !message) return;
+      try {
+        const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/steer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message })
+        });
+        if (resp && resp.ok) {
+          const inputEl = document.getElementById('drawer-steer-input');
+          if (inputEl) {
+            inputEl.value = '';
+            inputEl.placeholder = '已排队，将在下个动作时注入 Agent 上下文！';
+            setTimeout(() => {
+              inputEl.placeholder = '例如：注意不要修改 main.go，并严格保持测试全绿...';
+            }, 3000);
+          }
+        }
+      } catch (_) { /* local fallback */ }
+    }
+
     // 4. 批量选择模式控制（严格基于当前可见任务集合，杜绝误选过滤隐藏项）
     function getVisibleTasks() {
       return Array.from(tasksMap.values()).filter(matchesFilter);
@@ -2271,6 +2345,25 @@
         toggleMoreDropdown(false);
       }
     });
+
+    // Steer 按钮与回车事件绑定
+    const btnSteer = document.getElementById('btn-drawer-steer');
+    const inputSteer = document.getElementById('drawer-steer-input');
+    function triggerSteer() {
+      if (!selectedId || !inputSteer) return;
+      const text = inputSteer.value.trim();
+      if (!text) return;
+      steerSession(selectedId, text);
+    }
+    if (btnSteer) btnSteer.addEventListener('click', triggerSteer);
+    if (inputSteer) {
+      inputSteer.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          triggerSteer();
+        }
+      });
+    }
 
     // 模态框事件绑定
     const modalEl = document.getElementById('confirm-modal');

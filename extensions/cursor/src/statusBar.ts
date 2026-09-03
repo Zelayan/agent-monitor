@@ -98,6 +98,11 @@ export class StatusBarTracker {
 
   private handleTaskUpdate(data: any) {
     if (data && data.status) {
+      // 协同停止：当检测到会话处于 abort_requested 状态，尝试在 IDE 内部触发 Cursor 官方取消操作
+      if (data.controlState === 'abort_requested' && data.status === 'running') {
+        vscode.commands.executeCommand('workbench.action.chat.cancel').then(undefined, () => {});
+      }
+
       if (data.status === 'running') {
         this.activeTasksCount = 1;
         this.activeStartTime = data.activeRunStart || data.startTime || Date.now();

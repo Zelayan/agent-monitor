@@ -312,7 +312,7 @@ func TestHandler_StaticFS(t *testing.T) {
 			t.Fatalf("expected action 'deny', got %v", toolResp["action"])
 		}
 
-		// 4. 查询单任务 GET /api/tasks/{id} 状态已为 failed
+		// 4. 查询单任务 GET /api/tasks/{id} 状态处于 abort_requested 拦截中
 		wGet := httptest.NewRecorder()
 		mux.ServeHTTP(wGet, httptest.NewRequest(http.MethodGet, "/api/tasks/sess-http-abort", nil))
 		if wGet.Code != http.StatusOK {
@@ -320,8 +320,17 @@ func TestHandler_StaticFS(t *testing.T) {
 		}
 		var finalTask task.Task
 		json.NewDecoder(wGet.Body).Decode(&finalTask)
-		if finalTask.Status != "failed" || finalTask.ControlState != "aborted" {
-			t.Fatalf("expected final task status failed and controlState aborted, got status=%s controlState=%s", finalTask.Status, finalTask.ControlState)
+		if finalTask.Status != "running" || finalTask.ControlState != "abort_requested" {
+			t.Fatalf("expected task status running and controlState abort_requested during interception, got status=%s controlState=%s", finalTask.Status, finalTask.ControlState)
+		}
+
+		// 4.1 测试动态上下文注入 POST /api/tasks/{id}/steer
+		steerPayload := map[string]string{"message": "Please do not touch main.go"}
+		steerBytes, _ := json.Marshal(steerPayload)
+		wSteer := httptest.NewRecorder()
+		mux.ServeHTTP(wSteer, httptest.NewRequest(http.MethodPost, "/api/tasks/sess-http-abort/steer", bytes.NewReader(steerBytes)))
+		if wSteer.Code != http.StatusOK {
+			t.Fatalf("expected 200 for steer endpoint, got %d", wSteer.Code)
 		}
 
 		// 5. 测试 POST /api/tasks/{id}/kill 强杀端点

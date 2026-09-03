@@ -225,6 +225,24 @@ func (t *Task) IsAbortRequested() bool {
 	return t.ControlState == "abort_requested"
 }
 
+// RecordActionDenial 记录一次动作被拦截/拒绝，追加时间线并保持中断中状态
+func (t *Task) RecordActionDenial(reason string, nowMs int64, nowStr string) {
+	t.Version++
+	if reason == "" {
+		reason = "操作已被拦截/拒绝"
+	}
+	t.Detail = reason
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.Detail = reason
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "actionDenied",
+			Desc:  reason,
+		})
+	}
+}
+
 // IsStartHook 判断事件是否为一轮对话的开端（新 Prompt / 会话启动）。
 func IsStartHook(event string) bool {
 	switch event {
@@ -514,7 +532,10 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.ActiveRunStart = curRun.StartTime
 	case "agentCompletion", "onComplete", "complete", "Stop", "stop", "SessionEnd", "sessionEnd", "afterAgentResponse":
 		// afterAgentResponse：Cursor 回复已对用户交付。stop 晚到或丢失时作为本轮兜底收口。
-		if t.Status != "failed" {
+		if t.IsAbortRequested() {
+			// 如果处于中断请求中，真正的终端收口事件到来时，才正式标记为 aborted 终态
+			t.MarkAborted(t.AbortReason, nowMs, nowStr)
+		} else if t.Status != "failed" {
 			curRun.closeAs("completed", nowMs)
 			t.Status = "completed"
 			t.EndTime = nowMs
