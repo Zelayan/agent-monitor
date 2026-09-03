@@ -70,41 +70,48 @@ type Config struct {
 
 // Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
 type Payload struct {
-	Raw            string                 `json:"raw,omitempty"`
-	ID             string                 `json:"id,omitempty"`
-	TaskID         string                 `json:"task_id,omitempty"`
-	TaskIDCamel    string                 `json:"taskId,omitempty"`
-	Agent          string                 `json:"agent,omitempty"`
-	HookEventName  string                 `json:"hook_event_name,omitempty"`
-	HookName       string                 `json:"hook_name,omitempty"`
-	Event          string                 `json:"event,omitempty"`
-	SessionID      string                 `json:"session_id,omitempty"`
-	SessionIDCamel string                 `json:"sessionId,omitempty"`
-	ConversationID string                 `json:"conversation_id,omitempty"`
-	GenerationID   string                 `json:"generation_id,omitempty"`
-	ToolName       string                 `json:"tool_name,omitempty"`
-	Tool           string                 `json:"tool,omitempty"`
-	ToolInput      json.RawMessage        `json:"tool_input,omitempty"` // Cursor: object 或 MCP JSON 字符串
-	ToolArgs       map[string]interface{} `json:"tool_args,omitempty"`
-	Parameters     map[string]interface{} `json:"parameters,omitempty"`
-	Command        string                 `json:"command,omitempty"`
-	Cwd            string                 `json:"cwd,omitempty"`
-	Prompt         interface{}            `json:"prompt,omitempty"`
-	UserPrompt     interface{}            `json:"user_prompt,omitempty"`
-	UserQuery      interface{}            `json:"user_query,omitempty"`
-	UserMessage    interface{}            `json:"user_message,omitempty"`
-	Task           interface{}            `json:"task,omitempty"`
-	Input          interface{}            `json:"input,omitempty"`
-	Error          string                 `json:"error,omitempty"`
-	ErrorMessage   string                 `json:"error_message,omitempty"`
-	Message        string                 `json:"message,omitempty"`
-	Status         string                 `json:"status,omitempty"`
-	Reason         string                 `json:"reason,omitempty"`
-	Text           string                 `json:"text,omitempty"`
-	FilePath       string                 `json:"file_path,omitempty"`
-	MCPServerName  string                 `json:"mcp_server_name,omitempty"`
-	WorkspaceRoots []string               `json:"workspace_roots,omitempty"`
-	TranscriptPath string                 `json:"transcript_path,omitempty"`
+	Raw               string                 `json:"raw,omitempty"`
+	ID                string                 `json:"id,omitempty"`
+	TaskID            string                 `json:"task_id,omitempty"`
+	TaskIDCamel       string                 `json:"taskId,omitempty"`
+	ParentID          string                 `json:"parent_id,omitempty"`
+	ParentIDCamel     string                 `json:"parentId,omitempty"`
+	ParentSessionID   string                 `json:"parent_session_id,omitempty"`
+	SubagentID        string                 `json:"subagent_id,omitempty"`
+	SubagentIDCamel   string                 `json:"subagentId,omitempty"`
+	SubagentType      string                 `json:"subagent_type,omitempty"`
+	SubagentTypeCamel string                 `json:"subagentType,omitempty"`
+	Agent             string                 `json:"agent,omitempty"`
+	HookEventName     string                 `json:"hook_event_name,omitempty"`
+	HookName          string                 `json:"hook_name,omitempty"`
+	Event             string                 `json:"event,omitempty"`
+	SessionID         string                 `json:"session_id,omitempty"`
+	SessionIDCamel    string                 `json:"sessionId,omitempty"`
+	ConversationID    string                 `json:"conversation_id,omitempty"`
+	GenerationID      string                 `json:"generation_id,omitempty"`
+	ToolName          string                 `json:"tool_name,omitempty"`
+	Tool              string                 `json:"tool,omitempty"`
+	ToolInput         json.RawMessage        `json:"tool_input,omitempty"` // Cursor: object 或 MCP JSON 字符串
+	ToolArgs          map[string]interface{} `json:"tool_args,omitempty"`
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	Command           string                 `json:"command,omitempty"`
+	Cwd               string                 `json:"cwd,omitempty"`
+	Prompt            interface{}            `json:"prompt,omitempty"`
+	UserPrompt        interface{}            `json:"user_prompt,omitempty"`
+	UserQuery         interface{}            `json:"user_query,omitempty"`
+	UserMessage       interface{}            `json:"user_message,omitempty"`
+	Task              interface{}            `json:"task,omitempty"`
+	Input             interface{}            `json:"input,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	ErrorMessage      string                 `json:"error_message,omitempty"`
+	Message           string                 `json:"message,omitempty"`
+	Status            string                 `json:"status,omitempty"`
+	Reason            string                 `json:"reason,omitempty"`
+	Text              string                 `json:"text,omitempty"`
+	FilePath          string                 `json:"file_path,omitempty"`
+	MCPServerName     string                 `json:"mcp_server_name,omitempty"`
+	WorkspaceRoots    []string               `json:"workspace_roots,omitempty"`
+	TranscriptPath    string                 `json:"transcript_path,omitempty"`
 }
 
 // DetectAgentName 智能推断上报来源的 Agent 名称
@@ -198,18 +205,21 @@ func ExtractSessionID(payload Payload) string {
 
 // EventReport 向 Monitor 服务端 /api/event 提交的数据结构
 type EventReport struct {
-	ID         string `json:"id"`
-	Agent      string `json:"agent"`
-	Repo       string `json:"repo"`
-	Event      string `json:"event"`
-	Timestamp  int64  `json:"timestamp"`
-	Detail     string `json:"detail"`
-	TurnIndex  int    `json:"turn_index"`
-	Title      string `json:"title,omitempty"`
-	Prompt     string `json:"prompt,omitempty"`
-	AIResponse string `json:"ai_response,omitempty"`
-	PID        int    `json:"pid,omitempty"`
-	PGID       int    `json:"pgid,omitempty"`
+	ID           string `json:"id"`
+	ParentID     string `json:"parent_id,omitempty"`
+	SubagentID   string `json:"subagent_id,omitempty"`
+	SubagentType string `json:"subagent_type,omitempty"`
+	Agent        string `json:"agent"`
+	Repo         string `json:"repo"`
+	Event        string `json:"event"`
+	Timestamp    int64  `json:"timestamp"`
+	Detail       string `json:"detail"`
+	TurnIndex    int    `json:"turn_index"`
+	Title        string `json:"title,omitempty"`
+	Prompt       string `json:"prompt,omitempty"`
+	AIResponse   string `json:"ai_response,omitempty"`
+	PID          int    `json:"pid,omitempty"`
+	PGID         int    `json:"pgid,omitempty"`
 }
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
@@ -311,10 +321,20 @@ func GetHookResponse(event string) string {
 	switch event {
 	case "beforeSubmitPrompt", "UserPromptSubmit":
 		return `{"continue":true}`
-	case "beforeShellExecution", "beforeMCPExecution", "preToolUse", "PreToolUse", "PermissionRequest", "subagentStart":
+	case "beforeShellExecution", "beforeMCPExecution", "preToolUse", "PreToolUse", "PermissionRequest", "subagentStart", "SubagentStart":
 		return `{"permission":"allow"}`
 	default:
 		return `{}`
+	}
+}
+
+// isAgentTool 判断工具是否为子智能体派发工具 (ZCode Agent 等)。
+func isAgentTool(tool string) bool {
+	switch strings.ToLower(strings.TrimSpace(tool)) {
+	case "agent", "spawn_subagent", "subagent":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -353,11 +373,18 @@ func MapHookEvent(eventName, toolName string, payload Payload) string {
 		return "toolFailure"
 	case "error", "failed":
 		return "failed"
-	case "beforeMCPExecution", "afterMCPExecution", "subagentStart", "subagentStop":
+	case "beforeMCPExecution", "afterMCPExecution":
 		return "toolUse"
+	case "subagentStart", "SubagentStart":
+		return "subagentStart"
+	case "subagentStop", "SubagentStop":
+		return "subagentStop"
 	case "PreToolUse", "preToolUse", "beforeShellExecution":
 		if isBashTool(toolName) || payload.Command != "" {
 			return "beforeShellExecution"
+		}
+		if isAgentTool(toolName) {
+			return "subagentStart"
 		}
 		return "toolUse"
 	case "afterAgentResponse":
@@ -747,17 +774,23 @@ func Run(cfg Config, inputReader io.Reader) {
 		reportedPID = ppid
 	}
 
+	subType, subID, _ := extractSubagentMetadata(payload)
+	parentID := extractParentID(payload)
+
 	data := EventReport{
-		ID:        sessionID,
-		Agent:     agentName,
-		Repo:      fmt.Sprintf("%s:%s", repo, branch),
-		Event:     mappedEvent,
-		Timestamp: time.Now().Unix(),
-		Detail:    detail,
-		TurnIndex: turnCount,
-		Title:     title,
-		PID:       reportedPID,
-		PGID:      os.Getppid(),
+		ID:           sessionID,
+		ParentID:     parentID,
+		SubagentID:   subID,
+		SubagentType: subType,
+		Agent:        agentName,
+		Repo:         fmt.Sprintf("%s:%s", repo, branch),
+		Event:        mappedEvent,
+		Timestamp:    time.Now().Unix(),
+		Detail:       detail,
+		TurnIndex:    turnCount,
+		Title:        title,
+		PID:          reportedPID,
+		PGID:         os.Getppid(),
 	}
 	if len(currentPrompt) > 4000 {
 		data.Prompt = currentPrompt[:4000]
@@ -806,6 +839,67 @@ func isBashTool(tool string) bool {
 	}
 }
 
+func extractParentID(payload Payload) string {
+	if payload.ParentID != "" {
+		return payload.ParentID
+	}
+	if payload.ParentIDCamel != "" {
+		return payload.ParentIDCamel
+	}
+	if payload.ParentSessionID != "" {
+		return payload.ParentSessionID
+	}
+	if p := os.Getenv("PARENT_SESSION_ID"); p != "" {
+		return p
+	}
+	return ""
+}
+
+func extractSubagentMetadata(payload Payload) (subType, subID, desc string) {
+	subType = payload.SubagentType
+	if subType == "" {
+		subType = payload.SubagentTypeCamel
+	}
+	subID = payload.SubagentID
+	if subID == "" {
+		subID = payload.SubagentIDCamel
+	}
+
+	m := toolInputAsMap(payload)
+	if m == nil {
+		m = payload.ToolArgs
+	}
+	if m == nil {
+		m = payload.Parameters
+	}
+
+	if m != nil {
+		if subType == "" {
+			for _, k := range []string{"subagent_type", "subagentType", "type", "role"} {
+				if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+					subType = strings.TrimSpace(v)
+					break
+				}
+			}
+		}
+		if subID == "" {
+			for _, k := range []string{"agentId", "agent_id", "subagent_id", "subagentId", "id"} {
+				if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+					subID = strings.TrimSpace(v)
+					break
+				}
+			}
+		}
+		for _, k := range []string{"description", "prompt", "task", "message"} {
+			if v, ok := m[k].(string); ok && strings.TrimSpace(v) != "" {
+				desc = strings.TrimSpace(v)
+				break
+			}
+		}
+	}
+	return subType, subID, desc
+}
+
 // ExtractDetail 提取工具调用或事件的描述文本
 func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) string {
 	if isFailure {
@@ -833,14 +927,24 @@ func ExtractDetail(payload Payload, eventName, toolName string, isFailure bool) 
 		}
 		return "调用 MCP 工具"
 	}
-	if eventName == "subagentStart" || eventName == "subagentStop" {
-		if s, ok := payload.Task.(string); ok && strings.TrimSpace(s) != "" {
-			return fmt.Sprintf("子代理: %s", ShortTitle(s))
-		}
+	if isAgentTool(toolName) || eventName == "subagentStart" || eventName == "subagentStop" {
 		if eventName == "subagentStop" {
 			return "子代理结束"
 		}
-		return "启动子代理"
+		subType, _, desc := extractSubagentMetadata(payload)
+		if subType != "" && desc != "" {
+			return fmt.Sprintf("派发子智能体 [%s]: %s", subType, ShortTitle(desc))
+		}
+		if subType != "" {
+			return fmt.Sprintf("派发子智能体 [%s]", subType)
+		}
+		if desc != "" {
+			return fmt.Sprintf("派发子智能体: %s", ShortTitle(desc))
+		}
+		if s, ok := payload.Task.(string); ok && strings.TrimSpace(s) != "" {
+			return fmt.Sprintf("子代理: %s", ShortTitle(s))
+		}
+		return "派发子智能体"
 	}
 	if eventName == "afterAgentResponse" {
 		if payload.Text != "" {

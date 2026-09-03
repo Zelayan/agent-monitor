@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -534,5 +535,123 @@ func TestTask_VacuousLifecycleAndHasUserWork(t *testing.T) {
 	tools.ApplyEvent(EventPayload{ID: "sess-tool", Event: "beforeShellExecution", Detail: "ls"}, 1000000, "10:00:00")
 	if !tools.HasUserWork() {
 		t.Fatal("tool-only session has user work")
+	}
+}
+
+func TestTask_SubagentHierarchyAndClone(t *testing.T) {
+	// 1. 父任务启动，派发子任务
+	parent := NewTask(EventPayload{
+		ID:     "parent-task-100",
+		Agent:  "ZCode",
+		Event:  "sessionStart",
+		Prompt: "#task 主流程重构",
+	}, 1000000)
+
+	if parent.SubagentCount != 0 {
+		t.Fatalf("expected subagent count 0, got %d", parent.SubagentCount)
+	}
+
+	// 2. 派发子智能体事件
+	parent.ApplyEvent(EventPayload{
+		ID:           "parent-task-100",
+		Event:        "subagentStart",
+		Detail:       "派发子智能体 [Explore]: 检索代码库并发模型",
+		SubagentType: "Explore",
+		SubagentID:   "agent_explore_01",
+	}, 1010000, "10:01:00")
+
+	if parent.SubagentCount != 1 {
+		t.Fatalf("expected subagent count 1, got %d", parent.SubagentCount)
+	}
+
+	curTimeline := parent.Runs[0].Timeline
+	if len(curTimeline) != 1 {
+		t.Fatalf("expected 1 timeline event, got %d", len(curTimeline))
+	}
+	if curTimeline[0].SubagentType != "Explore" || curTimeline[0].SubagentID != "agent_explore_01" {
+		t.Fatalf("unexpected timeline subagent metadata: %+v", curTimeline[0])
+	}
+
+	// 3. 子任务以独立 session 启动，携带 ParentID 和自身角色 SubagentType
+	child := NewTask(EventPayload{
+		ID:           "child-task-200",
+		ParentID:     "parent-task-100",
+		SubagentType: "Explore",
+		Agent:        "ZCode",
+		Event:        "sessionStart",
+		Prompt:       "检索代码库并发模型",
+	}, 1020000)
+
+	if child.ParentID != "parent-task-100" {
+		t.Fatalf("expected ParentID parent-task-100, got %s", child.ParentID)
+	}
+	if child.SubagentCount != 0 {
+		t.Fatalf("child subagent itself should have SubagentCount 0, got %d", child.SubagentCount)
+	}
+
+	// 4. 子任务自身执行多次常规工具调用，确保其 SubagentCount 不会虚高自增
+	for i := 1; i <= 5; i++ {
+		child.ApplyEvent(EventPayload{
+			ID:           "child-task-200",
+			ParentID:     "parent-task-100",
+			SubagentType: "Explore",
+			Event:        "beforeShellExecution",
+			Detail:       fmt.Sprintf("grep code pattern %d", i),
+		}, int64(1020000+i*1000), fmt.Sprintf("10:02:0%d", i))
+	}
+	if child.SubagentCount != 0 {
+		t.Fatalf("child tool execution should not increment SubagentCount, got %d", child.SubagentCount)
+	}
+	if parent.SubagentCount != 1 {
+		t.Fatalf("parent SubagentCount should stay 1, got %d", parent.SubagentCount)
+	}
+
+	// 5. 验证子任务自身继续派发二级子代理（多级嵌套），子任务自身的 SubagentCount 应正常递增为 1
+	child.ApplyEvent(EventPayload{
+		ID:           "child-task-200",
+		ParentID:     "parent-task-100",
+		Event:        "subagentStart",
+		Detail:       "子代理进一步派发 [Reviewer]: 审查并发竞态分析结果",
+		SubagentType: "Reviewer",
+		SubagentID:   "agent_reviewer_02",
+	}, 1030000, "10:03:00")
+
+	if child.SubagentCount != 1 {
+		t.Fatalf("hierarchical subagent: expected child SubagentCount 1, got %d", child.SubagentCount)
+	}
+
+	// 重复事件防抖判定，不重复计数
+	child.ApplyEvent(EventPayload{
+		ID:           "child-task-200",
+		ParentID:     "parent-task-100",
+		Event:        "subagentStart",
+		Detail:       "子代理进一步派发 [Reviewer]: 审查并发竞态分析结果",
+		SubagentType: "Reviewer",
+		SubagentID:   "agent_reviewer_02",
+	}, 1030000, "10:03:00")
+
+	if child.SubagentCount != 1 {
+		t.Fatalf("subagentCount idempotency: duplicate event should not increment, got %d", child.SubagentCount)
+	}
+
+	// 6. 验证常规工具事件不会篡改 Task.ParentID
+	parent.ApplyEvent(EventPayload{
+		ID:       "parent-task-100",
+		ParentID: "rogue-parent-id",
+		Event:    "beforeShellExecution",
+		Detail:   "npm test",
+	}, 1040000, "10:04:00")
+	if parent.ParentID != "" {
+		t.Fatalf("tool event must not overwrite empty ParentID on root task, got %q", parent.ParentID)
+	}
+
+	// 7. Task.Clone() 深拷贝验证
+	clone := parent.Clone()
+	if clone.SubagentCount != parent.SubagentCount || clone.ParentID != parent.ParentID {
+		t.Fatalf("clone failed on subagent fields")
+	}
+	clone.SubagentCount = 99
+	if parent.SubagentCount == 99 {
+		t.Fatalf("clone mutated parent SubagentCount")
 	}
 }

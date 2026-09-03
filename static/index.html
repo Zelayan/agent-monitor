@@ -432,6 +432,32 @@
       </div>
     </div>
 
+    <!-- 工业级核心可视化：智能体协同执行时序瀑布甘特图 (AGENT TRACE WATERFALL) -->
+    <div id="drawer-waterfall-section" class="mt-3 sm:mt-4 p-3 bg-[#0e0f13] border border-purple-900/40 rounded-md hidden">
+      <div class="flex items-center justify-between font-mono text-[10px] text-zinc-400 mb-2">
+        <span class="flex items-center gap-1.5 text-purple-300 font-semibold tracking-wider">
+          <svg class="w-3.5 h-3.5 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="18" y2="18"/>
+          </svg>
+          <span id="lbl-drawer-waterfall-title">AGENT TRACE WATERFALL</span>
+        </span>
+        <div class="flex items-center gap-2">
+          <button id="drawer-waterfall-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
+            × <span id="lbl-drawer-waterfall-reset">Reset Filter</span>
+          </button>
+          <span id="drawer-waterfall-total-badge" class="text-zinc-500 font-mono text-[10px]"></span>
+        </div>
+      </div>
+      
+      <!-- 刻度与时序泳道容器 -->
+      <div id="drawer-waterfall-container" class="w-full bg-[#09090b] border border-[#1e1e24] p-2.5 rounded space-y-2 select-none">
+        <!-- 动态渲染的瀑布甘特泳道 -->
+      </div>
+      <div id="lbl-drawer-waterfall-hint" class="text-[10px] text-zinc-500 font-mono mt-1.5 text-right">
+        点击任意泳道条，直接高亮过滤下方该智能体的具体工具轨迹
+      </div>
+    </div>
+
     <!-- 工业级核心组件：Run 步进器与自定义下拉切换器 (Linear/Sentry Run Switcher) -->
     <div class="mt-3 sm:mt-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
       <div class="flex items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
@@ -674,6 +700,21 @@
         drawerFollowUpCopied: '追问内容已复制到剪贴板，请切回 Cursor 粘贴发送',
         btnFollowUp: '追问',
         focusBrowserFallback: '已在外部浏览器打开。会话信息已复制到剪贴板，请切回 Cursor 查看。',
+        subagentTag: 'SUBAGENT',
+        subagentsBadge: '{n} 个子代理',
+        resetFilter: '重置筛选',
+        subagentExecuting: '子代理执行中...',
+        filteredPrefix: '已筛选: ',
+        rootWorkflow: '根工作流',
+        dagTitle: '子智能体拓扑网络',
+        waterfallTitle: '智能体协同执行时序 (TRACE WATERFALL)',
+        waterfallTotal: '总生命周期',
+        waterfallHint: '点击任意泳道条，直接高亮过滤下方该智能体的具体工具轨迹',
+        pipelineTitle: '智能体协同流',
+        steerSubagentTitle: '向子智能体 [{role}] 发送指引',
+        steerSubagentPlaceholder: '例如：聚焦特定模块，忽略无关测试... (针对 {role} 定向生效)',
+        btnSteerSubagent: '发给 {role}',
+        steerSubagentQueued: '已排队，将在子智能体 [{role}] 动作时注入上下文！',
       },
       en: {
         htmlLang: 'en',
@@ -764,6 +805,21 @@
         drawerFollowUpCopied: 'Copied to clipboard! Switch to Cursor and paste.',
         btnFollowUp: 'Follow-up',
         focusBrowserFallback: 'Opened in browser. Session info copied to clipboard, switch to Cursor to view.',
+        subagentTag: 'SUBAGENT',
+        subagentsBadge: '{n} subagents',
+        resetFilter: 'Reset Filter',
+        subagentExecuting: 'subagent executing...',
+        filteredPrefix: 'Filtered: ',
+        rootWorkflow: 'ROOT WORKFLOW',
+        dagTitle: 'TOPOLOGY & SUBAGENTS',
+        waterfallTitle: 'AGENT TRACE WATERFALL',
+        waterfallTotal: 'TOTAL LIFETIME',
+        waterfallHint: 'Click any waterfall track to highlight & filter its specific execution trace',
+        pipelineTitle: 'AGENT PIPELINE',
+        steerSubagentTitle: 'STEER SUBAGENT [{role}]',
+        steerSubagentPlaceholder: 'e.g. Focus on specific module, skip irrelevant tests... (targets {role})',
+        btnSteerSubagent: 'Send to {role}',
+        steerSubagentQueued: 'Queued! Will inject context on subagent [{role}] next hook.',
       },
     };
 
@@ -771,6 +827,8 @@
     let isWidescreen = false;
     let isSelectMode = false;
     const selectedTaskIds = new Set();
+    const expandedSubagentParents = new Set();
+    let activeTraceSubagentFilter = null;
 
     const tasksMap = new Map();
     let query = '';
@@ -873,6 +931,12 @@
       if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = isRunning ? t('drawerSteerPlaceholder') : t('drawerFollowUpPlaceholder');
       const btnSteerEl = document.getElementById('btn-drawer-steer');
       if (btnSteerEl) btnSteerEl.textContent = isRunning ? t('btnSteer') : t('btnFollowUp');
+      const lblWaterfallTitle = document.getElementById('lbl-drawer-waterfall-title');
+      if (lblWaterfallTitle) lblWaterfallTitle.textContent = t('waterfallTitle');
+      const lblWaterfallReset = document.getElementById('lbl-drawer-waterfall-reset');
+      if (lblWaterfallReset) lblWaterfallReset.textContent = t('resetFilter');
+      const lblWaterfallHint = document.getElementById('lbl-drawer-waterfall-hint');
+      if (lblWaterfallHint) lblWaterfallHint.textContent = t('waterfallHint');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1066,12 +1130,110 @@
         </div>`;
     }
 
-    function cardHTML(tObj) {
+    // 核心提取器：聚合任务直接关联的子智能体列表（涵盖独立 Session 与时间线派发项）
+    function getTaskSubagents(task, children = []) {
+      const list = [];
+      const seen = new Set();
+      if (children && children.length > 0) {
+        for (const c of children) {
+          if (!seen.has(c.id)) {
+            seen.add(c.id);
+            const isRun = c.status === 'running';
+            const dur = isRun && c.activeRunStart ? Math.max(0, Math.floor((Date.now() - c.activeRunStart)/1000)) : (c.totalLifetime || 0);
+            list.push({
+              id: c.id,
+              role: (c.subagentType || 'SUBAGENT').toUpperCase(),
+              status: c.status || 'completed',
+              duration: dur,
+              title: c.title || c.prompt || c.id,
+              startTime: c.startTime || 0,
+              isStandalone: true,
+            });
+          }
+        }
+      }
+      for (const run of (task.runs || [])) {
+        for (const e of (run.timeline || [])) {
+          if (e.event === 'subagentStart' || e.subagentType || e.subagentId) {
+            const sid = e.subagentId || e.desc;
+            if (sid && !seen.has(sid)) {
+              seen.add(sid);
+              list.push({
+                id: e.subagentId || `sub_${list.length + 1}`,
+                role: (e.subagentType || 'SUBAGENT').toUpperCase(),
+                status: 'completed',
+                duration: 0,
+                title: e.desc || 'Subagent',
+                startTime: 0,
+                isStandalone: false,
+              });
+            }
+          }
+        }
+      }
+      return list;
+    }
+
+    // 方案一精髓：卡片内嵌横向智能体协同流程条 (Agent Pipeline Strip)
+    function renderAgentPipelineStrip(tObj, subagents) {
+      if (!subagents || subagents.length === 0) return '';
+      const isRunning = tObj.status === 'running';
+      
+      const nodes = [
+        {
+          role: 'ROOT',
+          status: tObj.status,
+          label: 'ROOT',
+          isRoot: true,
+        },
+        ...subagents.map(s => ({
+          role: s.role,
+          status: s.status,
+          duration: s.duration,
+          label: s.role,
+          id: s.id,
+          title: s.title,
+        }))
+      ];
+
+      return `
+        <div class="bg-[#09090b] border border-[#1e1e24] p-1.5 rounded flex items-center gap-1.5 overflow-x-auto text-[10px] font-mono my-2 select-none no-scrollbar">
+          ${nodes.map((node, idx) => {
+            const isLast = idx === nodes.length - 1;
+            const isNodeRunning = node.status === 'running';
+            const bgClass = node.isRoot 
+              ? 'bg-[#16171d] border-zinc-700/60 text-zinc-200'
+              : (isNodeRunning ? 'bg-amber-950/40 border-amber-800/70 text-amber-300' : 'bg-purple-950/40 border-purple-800/60 text-purple-300');
+            const dotClass = isNodeRunning ? 'bg-amber-400 animate-pulse' : (node.status === 'completed' ? 'bg-emerald-400' : 'bg-rose-400');
+            const durText = node.duration ? `<span class="text-[9px] text-zinc-500 ml-1">${formatSec(node.duration)}</span>` : '';
+
+            const arrowHTML = !isLast ? `
+              <svg class="w-3 h-3 text-zinc-600 shrink-0 ${isNodeRunning ? 'text-amber-400/80 animate-pulse' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            ` : '';
+
+            return `
+              <div class="flex items-center gap-1 px-1.5 py-0.5 rounded border ${bgClass} shrink-0" title="${esc(node.title || node.label)}">
+                <span class="w-1.5 h-1.5 rounded-full ${dotClass}"></span>
+                <span class="font-semibold tracking-wider">${esc(node.label)}</span>
+                ${durText}
+              </div>
+              ${arrowHTML}
+            `;
+          }).join('')}
+        </div>
+      `;
+    }
+
+    function cardHTML(tObj, children = []) {
       const runs = getTaskRuns(tObj);
       const sparklineHTML = renderTickSparkline(runs);
       const latestRun = runs[runs.length - 1] || {};
       const passedCount = runs.filter(r => r.status === 'completed').length;
       const isRunning = tObj.status === 'running';
+      const subagents = getTaskSubagents(tObj, children);
+      const pipelineHTML = renderAgentPipelineStrip(tObj, subagents);
 
       const curRunSec = isRunning && tObj.activeRunStart 
         ? Math.max(0, Math.floor((Date.now() - tObj.activeRunStart) / 1000))
@@ -1125,6 +1287,15 @@
         <span class="inline-flex items-center px-1.5 py-0.5 rounded border border-indigo-900/60 bg-indigo-950/40 font-mono text-[9px] text-indigo-300 font-medium">📁 ${esc(tObj.keyId)}</span>
       ` : '';
 
+      const childCount = subagents.length;
+      const subagentBadgeHTML = childCount > 0 ? `
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-800/60 bg-purple-950/50 text-purple-300 font-mono text-[9px] font-medium shrink-0"
+          title="${esc(t('subagentsBadge').replace('{n}', childCount))}">
+          <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>${childCount}</span>
+        </span>
+      ` : '';
+
       return `
         <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} ${selectBorder} p-3 rounded text-[13px] relative"
           data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
@@ -1133,6 +1304,7 @@
             <div class="flex items-center gap-1.5 min-w-0">
               ${checkboxHTML}
               ${agentBadge(tObj.agent)}
+              ${subagentBadgeHTML}
               ${keyBadgeHTML}
             </div>
             <div class="flex items-center gap-1.5 min-w-0">
@@ -1148,6 +1320,9 @@
 
           <!-- 微型刻度条 Sparkline -->
           ${sparklineHTML}
+
+          <!-- 方案一核心呈现：微型横向智能体协同流程条 (Pipeline Strip) -->
+          ${pipelineHTML}
 
           <!-- 最新活跃 Run 动作 -->
           <div class="text-zinc-300 text-xs mb-2 line-clamp-1 font-sans">
@@ -1180,20 +1355,51 @@
 
     function render() {
       renderAgentFilters();
-      const buckets = { running: [], completed: [], failed: [] };
-      Array.from(tasksMap.values())
-        .filter(matchesFilter)
-        .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
-        .forEach((tObj) => {
-          const status = buckets[tObj.status] ? tObj.status : 'failed';
-          buckets[status].push(tObj);
-        });
+      const allTasks = Array.from(tasksMap.values());
+      const parentToChildren = new Map();
+      for (const t of allTasks) {
+        if (t.parentId) {
+          if (!parentToChildren.has(t.parentId)) parentToChildren.set(t.parentId, []);
+          parentToChildren.get(t.parentId).push(t);
+        }
+      }
+      for (const list of parentToChildren.values()) {
+        list.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+      }
 
+      const rootNodes = [];
+      for (const t of allTasks) {
+        const isChild = t.parentId && tasksMap.has(t.parentId);
+        if (!isChild) {
+          const children = parentToChildren.get(t.id) || [];
+          rootNodes.push({ task: t, children });
+        }
+      }
+
+      rootNodes.sort((a, b) => (b.task.startTime || 0) - (a.task.startTime || 0));
+
+      const buckets = { running: [], completed: [], failed: [] };
+      rootNodes.forEach(node => {
+        const { task, children } = node;
+        const matchesParent = matchesFilter(task);
+        const matchesChild = children.some(c => matchesFilter(c));
+        if (!matchesParent && !matchesChild) return;
+
+        const hasRunningChild = children.some(c => c.status === 'running');
+        let status = task.status;
+        if (hasRunningChild && status !== 'running') {
+          status = 'running';
+        }
+        if (!buckets[status]) status = 'failed';
+        buckets[status].push(node);
+      });
+
+      // 方案一：保持主看板每列卡片规整干净的高级网格形态，彻底告别破坏对齐的纵向大折线
       document.getElementById('col-running').innerHTML = buckets.running.length
-        ? buckets.running.map(cardHTML).join('')
+        ? buckets.running.map(node => cardHTML(node.task, node.children)).join('')
         : emptyState(t('noRunning'));
       document.getElementById('col-completed').innerHTML = buckets.completed.length
-        ? buckets.completed.map(cardHTML).join('')
+        ? buckets.completed.map(node => cardHTML(node.task, node.children)).join('')
         : emptyState(t('noCompleted'));
       const hasFailed = buckets.failed.length > 0;
       const failedSection = document.getElementById('section-failed');
@@ -1203,13 +1409,12 @@
       failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
       boardGrid.classList.toggle('has-failed', hasFailed);
       document.getElementById('col-failed').innerHTML = hasFailed
-        ? buckets.failed.map(cardHTML).join('')
+        ? buckets.failed.map(node => cardHTML(node.task, node.children)).join('')
         : '';
 
-      const all = Array.from(tasksMap.values());
-      const runningN = all.filter((tObj) => tObj.status === 'running').length;
-      const done = all.filter((tObj) => tObj.status === 'completed');
-      const lifetimes = all.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
+      const runningN = allTasks.filter((tObj) => tObj.status === 'running').length;
+      const done = allTasks.filter((tObj) => tObj.status === 'completed');
+      const lifetimes = allTasks.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
       const avg = lifetimes.length ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
 
       document.getElementById('stat-running').textContent = runningN;
@@ -1475,8 +1680,12 @@
         }
       }
 
-      const events = (run.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
-      document.getElementById('run-detail-event-count').innerText = `${events.length} events`;
+      let events = (run.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
+      if (activeTraceSubagentFilter) {
+        events = events.filter(e => e.subagentId === activeTraceSubagentFilter || e.subagentType === activeTraceSubagentFilter || (e.desc && e.desc.includes(activeTraceSubagentFilter)));
+      }
+      const filterBadge = activeTraceSubagentFilter ? ` (${t('filteredPrefix')}${esc(activeTraceSubagentFilter)})` : '';
+      document.getElementById('run-detail-event-count').innerText = `${events.length} events${filterBadge}`;
 
       const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
       if (events.length === 0) {
@@ -1485,7 +1694,10 @@
         breadcrumbBox.innerHTML = events.map(e => {
           let tagClass = 'text-zinc-400 bg-zinc-800/80 border-zinc-700/60';
           let tagText = e.event || 'EVENT';
-          if (e.event === 'beforeShellExecution') {
+          if (e.event === 'subagentStart' || e.event === 'subagentStop' || e.event === 'subagent') {
+            tagClass = 'text-purple-300 bg-purple-950/60 border-purple-800/60';
+            tagText = t('subagentTag');
+          } else if (e.event === 'beforeShellExecution') {
             tagClass = 'text-indigo-300 bg-indigo-950/60 border-indigo-800/60';
             tagText = 'EXEC';
           } else if (e.event === 'toolUse') {
@@ -1505,10 +1717,15 @@
             tagText = 'FAIL';
           }
 
+          const subTypeBadge = e.subagentType ? `
+            <span class="font-mono text-[9px] px-1 py-0.5 rounded bg-purple-950/40 text-purple-300 border border-purple-800/40 font-semibold uppercase">${esc(e.subagentType)}</span>
+          ` : '';
+
           return `
             <div class="flex items-start justify-between text-zinc-400 bg-[#09090b] px-2.5 py-1.5 rounded border border-[#1e1e22]">
               <div class="min-w-0 pr-2 flex items-baseline gap-1.5">
                 <span class="font-mono text-[9px] px-1 py-0.5 rounded border font-semibold ${tagClass}">${esc(tagText)}</span>
+                ${subTypeBadge}
                 <span class="text-zinc-300 text-xs break-all">${esc(e.desc || '—')}</span>
               </div>
               <span class="text-[10px] text-zinc-600 font-mono shrink-0 tabular-nums">${esc(e.time || '--:--:--')}</span>
@@ -1518,9 +1735,136 @@
       }
     }
 
+    function resetTraceFilter() {
+      activeTraceSubagentFilter = null;
+      if (selectedId) refreshDrawer();
+    }
+
+    function selectTraceSubagentFilter(subId, subType, isTimelineOnly) {
+      if (!isTimelineOnly && tasksMap.has(subId) && subId !== selectedId) {
+        openDrawer(subId);
+        return;
+      }
+      if (activeTraceSubagentFilter === subId || activeTraceSubagentFilter === subType) {
+        activeTraceSubagentFilter = null;
+      } else {
+        activeTraceSubagentFilter = subId || subType;
+      }
+      if (selectedId) refreshDrawer();
+    }
+
+    function renderDrawerWaterfall(task) {
+      const container = document.getElementById('drawer-waterfall-section');
+      const wfWrapper = document.getElementById('drawer-waterfall-container');
+      const totalBadge = document.getElementById('drawer-waterfall-total-badge');
+      const resetBtn = document.getElementById('drawer-waterfall-filter-reset');
+      if (!container || !wfWrapper) return;
+
+      const childTasks = Array.from(tasksMap.values()).filter(t => t.parentId === task.id);
+      const subagents = getTaskSubagents(task, childTasks);
+
+      if (subagents.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+      if (resetBtn) resetBtn.classList.toggle('hidden', !activeTraceSubagentFilter);
+
+      const isRootRunning = task.status === 'running';
+      const curTaskRunSec = isRootRunning && task.activeRunStart ? Math.max(0, Math.floor((Date.now() - task.activeRunStart) / 1000)) : 0;
+      const totalSec = Math.max(1, (task.totalLifetime || 0) + curTaskRunSec);
+      if (totalBadge) totalBadge.textContent = `${t('waterfallTotal')}: ${formatSec(totalSec)}`;
+
+      // 生成时间刻度标尺 (5 等分)
+      const ticks = [0, 0.25, 0.5, 0.75, 1].map(r => formatSec(Math.round(totalSec * r)));
+
+      // 泳道条 1: ROOT WORKFLOW
+      const isRootFiltered = activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT';
+      const rootTrackHTML = `
+        <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isRootFiltered ? 'opacity-40' : 'opacity-100'}"
+          onclick="resetTraceFilter()" title="${esc(task.title || task.rootGoal)}">
+          <span class="w-28 text-zinc-300 truncate shrink-0 flex items-center gap-1.5 font-semibold text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full ${isRootRunning ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}"></span>
+            <span>ROOT</span>
+          </span>
+          <div class="flex-1 bg-black/40 h-6 rounded border border-line relative overflow-hidden flex items-center px-1.5">
+            <div class="absolute left-0 top-0 bottom-0 bg-indigo-950/60 border border-indigo-700/60 rounded flex items-center px-2" style="width: 100%;">
+              <span class="text-[10px] text-indigo-200 font-semibold truncate flex items-center gap-1">
+                ${isRootRunning ? '<span class="w-1 h-1 rounded-full bg-amber-400 animate-ping"></span>' : ''}
+                ${esc(task.title || 'Root Workflow')} · ${formatSec(totalSec)}
+              </span>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // 泳道条 2..N: 各个子智能体泳道
+      const subTracksHTML = subagents.map(s => {
+        const isChildRunning = s.status === 'running';
+        const isSelected = activeTraceSubagentFilter === s.id || activeTraceSubagentFilter === s.role;
+        const isDimmed = activeTraceSubagentFilter && !isSelected;
+
+        // 计算相对时间偏移与宽度百分比
+        let leftPct = 10;
+        let widthPct = 40;
+        if (s.startTime && task.startTime && s.startTime >= task.startTime) {
+          const offsetSec = Math.max(0, (s.startTime - task.startTime) / 1000);
+          leftPct = Math.min(85, Math.max(5, Math.round((offsetSec / totalSec) * 100)));
+          const durSec = s.duration || Math.round(totalSec * 0.35);
+          widthPct = Math.min(100 - leftPct, Math.max(15, Math.round((durSec / totalSec) * 100)));
+        } else {
+          // 兜底时间占位
+          widthPct = Math.min(70, Math.max(25, s.duration ? Math.round((s.duration / totalSec) * 100) : 35));
+          leftPct = Math.min(100 - widthPct, 15);
+        }
+
+        const borderClass = isSelected ? 'border-indigo-400 ring-1 ring-indigo-400/50' : (isChildRunning ? 'border-amber-600/70' : 'border-purple-700/70');
+        const bgTrackClass = isChildRunning ? 'bg-amber-950/50' : 'bg-purple-950/60';
+        const textTrackClass = isChildRunning ? 'text-amber-200 font-medium' : 'text-purple-200';
+        const dotColor = isChildRunning ? 'bg-amber-400 animate-pulse' : (s.status === 'completed' ? 'bg-emerald-400' : 'bg-rose-400');
+
+        return `
+          <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isDimmed ? 'opacity-35' : 'opacity-100'}"
+            onclick="selectTraceSubagentFilter('${esc(s.id)}', '${esc(s.role)}', ${Boolean(!s.isStandalone)})"
+            title="${esc(s.title || s.role)}">
+            <span class="w-28 text-purple-300 truncate shrink-0 flex items-center gap-1 text-[11px]">
+              <span class="text-zinc-600 font-mono text-[10px]">↳</span>
+              <span class="w-1.5 h-1.5 rounded-full ${dotColor} shrink-0"></span>
+              <span class="truncate font-semibold uppercase tracking-wider text-[10px]">${esc(s.role)}</span>
+            </span>
+            <div class="flex-1 bg-black/40 h-6 rounded border border-line relative overflow-hidden flex items-center">
+              <div class="absolute top-0 bottom-0 ${bgTrackClass} border ${borderClass} rounded flex items-center px-2 transition-all"
+                style="left: ${leftPct}%; width: ${widthPct}%;">
+                <span class="text-[10px] ${textTrackClass} truncate flex items-center gap-1.5">
+                  ${isChildRunning ? '<span class="w-1 h-1 rounded-full bg-amber-400 animate-ping shrink-0"></span>' : ''}
+                  <span class="truncate">${esc(s.title)}</span>
+                  <span class="text-[9px] text-zinc-400 shrink-0 font-mono tabular-nums">(${formatSec(s.duration)})</span>
+                </span>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      wfWrapper.innerHTML = `
+        <!-- 刻度标尺 (Timeline Axis) -->
+        <div class="relative flex justify-between text-[9px] font-mono text-zinc-600 pl-28 pr-1 pb-1 border-b border-[#191a20]">
+          ${ticks.map(tStr => `<span>${tStr}</span>`).join('')}
+        </div>
+        <!-- 智能体时序泳道 -->
+        <div class="space-y-1.5 pt-1">
+          ${rootTrackHTML}
+          ${subTracksHTML}
+        </div>
+      `;
+    }
+
     function refreshDrawer() {
       const task = tasksMap.get(selectedId);
       if (!task) { closeDrawer(); return; }
+
+      renderDrawerWaterfall(task);
 
       const runs = getTaskRuns(task);
 
@@ -1586,7 +1930,21 @@
           const lblSteerHint = document.getElementById('lbl-drawer-steer-hint');
           const inputSteerEl = document.getElementById('drawer-steer-input');
           const btnSteerEl = document.getElementById('btn-drawer-steer');
-          if (task.status === 'running') {
+          
+          const isTargetingSubagent = Boolean(activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT');
+          const targetRole = isTargetingSubagent ? activeTraceSubagentFilter.toUpperCase() : '';
+
+          if (isTargetingSubagent && task.status === 'running') {
+            if (lblSteer) lblSteer.textContent = t('steerSubagentTitle').replace('{role}', targetRole);
+            if (lblSteerHint) lblSteerHint.textContent = `定向生效 (${targetRole})`;
+            if (inputSteerEl && !inputSteerEl.value) {
+              inputSteerEl.placeholder = t('steerSubagentPlaceholder').replace(/{role}/g, targetRole);
+            }
+            if (btnSteerEl) {
+              btnSteerEl.textContent = t('btnSteerSubagent').replace('{role}', targetRole);
+              btnSteerEl.className = 'h-6 px-2.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-mono text-[10px] font-medium transition-colors shrink-0 shadow-sm';
+            }
+          } else if (task.status === 'running') {
             if (lblSteer) lblSteer.textContent = t('drawerSteer');
             if (lblSteerHint) lblSteerHint.textContent = t('drawerSteerHint');
             if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = t('drawerSteerPlaceholder');
@@ -2022,22 +2380,35 @@
       } catch (_) { /* local fallback */ }
     }
 
-    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer)
-    async function steerSession(id, message) {
+    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer，支持定向子智能体)
+    async function steerSession(id, message, targetInfo = {}) {
       if (!id || !message) return;
       try {
+        const bodyPayload = { message: message };
+        if (targetInfo.target_subagent_type) {
+          bodyPayload.target_subagent_type = targetInfo.target_subagent_type;
+        }
+        if (targetInfo.target_subagent_id) {
+          bodyPayload.target_subagent_id = targetInfo.target_subagent_id;
+        }
+        if (targetInfo.target_child_id) {
+          bodyPayload.target_child_id = targetInfo.target_child_id;
+        }
+
         const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/steer`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: message })
+          body: JSON.stringify(bodyPayload)
         });
         if (resp && resp.ok) {
           const inputEl = document.getElementById('drawer-steer-input');
           if (inputEl) {
             inputEl.value = '';
-            inputEl.placeholder = t('drawerSteerQueued');
+            const role = targetInfo.target_subagent_type ? targetInfo.target_subagent_type.toUpperCase() : '';
+            const queuedMsg = role ? t('steerSubagentQueued').replace('{role}', role) : t('drawerSteerQueued');
+            inputEl.placeholder = queuedMsg;
             setTimeout(() => {
-              inputEl.placeholder = t('drawerSteerPlaceholder');
+              if (selectedId) refreshDrawer();
             }, 3000);
           }
         }
@@ -2447,7 +2818,17 @@
       if (!text) return;
       const tObj = tasksMap.get(selectedId);
       if (tObj && tObj.status === 'running') {
-        steerSession(selectedId, text);
+        const targetInfo = {};
+        if (activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT') {
+          if (tasksMap.has(activeTraceSubagentFilter)) {
+            targetInfo.target_child_id = activeTraceSubagentFilter;
+            const c = tasksMap.get(activeTraceSubagentFilter);
+            if (c && c.subagentType) targetInfo.target_subagent_type = c.subagentType;
+          } else {
+            targetInfo.target_subagent_type = activeTraceSubagentFilter;
+          }
+        }
+        steerSession(selectedId, text, targetInfo);
       } else {
         followUpSession(selectedId, text);
       }

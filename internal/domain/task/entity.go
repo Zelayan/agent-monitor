@@ -8,9 +8,11 @@ import (
 
 // TimelineItem 记录任务时间轴上的单条事件（值对象）。
 type TimelineItem struct {
-	Time  string `json:"time"`  // 事件时间，格式 HH:MM:SS
-	Event string `json:"event"` // hook 事件名
-	Desc  string `json:"desc"`  // 事件描述
+	Time         string `json:"time"`                   // 事件时间，格式 HH:MM:SS
+	Event        string `json:"event"`                  // hook 事件名
+	Desc         string `json:"desc"`                   // 事件描述
+	SubagentType string `json:"subagentType,omitempty"` // 子智能体角色类型 (如 Explore / judge / general)
+	SubagentID   string `json:"subagentId,omitempty"`   // 子智能体 ID
 }
 
 // Turn 表示单个会话内的独立一轮执行周期（Run 实体）。
@@ -59,25 +61,30 @@ type Task struct {
 	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
 	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
 	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
+	ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
+	SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
 	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID         string `json:"id"`                    // 会话/任务 ID，空则自动生成
-	Agent      string `json:"agent"`                 // Agent 名称
-	Repo       string `json:"repo"`                  // 仓库信息
-	Branch     string `json:"branch"`                // 分支名
-	Event      string `json:"event"`                 // hook 事件名，决定任务状态流转
-	Title      string `json:"title"`                 // 任务标题
-	Prompt     string `json:"prompt"`                // 本轮 Prompt
-	AIResponse string `json:"ai_response,omitempty"` // 本轮 AI 总结与回复
-	Timestamp  int64  `json:"timestamp"`             // Unix 秒；为 0 则用服务端当前时间
-	Detail     string `json:"detail"`                // 本次操作的简要说明
-	TurnIndex  int    `json:"turn_index,omitempty"`  // 上报指定的轮次（可选）
-	PID        int    `json:"pid,omitempty"`         // 上报来源的进程 PID（可选）
-	PGID       int    `json:"pgid,omitempty"`        // 上报来源的进程组 PGID（可选）
-	KeyID      string `json:"key_id,omitempty"`      // 归属的项目/租户空间标识（可选）
+	ID           string `json:"id"`                      // 会话/任务 ID，空则自动生成
+	ParentID     string `json:"parent_id,omitempty"`     // 父任务 ID（可选）
+	SubagentID   string `json:"subagent_id,omitempty"`   // 子智能体 ID（可选）
+	SubagentType string `json:"subagent_type,omitempty"` // 子智能体类型（可选）
+	Agent        string `json:"agent"`                   // Agent 名称
+	Repo         string `json:"repo"`                    // 仓库信息
+	Branch       string `json:"branch"`                  // 分支名
+	Event        string `json:"event"`                   // hook 事件名，决定任务状态流转
+	Title        string `json:"title"`                   // 任务标题
+	Prompt       string `json:"prompt"`                  // 本轮 Prompt
+	AIResponse   string `json:"ai_response,omitempty"`   // 本轮 AI 总结与回复
+	Timestamp    int64  `json:"timestamp"`               // Unix 秒；为 0 则用服务端当前时间
+	Detail       string `json:"detail"`                  // 本次操作的简要说明
+	TurnIndex    int    `json:"turn_index,omitempty"`    // 上报指定的轮次（可选）
+	PID          int    `json:"pid,omitempty"`           // 上报来源的进程 PID（可选）
+	PGID         int    `json:"pgid,omitempty"`          // 上报来源的进程组 PGID（可选）
+	KeyID        string `json:"key_id,omitempty"`        // 归属的项目/租户空间标识（可选）
 }
 
 // BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。
@@ -125,8 +132,15 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		Timeline:  make([]TimelineItem, 0),
 	}
 
+	subCount := 0
+	if p.Event == "subagentStart" {
+		subCount = 1
+	}
+
 	task := &Task{
 		ID:             p.ID,
+		ParentID:       p.ParentID,
+		SubagentCount:  subCount,
 		Agent:          p.Agent,
 		Repo:           p.Repo,
 		Branch:         p.Branch,
@@ -243,15 +257,30 @@ func (t *Task) RecordActionDenial(reason string, nowMs int64, nowStr string) {
 	}
 }
 
+// SteerInstruction 封装向 Agent 注入的动态指导与上下文（支持定向指定子智能体）。
+type SteerInstruction struct {
+	ID                 string `json:"id"`                             // 指令唯一标识
+	Message            string `json:"message"`                        // 指导正文
+	TargetChildID      string `json:"target_child_id,omitempty"`      // 目标独立子任务 ID
+	TargetSubagentType string `json:"target_subagent_type,omitempty"` // 目标子智能体角色类型 (如 Explore / judge)
+	TargetSubagentID   string `json:"target_subagent_id,omitempty"`   // 目标子智能体 ID (如 agent_explore_01)
+	CreatedAt          int64  `json:"created_at"`                     // 创建时间戳 (秒)
+}
+
 // RecordContextInjected 记录一次动态上下文注入，自增聚合根版本号并追加至当前 Run 时间线
-func (t *Task) RecordContextInjected(content string, nowStr string) {
+func (t *Task) RecordContextInjected(content string, targetSubagentType string, nowStr string) {
 	t.Version++
 	if len(t.Runs) > 0 {
 		curRun := &t.Runs[len(t.Runs)-1]
+		desc := fmt.Sprintf("动态注入上下文: %s", content)
+		if targetSubagentType != "" {
+			desc = fmt.Sprintf("向子智能体 [%s] 注入指引: %s", strings.ToUpper(targetSubagentType), content)
+		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
-			Time:  nowStr,
-			Event: "contextInjected",
-			Desc:  fmt.Sprintf("动态注入上下文: %s", content),
+			Time:         nowStr,
+			Event:        "contextInjected",
+			Desc:         desc,
+			SubagentType: targetSubagentType,
 		})
 	}
 }
@@ -520,6 +549,10 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
+	if p.ParentID != "" && t.ParentID == "" && (p.Event == "sessionStart" || p.Event == "beforeSubmitPrompt" || p.Event == "UserPromptSubmit") {
+		t.ParentID = p.ParentID
+	}
+
 	// 时间线防抖去重：连续相同说明不追加。
 	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
 	shouldAppend := true
@@ -530,10 +563,16 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 	if shouldAppend {
+		// 仅在真实向外派发非重复子代理时递增（支持多级嵌套子代理）
+		if p.Event == "subagentStart" {
+			t.SubagentCount++
+		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
-			Time:  nowStr,
-			Event: p.Event,
-			Desc:  p.Detail,
+			Time:         nowStr,
+			Event:        p.Event,
+			Desc:         p.Detail,
+			SubagentType: p.SubagentType,
+			SubagentID:   p.SubagentID,
 		})
 	}
 

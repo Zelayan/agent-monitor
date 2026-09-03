@@ -41,6 +41,13 @@
   <p align="center">
     <img src="docs/images/drawer.png" alt="AGENT MONITOR drawer multi-turn timeline" width="90%">
   </p>
+  <p align="center"><b>Multi-Agent Topology</b>: embedded Agent Pipeline strip on board and Trace Waterfall swimlanes in drawer</p>
+  <p align="center">
+    <img src="docs/images/subagent-tree.png" alt="Multi-Agent Embedded Pipeline Strip on Board" width="90%">
+  </p>
+  <p align="center">
+    <img src="docs/images/subagent-dag.png" alt="Agent Trace Waterfall Swimlanes in Drawer" width="90%">
+  </p>
 </details>
 
 ---
