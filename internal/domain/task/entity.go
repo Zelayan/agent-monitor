@@ -8,9 +8,11 @@ import (
 
 // TimelineItem 记录任务时间轴上的单条事件（值对象）。
 type TimelineItem struct {
-	Time  string `json:"time"`  // 事件时间，格式 HH:MM:SS
-	Event string `json:"event"` // hook 事件名
-	Desc  string `json:"desc"`  // 事件描述
+	Time         string `json:"time"`                   // 事件时间，格式 HH:MM:SS
+	Event        string `json:"event"`                  // hook 事件名
+	Desc         string `json:"desc"`                   // 事件描述
+	SubagentType string `json:"subagentType,omitempty"` // 子智能体角色类型 (如 Explore / judge / general)
+	SubagentID   string `json:"subagentId,omitempty"`   // 子智能体 ID
 }
 
 // Turn 表示单个会话内的独立一轮执行周期（Run 实体）。
@@ -58,14 +60,19 @@ type Task struct {
 	AbortReason    string         `json:"abortReason,omitempty"`    // 中断原因
 	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
 	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
-	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
-	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
-}
+		KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
+		ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
+		SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
+		Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
+	}
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID         string `json:"id"`                    // 会话/任务 ID，空则自动生成
-	Agent      string `json:"agent"`                 // Agent 名称
+	ID           string `json:"id"`                       // 会话/任务 ID，空则自动生成
+	ParentID     string `json:"parent_id,omitempty"`      // 父任务 ID（可选）
+	SubagentID   string `json:"subagent_id,omitempty"`    // 子智能体 ID（可选）
+	SubagentType string `json:"subagent_type,omitempty"`  // 子智能体类型（可选）
+	Agent        string `json:"agent"`                    // Agent 名称
 	Repo       string `json:"repo"`                  // 仓库信息
 	Branch     string `json:"branch"`                // 分支名
 	Event      string `json:"event"`                 // hook 事件名，决定任务状态流转
@@ -125,26 +132,33 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		Timeline:  make([]TimelineItem, 0),
 	}
 
-	task := &Task{
-		ID:             p.ID,
-		Agent:          p.Agent,
-		Repo:           p.Repo,
-		Branch:         p.Branch,
-		RootGoal:       rootGoal,
-		Title:          title,
-		Prompt:         p.Prompt,
-		Status:         "running",
-		StartTime:      nowMs,
-		ActiveRunStart: nowMs,
-		ActiveRunIndex: 1,
-		TotalRuns:      1,
-		Runs:           []Turn{firstTurn},
-		LastHook:       p.Event,
-		Detail:         p.Detail,
-		PID:            p.PID,
-		PGID:           p.PGID,
-		KeyID:          p.KeyID,
-	}
+		subCount := 0
+		if p.Event == "subagentStart" || p.SubagentType != "" {
+			subCount = 1
+		}
+
+		task := &Task{
+			ID:             p.ID,
+			ParentID:       p.ParentID,
+			SubagentCount:  subCount,
+			Agent:          p.Agent,
+			Repo:           p.Repo,
+			Branch:         p.Branch,
+			RootGoal:       rootGoal,
+			Title:          title,
+			Prompt:         p.Prompt,
+			Status:         "running",
+			StartTime:      nowMs,
+			ActiveRunStart: nowMs,
+			ActiveRunIndex: 1,
+			TotalRuns:      1,
+			Runs:           []Turn{firstTurn},
+			LastHook:       p.Event,
+			Detail:         p.Detail,
+			PID:            p.PID,
+			PGID:           p.PGID,
+			KeyID:          p.KeyID,
+		}
 
 	return task
 }
@@ -520,22 +534,31 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
-	// 时间线防抖去重：连续相同说明不追加。
-	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
-	shouldAppend := true
-	if len(curRun.Timeline) > 0 {
-		last := curRun.Timeline[len(curRun.Timeline)-1]
-		if last.Desc == p.Detail {
-			shouldAppend = false
+		if p.ParentID != "" && t.ParentID == "" {
+			t.ParentID = p.ParentID
 		}
-	}
-	if shouldAppend {
-		curRun.Timeline = append(curRun.Timeline, TimelineItem{
-			Time:  nowStr,
-			Event: p.Event,
-			Desc:  p.Detail,
-		})
-	}
+		if p.Event == "subagentStart" || p.SubagentType != "" {
+			t.SubagentCount++
+		}
+
+		// 时间线防抖去重：连续相同说明不追加。
+		// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
+		shouldAppend := true
+		if len(curRun.Timeline) > 0 {
+			last := curRun.Timeline[len(curRun.Timeline)-1]
+			if last.Desc == p.Detail {
+				shouldAppend = false
+			}
+		}
+		if shouldAppend {
+			curRun.Timeline = append(curRun.Timeline, TimelineItem{
+				Time:         nowStr,
+				Event:        p.Event,
+				Desc:         p.Detail,
+				SubagentType: p.SubagentType,
+				SubagentID:   p.SubagentID,
+			})
+		}
 
 	// 状态流转判定
 	switch p.Event {
