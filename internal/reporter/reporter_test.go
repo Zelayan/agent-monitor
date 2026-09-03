@@ -495,3 +495,24 @@ func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
 			t.Fatalf("expected truncated file to be smaller than original")
 		}
 	}
+
+func TestShouldSkipUnstartedLifecycle(t *testing.T) {
+	if !shouldSkipUnstartedLifecycle("sessionStart", "", "") {
+		t.Fatal("empty Cursor sessionStart should be skipped")
+	}
+	if !shouldSkipUnstartedLifecycle("SessionStart", "", "") {
+		t.Fatal("empty SessionStart should be skipped")
+	}
+	if shouldSkipUnstartedLifecycle("sessionStart", "修一个 bug", "") {
+		t.Fatal("sessionStart with current prompt must still be reported")
+	}
+	if shouldSkipUnstartedLifecycle("sessionStart", "", "首轮问题") {
+		t.Fatal("sessionStart with first prompt must still be reported")
+	}
+	if shouldSkipUnstartedLifecycle("stop", "", "") {
+		t.Fatal("empty stop must still be delivered so Monitor can close real work")
+	}
+	if shouldSkipUnstartedLifecycle("beforeShellExecution", "", "") {
+		t.Fatal("tool events must not be skipped as unstarted lifecycle")
+	}
+}

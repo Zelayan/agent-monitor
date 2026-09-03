@@ -53,8 +53,16 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 		if err != nil {
 			log.Printf("[Application] Warning: failed to load persisted tasks: %v", err)
 		} else {
+			discardedIdle := 0
 			for _, t := range persisted {
 				if t != nil && t.ID != "" {
+					if !t.HasUserWork() {
+						if err := repo.Delete(t.ID); err != nil {
+							log.Printf("[Application] Warning: failed to discard idle ghost task %s: %v", t.ID, err)
+						}
+						discardedIdle++
+						continue
+					}
 					if t.CloseOrphanRuns(time.Now().UnixMilli(), time.Now().Format("15:04:05")) {
 						if data, err := json.Marshal(t); err == nil {
 							if err := repo.SaveRaw(t.ID, data); err != nil {
@@ -64,6 +72,9 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 					}
 					s.tasks[t.ID] = t
 				}
+			}
+			if discardedIdle > 0 {
+				log.Printf("[Application] Discarded %d idle ghost sessions with no user work", discardedIdle)
 			}
 			if len(s.tasks) > 0 {
 				log.Printf("[Application] Restored %d persisted tasks from repository", len(s.tasks))
@@ -199,7 +210,19 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 
 	s.mu.Lock()
 	t, exists := s.tasks[p.ID]
+	if exists && t != nil && !t.HasUserWork() && task.IsTerminalHook(p.Event) {
+		delete(s.tasks, t.ID)
+		taskID := t.ID
+		taskKeyID := t.KeyID
+		s.mu.Unlock()
+		s.forgetTask(taskID, taskKeyID)
+		return HookEventResult{Action: "allow"}, nil
+	}
 	if !exists {
+		if task.IsVacuousLifecycle(p) {
+			s.mu.Unlock()
+			return HookEventResult{Action: "allow"}, nil
+		}
 		t = task.NewTask(p, nowMs)
 		s.tasks[t.ID] = t
 	}
@@ -443,6 +466,27 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 	}
 
 	return toDelete
+}
+
+// forgetTask 删除从未产生真实工作的空会话，避免看板留下「打开即关」的占位卡片。
+func (s *MonitorService) forgetTask(id, keyID string) {
+	if id == "" {
+		return
+	}
+	if s.repo != nil {
+		if err := s.repo.Delete(id); err != nil {
+			log.Printf("[Application] Error discarding idle task %s: %v", id, err)
+		}
+	}
+	if s.hub != nil {
+		delEvent := map[string]interface{}{
+			"type":       "delete_tasks",
+			"deletedIds": []string{id},
+		}
+		if msgJSON, err := json.Marshal(delEvent); err == nil {
+			s.hub.BroadcastTenant(keyID, string(msgJSON))
+		}
+	}
 }
 
 // ClearFinishedTasks 清除所有已完成或失败的任务，并返回清除数量。
