@@ -1,6 +1,7 @@
 package task
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -530,12 +531,12 @@ func TestTask_VacuousLifecycleAndHasUserWork(t *testing.T) {
 		t.Fatal("prompted session has user work")
 	}
 
-		tools := NewTask(EventPayload{ID: "sess-tool", Agent: "Cursor Agent", Event: "beforeShellExecution"}, 1000000)
-		tools.ApplyEvent(EventPayload{ID: "sess-tool", Event: "beforeShellExecution", Detail: "ls"}, 1000000, "10:00:00")
-		if !tools.HasUserWork() {
-			t.Fatal("tool-only session has user work")
-		}
+	tools := NewTask(EventPayload{ID: "sess-tool", Agent: "Cursor Agent", Event: "beforeShellExecution"}, 1000000)
+	tools.ApplyEvent(EventPayload{ID: "sess-tool", Event: "beforeShellExecution", Detail: "ls"}, 1000000, "10:00:00")
+	if !tools.HasUserWork() {
+		t.Fatal("tool-only session has user work")
 	}
+}
 
 func TestTask_SubagentHierarchyAndClone(t *testing.T) {
 	// 1. 父任务启动，派发子任务
@@ -571,7 +572,7 @@ func TestTask_SubagentHierarchyAndClone(t *testing.T) {
 		t.Fatalf("unexpected timeline subagent metadata: %+v", curTimeline[0])
 	}
 
-	// 3. 子任务以独立 session 启动，携带 ParentID
+	// 3. 子任务以独立 session 启动，携带 ParentID 和自身角色 SubagentType
 	child := NewTask(EventPayload{
 		ID:           "child-task-200",
 		ParentID:     "parent-task-100",
@@ -584,11 +585,28 @@ func TestTask_SubagentHierarchyAndClone(t *testing.T) {
 	if child.ParentID != "parent-task-100" {
 		t.Fatalf("expected ParentID parent-task-100, got %s", child.ParentID)
 	}
-	if child.SubagentCount != 1 {
-		t.Fatalf("expected initial subagent count 1, got %d", child.SubagentCount)
+	if child.SubagentCount != 0 {
+		t.Fatalf("child subagent itself should have SubagentCount 0, got %d", child.SubagentCount)
 	}
 
-	// 4. Task.Clone() 深拷贝验证
+	// 4. 子任务自身执行多次常规工具调用，确保其 SubagentCount 不会虚高自增
+	for i := 1; i <= 5; i++ {
+		child.ApplyEvent(EventPayload{
+			ID:           "child-task-200",
+			ParentID:     "parent-task-100",
+			SubagentType: "Explore",
+			Event:        "beforeShellExecution",
+			Detail:       fmt.Sprintf("grep code pattern %d", i),
+		}, int64(1020000+i*1000), fmt.Sprintf("10:02:0%d", i))
+	}
+	if child.SubagentCount != 0 {
+		t.Fatalf("child tool execution should not increment SubagentCount, got %d", child.SubagentCount)
+	}
+	if parent.SubagentCount != 1 {
+		t.Fatalf("parent SubagentCount should stay 1, got %d", parent.SubagentCount)
+	}
+
+	// 5. Task.Clone() 深拷贝验证
 	clone := parent.Clone()
 	if clone.SubagentCount != parent.SubagentCount || clone.ParentID != parent.ParentID {
 		t.Fatalf("clone failed on subagent fields")

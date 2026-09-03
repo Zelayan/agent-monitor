@@ -70,48 +70,48 @@ type Config struct {
 
 // Payload 定义 Hook 传入的 JSON 结构体（兼容多种 Agent 的字段名）
 type Payload struct {
-	Raw            string                 `json:"raw,omitempty"`
-	ID             string                 `json:"id,omitempty"`
-	TaskID         string                 `json:"task_id,omitempty"`
-	TaskIDCamel    string                 `json:"taskId,omitempty"`
-	ParentID       string                 `json:"parent_id,omitempty"`
-	ParentIDCamel  string                 `json:"parentId,omitempty"`
-	ParentSessionID string                `json:"parent_session_id,omitempty"`
-	SubagentID     string                 `json:"subagent_id,omitempty"`
-	SubagentIDCamel string                `json:"subagentId,omitempty"`
-	SubagentType   string                 `json:"subagent_type,omitempty"`
-	SubagentTypeCamel string              `json:"subagentType,omitempty"`
-	Agent          string                 `json:"agent,omitempty"`
-	HookEventName  string                 `json:"hook_event_name,omitempty"`
-	HookName       string                 `json:"hook_name,omitempty"`
-	Event          string                 `json:"event,omitempty"`
-	SessionID      string                 `json:"session_id,omitempty"`
-	SessionIDCamel string                 `json:"sessionId,omitempty"`
-	ConversationID string                 `json:"conversation_id,omitempty"`
-	GenerationID   string                 `json:"generation_id,omitempty"`
-	ToolName       string                 `json:"tool_name,omitempty"`
-	Tool           string                 `json:"tool,omitempty"`
-	ToolInput      json.RawMessage        `json:"tool_input,omitempty"` // Cursor: object 或 MCP JSON 字符串
-	ToolArgs       map[string]interface{} `json:"tool_args,omitempty"`
-	Parameters     map[string]interface{} `json:"parameters,omitempty"`
-	Command        string                 `json:"command,omitempty"`
-	Cwd            string                 `json:"cwd,omitempty"`
-	Prompt         interface{}            `json:"prompt,omitempty"`
-	UserPrompt     interface{}            `json:"user_prompt,omitempty"`
-	UserQuery      interface{}            `json:"user_query,omitempty"`
-	UserMessage    interface{}            `json:"user_message,omitempty"`
-	Task           interface{}            `json:"task,omitempty"`
-	Input          interface{}            `json:"input,omitempty"`
-	Error          string                 `json:"error,omitempty"`
-	ErrorMessage   string                 `json:"error_message,omitempty"`
-	Message        string                 `json:"message,omitempty"`
-	Status         string                 `json:"status,omitempty"`
-	Reason         string                 `json:"reason,omitempty"`
-	Text           string                 `json:"text,omitempty"`
-	FilePath       string                 `json:"file_path,omitempty"`
-	MCPServerName  string                 `json:"mcp_server_name,omitempty"`
-	WorkspaceRoots []string               `json:"workspace_roots,omitempty"`
-	TranscriptPath string                 `json:"transcript_path,omitempty"`
+	Raw               string                 `json:"raw,omitempty"`
+	ID                string                 `json:"id,omitempty"`
+	TaskID            string                 `json:"task_id,omitempty"`
+	TaskIDCamel       string                 `json:"taskId,omitempty"`
+	ParentID          string                 `json:"parent_id,omitempty"`
+	ParentIDCamel     string                 `json:"parentId,omitempty"`
+	ParentSessionID   string                 `json:"parent_session_id,omitempty"`
+	SubagentID        string                 `json:"subagent_id,omitempty"`
+	SubagentIDCamel   string                 `json:"subagentId,omitempty"`
+	SubagentType      string                 `json:"subagent_type,omitempty"`
+	SubagentTypeCamel string                 `json:"subagentType,omitempty"`
+	Agent             string                 `json:"agent,omitempty"`
+	HookEventName     string                 `json:"hook_event_name,omitempty"`
+	HookName          string                 `json:"hook_name,omitempty"`
+	Event             string                 `json:"event,omitempty"`
+	SessionID         string                 `json:"session_id,omitempty"`
+	SessionIDCamel    string                 `json:"sessionId,omitempty"`
+	ConversationID    string                 `json:"conversation_id,omitempty"`
+	GenerationID      string                 `json:"generation_id,omitempty"`
+	ToolName          string                 `json:"tool_name,omitempty"`
+	Tool              string                 `json:"tool,omitempty"`
+	ToolInput         json.RawMessage        `json:"tool_input,omitempty"` // Cursor: object 或 MCP JSON 字符串
+	ToolArgs          map[string]interface{} `json:"tool_args,omitempty"`
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	Command           string                 `json:"command,omitempty"`
+	Cwd               string                 `json:"cwd,omitempty"`
+	Prompt            interface{}            `json:"prompt,omitempty"`
+	UserPrompt        interface{}            `json:"user_prompt,omitempty"`
+	UserQuery         interface{}            `json:"user_query,omitempty"`
+	UserMessage       interface{}            `json:"user_message,omitempty"`
+	Task              interface{}            `json:"task,omitempty"`
+	Input             interface{}            `json:"input,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	ErrorMessage      string                 `json:"error_message,omitempty"`
+	Message           string                 `json:"message,omitempty"`
+	Status            string                 `json:"status,omitempty"`
+	Reason            string                 `json:"reason,omitempty"`
+	Text              string                 `json:"text,omitempty"`
+	FilePath          string                 `json:"file_path,omitempty"`
+	MCPServerName     string                 `json:"mcp_server_name,omitempty"`
+	WorkspaceRoots    []string               `json:"workspace_roots,omitempty"`
+	TranscriptPath    string                 `json:"transcript_path,omitempty"`
 }
 
 // DetectAgentName 智能推断上报来源的 Agent 名称
@@ -768,30 +768,30 @@ func Run(cfg Config, inputReader io.Reader) {
 		detail = detail[:160]
 	}
 
-		// 获取真实的常驻宿主 PID（若是 CLI/Bash 执行，优先使用 PPID）
-		reportedPID := os.Getpid()
-		if ppid := os.Getppid(); ppid > 1 {
-			reportedPID = ppid
-		}
+	// 获取真实的常驻宿主 PID（若是 CLI/Bash 执行，优先使用 PPID）
+	reportedPID := os.Getpid()
+	if ppid := os.Getppid(); ppid > 1 {
+		reportedPID = ppid
+	}
 
-		subType, subID, _ := extractSubagentMetadata(payload)
-		parentID := extractParentID(payload)
+	subType, subID, _ := extractSubagentMetadata(payload)
+	parentID := extractParentID(payload)
 
-		data := EventReport{
-			ID:           sessionID,
-			ParentID:     parentID,
-			SubagentID:   subID,
-			SubagentType: subType,
-			Agent:        agentName,
-			Repo:         fmt.Sprintf("%s:%s", repo, branch),
-			Event:        mappedEvent,
-			Timestamp:    time.Now().Unix(),
-			Detail:       detail,
-			TurnIndex:    turnCount,
-			Title:        title,
-			PID:          reportedPID,
-			PGID:         os.Getppid(),
-		}
+	data := EventReport{
+		ID:           sessionID,
+		ParentID:     parentID,
+		SubagentID:   subID,
+		SubagentType: subType,
+		Agent:        agentName,
+		Repo:         fmt.Sprintf("%s:%s", repo, branch),
+		Event:        mappedEvent,
+		Timestamp:    time.Now().Unix(),
+		Detail:       detail,
+		TurnIndex:    turnCount,
+		Title:        title,
+		PID:          reportedPID,
+		PGID:         os.Getppid(),
+	}
 	if len(currentPrompt) > 4000 {
 		data.Prompt = currentPrompt[:4000]
 	} else {

@@ -1497,7 +1497,7 @@
         breadcrumbBox.innerHTML = events.map(e => {
           let tagClass = 'text-zinc-400 bg-zinc-800/80 border-zinc-700/60';
           let tagText = e.event || 'EVENT';
-          if (e.event === 'subagentStart' || e.event === 'subagentStop' || e.event === 'subagent' || e.subagentType) {
+          if (e.event === 'subagentStart' || e.event === 'subagentStop' || e.event === 'subagent') {
             tagClass = 'text-purple-300 bg-purple-950/60 border-purple-800/60';
             tagText = t('subagentTag');
           } else if (e.event === 'beforeShellExecution') {

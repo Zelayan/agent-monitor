@@ -654,12 +654,12 @@ func TestSafeSessionFilename(t *testing.T) {
 		t.Fatalf("filename %q exceeds safe length bounds: %d", base2, len(base2))
 	}
 
-		// 4. 幂等性：同一 sessionID 多次生成必须一致
-		f3 := safeSessionFilename(dirtyID, "test-file", ".json")
-		if f1 != f3 {
-			t.Fatalf("safeSessionFilename must be deterministic, got %q vs %q", f1, f3)
-		}
+	// 4. 幂等性：同一 sessionID 多次生成必须一致
+	f3 := safeSessionFilename(dirtyID, "test-file", ".json")
+	if f1 != f3 {
+		t.Fatalf("safeSessionFilename must be deterministic, got %q vs %q", f1, f3)
 	}
+}
 
 func TestSubagentRecognition(t *testing.T) {
 	// 1. isAgentTool 检测

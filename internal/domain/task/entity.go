@@ -60,31 +60,31 @@ type Task struct {
 	AbortReason    string         `json:"abortReason,omitempty"`    // 中断原因
 	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
 	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
-		KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
-		ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
-		SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
-		Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
-	}
+	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
+	ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
+	SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
+	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
+}
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID           string `json:"id"`                       // 会话/任务 ID，空则自动生成
-	ParentID     string `json:"parent_id,omitempty"`      // 父任务 ID（可选）
-	SubagentID   string `json:"subagent_id,omitempty"`    // 子智能体 ID（可选）
-	SubagentType string `json:"subagent_type,omitempty"`  // 子智能体类型（可选）
-	Agent        string `json:"agent"`                    // Agent 名称
-	Repo       string `json:"repo"`                  // 仓库信息
-	Branch     string `json:"branch"`                // 分支名
-	Event      string `json:"event"`                 // hook 事件名，决定任务状态流转
-	Title      string `json:"title"`                 // 任务标题
-	Prompt     string `json:"prompt"`                // 本轮 Prompt
-	AIResponse string `json:"ai_response,omitempty"` // 本轮 AI 总结与回复
-	Timestamp  int64  `json:"timestamp"`             // Unix 秒；为 0 则用服务端当前时间
-	Detail     string `json:"detail"`                // 本次操作的简要说明
-	TurnIndex  int    `json:"turn_index,omitempty"`  // 上报指定的轮次（可选）
-	PID        int    `json:"pid,omitempty"`         // 上报来源的进程 PID（可选）
-	PGID       int    `json:"pgid,omitempty"`        // 上报来源的进程组 PGID（可选）
-	KeyID      string `json:"key_id,omitempty"`      // 归属的项目/租户空间标识（可选）
+	ID           string `json:"id"`                      // 会话/任务 ID，空则自动生成
+	ParentID     string `json:"parent_id,omitempty"`     // 父任务 ID（可选）
+	SubagentID   string `json:"subagent_id,omitempty"`   // 子智能体 ID（可选）
+	SubagentType string `json:"subagent_type,omitempty"` // 子智能体类型（可选）
+	Agent        string `json:"agent"`                   // Agent 名称
+	Repo         string `json:"repo"`                    // 仓库信息
+	Branch       string `json:"branch"`                  // 分支名
+	Event        string `json:"event"`                   // hook 事件名，决定任务状态流转
+	Title        string `json:"title"`                   // 任务标题
+	Prompt       string `json:"prompt"`                  // 本轮 Prompt
+	AIResponse   string `json:"ai_response,omitempty"`   // 本轮 AI 总结与回复
+	Timestamp    int64  `json:"timestamp"`               // Unix 秒；为 0 则用服务端当前时间
+	Detail       string `json:"detail"`                  // 本次操作的简要说明
+	TurnIndex    int    `json:"turn_index,omitempty"`    // 上报指定的轮次（可选）
+	PID          int    `json:"pid,omitempty"`           // 上报来源的进程 PID（可选）
+	PGID         int    `json:"pgid,omitempty"`          // 上报来源的进程组 PGID（可选）
+	KeyID        string `json:"key_id,omitempty"`        // 归属的项目/租户空间标识（可选）
 }
 
 // BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。
@@ -132,33 +132,33 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		Timeline:  make([]TimelineItem, 0),
 	}
 
-		subCount := 0
-		if p.Event == "subagentStart" || p.SubagentType != "" {
-			subCount = 1
-		}
+	subCount := 0
+	if p.Event == "subagentStart" {
+		subCount = 1
+	}
 
-		task := &Task{
-			ID:             p.ID,
-			ParentID:       p.ParentID,
-			SubagentCount:  subCount,
-			Agent:          p.Agent,
-			Repo:           p.Repo,
-			Branch:         p.Branch,
-			RootGoal:       rootGoal,
-			Title:          title,
-			Prompt:         p.Prompt,
-			Status:         "running",
-			StartTime:      nowMs,
-			ActiveRunStart: nowMs,
-			ActiveRunIndex: 1,
-			TotalRuns:      1,
-			Runs:           []Turn{firstTurn},
-			LastHook:       p.Event,
-			Detail:         p.Detail,
-			PID:            p.PID,
-			PGID:           p.PGID,
-			KeyID:          p.KeyID,
-		}
+	task := &Task{
+		ID:             p.ID,
+		ParentID:       p.ParentID,
+		SubagentCount:  subCount,
+		Agent:          p.Agent,
+		Repo:           p.Repo,
+		Branch:         p.Branch,
+		RootGoal:       rootGoal,
+		Title:          title,
+		Prompt:         p.Prompt,
+		Status:         "running",
+		StartTime:      nowMs,
+		ActiveRunStart: nowMs,
+		ActiveRunIndex: 1,
+		TotalRuns:      1,
+		Runs:           []Turn{firstTurn},
+		LastHook:       p.Event,
+		Detail:         p.Detail,
+		PID:            p.PID,
+		PGID:           p.PGID,
+		KeyID:          p.KeyID,
+	}
 
 	return task
 }
@@ -534,31 +534,31 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
-		if p.ParentID != "" && t.ParentID == "" {
-			t.ParentID = p.ParentID
-		}
-		if p.Event == "subagentStart" || p.SubagentType != "" {
-			t.SubagentCount++
-		}
+	if p.ParentID != "" && t.ParentID == "" {
+		t.ParentID = p.ParentID
+	}
+	if p.Event == "subagentStart" {
+		t.SubagentCount++
+	}
 
-		// 时间线防抖去重：连续相同说明不追加。
-		// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
-		shouldAppend := true
-		if len(curRun.Timeline) > 0 {
-			last := curRun.Timeline[len(curRun.Timeline)-1]
-			if last.Desc == p.Detail {
-				shouldAppend = false
-			}
+	// 时间线防抖去重：连续相同说明不追加。
+	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
+	shouldAppend := true
+	if len(curRun.Timeline) > 0 {
+		last := curRun.Timeline[len(curRun.Timeline)-1]
+		if last.Desc == p.Detail {
+			shouldAppend = false
 		}
-		if shouldAppend {
-			curRun.Timeline = append(curRun.Timeline, TimelineItem{
-				Time:         nowStr,
-				Event:        p.Event,
-				Desc:         p.Detail,
-				SubagentType: p.SubagentType,
-				SubagentID:   p.SubagentID,
-			})
-		}
+	}
+	if shouldAppend {
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:         nowStr,
+			Event:        p.Event,
+			Desc:         p.Detail,
+			SubagentType: p.SubagentType,
+			SubagentID:   p.SubagentID,
+		})
+	}
 
 	// 状态流转判定
 	switch p.Event {

@@ -21,12 +21,12 @@ type AuthContext struct {
 
 // Handler 提供 Monitor 的 HTTP API 与前端页面路由处理。
 type Handler struct {
-	svc        *monitor.MonitorService
-	hub        *monitor.Hub
-	staticHTML []byte
-	staticFS   fs.FS
-	apiKey     string            // 单 Key 或默认 Key
-	masterKey  string            // Master 全局管理 Key
+	svc         *monitor.MonitorService
+	hub         *monitor.Hub
+	staticHTML  []byte
+	staticFS    fs.FS
+	apiKey      string            // 单 Key 或默认 Key
+	masterKey   string            // Master 全局管理 Key
 	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
 }
 
