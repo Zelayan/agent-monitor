@@ -82,7 +82,7 @@ In a browser: **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**
 - **Web Notifications**: native OS toasts when a task completes or fails; click to focus and open that task.
 - **Per-project Key namespaces and auth**: optional per-project keys (`AGENT_MONITOR_API_KEYS`) plus a global admin Master Key, isolating data and operations across projects.
 - **Multi-Turn Timeline**: aggregates many turns in one session, isolates duration per run, and reconstructs the tool tree (Bash, Edit, Read, and so on).
-- **Short session titles (optional LLM)**: cards show a cleaned short title; with an OpenAI-compatible endpoint each run can summarize asynchronously (no network and the original RootGoal stay unchanged when unset).
+- **Short session titles (optional LLM)**: cards show a cleaned short title; with an OpenAI-compatible endpoint each run can summarize asynchronously. Session `goalSummary` refreshes every N completed runs (default 3, `AGENT_MONITOR_LLM_GOAL_EVERY_N`); the original `rootGoal` is never rewritten. Unset means no network.
 - **Multi-Agent sniffing**: first-class lifecycle Hooks for **Cursor**, **ZCode**, and **Codex (CLI / Desktop)**; other Agents (Claude Code, Aider, and more) are still being adapted.
 
 ---

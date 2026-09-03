@@ -118,6 +118,20 @@ func TestTask_LifecycleAndDomainRules(t *testing.T) {
 		t.Error("ApplyDisplayTitle must reject empty/placeholder titles")
 	}
 
+	goal := "跨轮完成 DDD 分层，并补齐领域单测。"
+	if !task.ApplyGoalSummary(goal, 2) {
+		t.Fatal("ApplyGoalSummary should accept a real summary")
+	}
+	if task.GoalSummary != goal || task.GoalSummaryRun != 2 {
+		t.Errorf("ApplyGoalSummary = summary=%q run=%d", task.GoalSummary, task.GoalSummaryRun)
+	}
+	if task.RootGoal != p2.Prompt {
+		t.Errorf("ApplyGoalSummary must not rewrite RootGoal, got %q", task.RootGoal)
+	}
+	if task.ApplyGoalSummary("", 2) || task.ApplyGoalSummary("ZCode 任务", 2) || task.ApplyGoalSummary(goal, 0) {
+		t.Error("ApplyGoalSummary must reject empty/placeholder/invalid run")
+	}
+
 	// 5. Test transient tool failure (should NOT terminate task)
 	pFail := EventPayload{
 		ID:        "sess-domain-1",
@@ -161,6 +175,36 @@ func TestTask_ApplyDisplayTitleSanitizes(t *testing.T) {
 	}
 	if got := []rune(task.Title); len(got) != 48 {
 		t.Errorf("expected 48 runes, got %d", len(got))
+	}
+}
+
+func TestTask_ApplyGoalSummarySanitizes(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-goal-sanitize",
+		Agent:  "ZCode",
+		Event:  "SessionStart",
+		Prompt: "#task 原始长提示词\n第二行",
+	}, 1000000)
+	root := task.RootGoal
+
+	if !task.ApplyGoalSummary("「跨轮把支付模块拆到 domain，并补接口测试。」\n", 3) {
+		t.Fatal("expected sanitized goal to apply")
+	}
+	if task.GoalSummary != "跨轮把支付模块拆到 domain，并补接口测试。" {
+		t.Errorf("sanitized goal = %q", task.GoalSummary)
+	}
+	if task.RootGoal != root {
+		t.Errorf("RootGoal rewritten: %q", task.RootGoal)
+	}
+	long := strings.Repeat("标", 300)
+	if !task.ApplyGoalSummary(long, 6) {
+		t.Fatal("expected long goal to truncate")
+	}
+	if got := []rune(task.GoalSummary); len(got) != 240 {
+		t.Errorf("expected 240 runes, got %d", len(got))
+	}
+	if task.GoalSummaryRun != 6 {
+		t.Errorf("GoalSummaryRun = %d", task.GoalSummaryRun)
 	}
 }
 

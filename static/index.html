@@ -369,6 +369,10 @@
     <div class="mt-3 sm:mt-4 pb-3 sm:pb-4 border-b border-[#1e1e22]">
       <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
       <h2 id="drawer-root-title" class="text-xs sm:text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
+      <div class="mt-2">
+        <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-session-goal">SESSION GOAL</div>
+        <p id="drawer-session-goal" class="text-xs text-zinc-300 mt-1 leading-relaxed whitespace-pre-wrap break-words break-all max-h-32 overflow-y-auto overscroll-contain bg-black/30 p-2.5 rounded border border-line"></p>
+      </div>
       <div class="flex flex-wrap items-center gap-x-3 sm:gap-x-4 gap-y-1 font-mono text-[10px] sm:text-[11px] text-zinc-500 mt-2">
         <span id="drawer-session-id">ID: -</span>
         <span id="drawer-total-duration">Lifetime: -</span>
@@ -556,6 +560,7 @@
         headerCompleted: '就绪 / 已完成 SESSIONS',
         headerFailed: '异常 / 终止 TERMINATED',
         drawerContainer: '会话总容器 (WORKFLOW)',
+        drawerSessionGoal: '会话总目标 SESSION GOAL',
         drawerGoal: '本轮任务 PROMPT / GOAL',
         drawerAI: 'AI 执行总结与回复 (AI RESPONSE)',
         noAIResponse: '(暂无 AI 回复记录)',
@@ -629,6 +634,7 @@
         headerCompleted: 'IDLE / COMPLETED',
         headerFailed: 'TERMINATED / FAILED',
         drawerContainer: 'SESSION CONTAINER (WORKFLOW)',
+        drawerSessionGoal: 'SESSION GOAL',
         drawerGoal: 'PROMPT / GOAL FOR THIS RUN',
         drawerAI: 'AI RESPONSE & SUMMARY',
         noAIResponse: '(no AI response recorded)',
@@ -710,6 +716,8 @@
       document.getElementById('header-completed').textContent = t('headerCompleted');
       document.getElementById('header-failed').textContent = t('headerFailed');
       document.getElementById('lbl-drawer-container').textContent = t('drawerContainer');
+      const sessionGoalLbl = document.getElementById('lbl-drawer-session-goal');
+      if (sessionGoalLbl) sessionGoalLbl.textContent = t('drawerSessionGoal');
       document.getElementById('lbl-drawer-goal').textContent = t('drawerGoal');
       const drawerAiEl = document.getElementById('lbl-drawer-ai');
       if (drawerAiEl) drawerAiEl.textContent = t('drawerAI');
@@ -876,7 +884,7 @@
     function matchesFilter(tObj) {
       if (agentFilter !== 'all' && agentName(tObj) !== agentFilter) return false;
       if (!query) return true;
-      const hay = [tObj.title, tObj.rootGoal, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
+      const hay = [tObj.title, tObj.goalSummary, tObj.rootGoal, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
       return hay.includes(query);
     }
 
@@ -1351,6 +1359,10 @@
       document.getElementById('drawer-repo').textContent = repoLabel(task);
       document.getElementById('drawer-runs-badge').innerText = `${runs.length} Runs`;
       document.getElementById('drawer-root-title').textContent = sessionDisplayTitle(task);
+      const sessionGoalEl = document.getElementById('drawer-session-goal');
+      if (sessionGoalEl) {
+        sessionGoalEl.textContent = String(task.goalSummary || task.rootGoal || '').trim() || t('noPrompt');
+      }
       document.getElementById('drawer-session-id').innerText = `ID: ${task.id}`;
       const isTaskRunning = task.status === 'running';
       const curTaskRunSec = isTaskRunning && task.activeRunStart ? Math.max(0, Math.floor((Date.now() - task.activeRunStart) / 1000)) : 0;
@@ -1929,6 +1941,7 @@
       const exportDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
       const title = sessionDisplayTitle(task);
       const rootGoal = (task.rootGoal || task.prompt || title).trim();
+      const goalSummary = String(task.goalSummary || '').trim();
 
       let md = `# Agent Session Report: ${title}\n\n`;
       md += `> **Export Time**: ${exportDate}  \n`;
@@ -1937,7 +1950,12 @@
       md += `> **Repository**: \`${repoLabel(task)}\`  \n`;
       md += `> **Total Lifetime**: \`${formatSec(task.totalLifetime || 0)}\` | **Total Runs**: \`${runs.length}\`\n\n`;
       md += `---\n\n## 📋 Session Overview\n\n`;
-      md += `**Root Objective:**\n> ${rootGoal}\n\n`;
+      if (goalSummary) {
+        md += `**Session Goal:**\n> ${goalSummary}\n\n`;
+        md += `**Original Root Objective:**\n> ${rootGoal}\n\n`;
+      } else {
+        md += `**Root Objective:**\n> ${rootGoal}\n\n`;
+      }
 
       md += `### Run History\n`;
       md += `| Run # | Status | Duration | Objective |\n`;

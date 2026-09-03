@@ -105,6 +105,13 @@
           "type": "string",
           "default": "",
           "description": "Optional API key for the LLM endpoint (password field). Leave empty for local Ollama."
+        },
+        "agentMonitor.llmGoalEveryN": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Refresh LLM session goalSummary every N completed runs. 0 disables goal summaries (card titles still update each run). Non-zero values are clamped to 1–20."
         }
       }
     }

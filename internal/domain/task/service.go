@@ -3,6 +3,7 @@ package task
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // FormatDuration 将秒数格式化为 "分m 秒s"。
@@ -47,6 +48,7 @@ const (
 	titleSourceHeuristic = "heuristic"
 	titleSourceLLM       = "llm"
 	displayTitleMaxRunes = 48
+	goalSummaryMaxRunes  = 240
 )
 
 // ApplyDisplayTitle 将 LLM 生成的短标题写入会话容器。RootGoal 保持不变。
@@ -72,6 +74,30 @@ func (t *Task) ApplyDisplayTitle(s string) bool {
 	}
 	t.Title = s
 	t.TitleSource = titleSourceLLM
+	t.Version++
+	return true
+}
+
+// ApplyGoalSummary 将 LLM 生成的多轮会话总目标写入 GoalSummary。RootGoal 保持不变。
+func (t *Task) ApplyGoalSummary(s string, atRun int) bool {
+	if t == nil || atRun <= 0 {
+		return false
+	}
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.Trim(s, `"'「」『』`)
+	s = strings.TrimSpace(s)
+	if s == "" || IsPlaceholderTitle(s) {
+		return false
+	}
+	if utf8.RuneCountInString(s) > goalSummaryMaxRunes {
+		s = string([]rune(s)[:goalSummaryMaxRunes])
+	}
+	if t.GoalSummary == s && t.GoalSummaryRun == atRun {
+		return false
+	}
+	t.GoalSummary = s
+	t.GoalSummaryRun = atRun
 	t.Version++
 	return true
 }

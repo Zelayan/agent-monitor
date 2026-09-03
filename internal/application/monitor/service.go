@@ -545,6 +545,20 @@ func (s *MonitorService) runTitleSummary(id string) {
 			} else if err != nil {
 				log.Printf("[Application] Title summary skipped for %s: %v", id, err)
 			}
+
+			s.mu.RLock()
+			if t, ok := s.tasks[id]; ok && t != nil {
+				snap = t.Clone()
+			}
+			s.mu.RUnlock()
+			if snap != nil && shouldRefreshGoal(snap, s.summarizer.GoalEveryN(), snap.LastHook) {
+				goal, err := s.summarizer.SummarizeGoal(snap)
+				if err == nil && strings.TrimSpace(goal) != "" {
+					s.applySummarizedGoal(id, goal, settledRunCount(snap))
+				} else if err != nil {
+					log.Printf("[Application] Goal summary skipped for %s: %v", id, err)
+				}
+			}
 		}
 
 		stateI, ok := s.titleJobs.Load(id)
@@ -572,6 +586,32 @@ func (s *MonitorService) applySummarizedTitle(id, title string) {
 		return
 	}
 	if !t.ApplyDisplayTitle(title) {
+		s.mu.Unlock()
+		return
+	}
+	taskID := t.ID
+	taskKeyID := t.KeyID
+	taskCopy := t.Clone()
+	s.mu.Unlock()
+
+	taskJSON, err := json.Marshal(taskCopy)
+	if err != nil {
+		return
+	}
+	s.enqueuePersist(taskID, taskJSON)
+	if s.hub != nil {
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+	}
+}
+
+func (s *MonitorService) applySummarizedGoal(id, goal string, atRun int) {
+	s.mu.Lock()
+	t, ok := s.tasks[id]
+	if !ok || t == nil {
+		s.mu.Unlock()
+		return
+	}
+	if !t.ApplyGoalSummary(goal, atRun) {
 		s.mu.Unlock()
 		return
 	}
