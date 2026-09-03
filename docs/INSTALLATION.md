@@ -27,7 +27,7 @@
   - 在 Cursor 内部直接分栏或在左侧活动栏查看 Agent Monitor 看板。
 
 ### 安装方法
-1. 从 Releases 下载 `agent-monitor-cursor-1.0.0.vsix`；
+1. 从 Releases 下载最新的 `agent-monitor-cursor-*.vsix`；
 2. 在 Cursor 中按 `⌘⇧P`，执行 `Extensions: Install from VSIX...` 并选择该文件；
 3. 或在终端运行：
    ```bash
