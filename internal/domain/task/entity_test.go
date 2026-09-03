@@ -606,7 +606,46 @@ func TestTask_SubagentHierarchyAndClone(t *testing.T) {
 		t.Fatalf("parent SubagentCount should stay 1, got %d", parent.SubagentCount)
 	}
 
-	// 5. Task.Clone() 深拷贝验证
+	// 5. 验证子任务自身继续派发二级子代理（多级嵌套），子任务自身的 SubagentCount 应正常递增为 1
+	child.ApplyEvent(EventPayload{
+		ID:           "child-task-200",
+		ParentID:     "parent-task-100",
+		Event:        "subagentStart",
+		Detail:       "子代理进一步派发 [Reviewer]: 审查并发竞态分析结果",
+		SubagentType: "Reviewer",
+		SubagentID:   "agent_reviewer_02",
+	}, 1030000, "10:03:00")
+
+	if child.SubagentCount != 1 {
+		t.Fatalf("hierarchical subagent: expected child SubagentCount 1, got %d", child.SubagentCount)
+	}
+
+	// 重复事件防抖判定，不重复计数
+	child.ApplyEvent(EventPayload{
+		ID:           "child-task-200",
+		ParentID:     "parent-task-100",
+		Event:        "subagentStart",
+		Detail:       "子代理进一步派发 [Reviewer]: 审查并发竞态分析结果",
+		SubagentType: "Reviewer",
+		SubagentID:   "agent_reviewer_02",
+	}, 1030000, "10:03:00")
+
+	if child.SubagentCount != 1 {
+		t.Fatalf("subagentCount idempotency: duplicate event should not increment, got %d", child.SubagentCount)
+	}
+
+	// 6. 验证常规工具事件不会篡改 Task.ParentID
+	parent.ApplyEvent(EventPayload{
+		ID:       "parent-task-100",
+		ParentID: "rogue-parent-id",
+		Event:    "beforeShellExecution",
+		Detail:   "npm test",
+	}, 1040000, "10:04:00")
+	if parent.ParentID != "" {
+		t.Fatalf("tool event must not overwrite empty ParentID on root task, got %q", parent.ParentID)
+	}
+
+	// 7. Task.Clone() 深拷贝验证
 	clone := parent.Clone()
 	if clone.SubagentCount != parent.SubagentCount || clone.ParentID != parent.ParentID {
 		t.Fatalf("clone failed on subagent fields")

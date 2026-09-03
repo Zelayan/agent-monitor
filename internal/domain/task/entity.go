@@ -133,7 +133,7 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	}
 
 	subCount := 0
-	if p.Event == "subagentStart" && p.ParentID == "" {
+	if p.Event == "subagentStart" {
 		subCount = 1
 	}
 
@@ -534,7 +534,7 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Prompt = p.Prompt
 	}
 
-	if p.ParentID != "" && t.ParentID == "" {
+	if p.ParentID != "" && t.ParentID == "" && (p.Event == "sessionStart" || p.Event == "beforeSubmitPrompt" || p.Event == "UserPromptSubmit") {
 		t.ParentID = p.ParentID
 	}
 
@@ -548,8 +548,8 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 	if shouldAppend {
-		// 仅在真实向外派发非重复子代理时递增（防重试抖动统计虚高）
-		if p.Event == "subagentStart" && p.ParentID == "" {
+		// 仅在真实向外派发非重复子代理时递增（支持多级嵌套子代理）
+		if p.Event == "subagentStart" {
 			t.SubagentCount++
 		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
