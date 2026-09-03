@@ -35,6 +35,8 @@ type Task struct {
 	Branch         string         `json:"branch"`                   // 分支名
 	Event          string         `json:"event"`                    // 最近一次事件名
 	RootGoal       string         `json:"rootGoal"`                 // 会话核心总目标（首轮 Prompt 原文，不随 LLM 改写）
+	GoalSummary    string         `json:"goalSummary,omitempty"`    // 多轮 LLM 会话总目标；空则 UI 回退 RootGoal
+	GoalSummaryRun int            `json:"goalSummaryRun,omitempty"` // GoalSummary 覆盖到的轮次，避免重复请求
 	Title          string         `json:"title"`                    // 会话容器展示标题（启发式短标题或 LLM 总结）
 	TitleSource    string         `json:"titleSource,omitempty"`    // 标题来源：heuristic | llm
 	Prompt         string         `json:"prompt,omitempty"`         // 首轮 Prompt（兼容字段）
