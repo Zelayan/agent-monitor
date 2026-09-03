@@ -15,12 +15,13 @@
   - 本地运行工作区 `.zcode/` 已被 `.gitignore` 忽略，禁止强制跟踪提交。
 - **保护 Git 历史**：严禁修改全局 git config；严禁 `--amend`、force push、hard reset，除非用户明确要求。
 - **主干保护（GitHub Flow）**：`master` 为默认可发布分支。功能与修复走 `feat/`、`fix/` 短命分支，通过 Pull Request 合入；禁止直推 `master`。合入默认 Squash merge。发版只打 `v*` tag，不另设长期 `dev` 分支。PR 必须通过 `.github/workflows/ci.yml` 的 `go test -race ./...`。
-- **多 Agent 并发铁律**（详见 [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md)）：
-  - 每个 Agent 使用独立 Git worktree 或 Cloud Agent，以及独立的 `feat/` / `fix/` 分支；禁止多个 Agent 同时写同一份 checkout。
-  - 从干净的 `origin/master` 拉分支；本机 `.cursor/hooks.json` 含绝对路径，已被 gitignore，禁止提交。
-  - 按 DDD 目录拆任务（`internal/domain`、`internal/reporter`、`extensions/cursor`、`docs/` 等），避免并行改同一份 `static/index.html` 或 `main.go` embed。
-  - 本机只跑一份 `agent-monitor`（默认 `:8000`）；Worktree 内不要再起守护进程。扩展任务才在对应 worktree 执行 `npm install`。
-  - 完成后在该分支 `git push -u origin HEAD` 并 `gh pr create`；有文件重叠的后合者 rebase `master` 再过 CI。
+- **多 Agent 并发与 GitHub Flow 铁律**（详见 [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md)）：
+  - **隔离工作区**：严禁多个 Agent 同时写入同一份 checkout；必须使用独立 Git worktree（`/worktree`）或 Cloud Agent（`/in-cloud`），且使用独立的 `feat/<topic>` 或 `fix/<topic>` 分支。
+  - **从干净主干拉分支**：从干净的 `origin/master` 拉分支；本机 `.cursor/hooks.json` 含绝对路径，已被 gitignore，严禁提交。
+  - **按 DDD 目录拆解任务**：按 DDD 目录拆任务（`internal/domain`、`internal/reporter`、`extensions/cursor`、`docs/` 等），避免并行修改同一份 `static/index.html` 或 `main.go` embed。
+  - **单例本地守护进程**：本机只跑一份 `agent-monitor`（默认 `:8000`）；Worktree 内严禁再起守护进程。扩展任务才在对应 worktree 执行 `npm install`。
+  - **提 PR 前本地自查自愈**：必须先运行 `go test -v -race ./...` 和本地 AI 审查（`make review` 或 `make pre-pr`），如发现严重问题（`[BLOCK]`）必须在本地修复并复核通过后，方可执行 `git push -u origin HEAD` 与 `gh pr create`。
+  - **严禁自动合并 PR**：Agent 在创建 PR 并输出 PR 链接后必须立刻停止。合并必须由用户审阅确认后执行，严禁未经用户明确授权调用 `gh pr merge`；有文件重叠的后合者 rebase `master` 再过 CI。
 
 ---
 

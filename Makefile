@@ -48,6 +48,27 @@ build-all: clean
 test:
 	go test -v -race ./...
 
+# 本地代码智能审查（对比 master 或未提交更改）
+review:
+	@python3 scripts/ai_reviewer.py --local
+
+# 本地严格代码审查（若有 BLOCK 阻断问题退出码为 1）
+review-strict:
+	@python3 scripts/ai_reviewer.py --local --strict
+
+# 提 PR 前的一键自动化质检闭环：跑测试 + 严格本地 AI 审查
+pre-pr: test review-strict
+	@echo "✓ All pre-PR checks and local AI reviews passed cleanly. Ready to create PR."
+
+# 安装可选的 git pre-push hook（推送前自动执行本地 review）
+install-hooks:
+	@mkdir -p .git/hooks
+	@echo '#!/bin/sh' > .git/hooks/pre-push
+	@echo 'echo "==> Running pre-push AI code review..."' >> .git/hooks/pre-push
+	@echo 'python3 scripts/ai_reviewer.py --local --strict' >> .git/hooks/pre-push
+	@chmod +x .git/hooks/pre-push
+	@echo "✓ Installed git pre-push hook at .git/hooks/pre-push"
+
 extension:
 	@echo "Building Cursor / VS Code extension..."
 	cd extensions/cursor && npm run build

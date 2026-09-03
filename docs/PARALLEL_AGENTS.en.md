@@ -23,7 +23,7 @@ When Cursor creates a worktree it reads [`.cursor/worktrees.json`](../.cursor/wo
 
 1. Move the Agent into a Worktree from the Agents Window, or use `/worktree` in chat.
 2. Confirm the checkout is not the main workspace and is on its own `feat/` / `fix/` branch.
-3. Commit inside that worktree, then:
+3. Commit inside that worktree, run `make pre-pr` (unit tests + local AI Review) to ensure no blocking issues, then:
 
 ```bash
 git push -u origin HEAD
