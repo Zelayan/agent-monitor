@@ -1,6 +1,7 @@
 package task
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -91,6 +92,31 @@ func TestTask_LifecycleAndDomainRules(t *testing.T) {
 	if task.Runs[1].Title != "继续执行单元测试" {
 		t.Errorf("expected run 2 title '继续执行单元测试', got %q", task.Runs[1].Title)
 	}
+	if task.Title != "继续执行单元测试" {
+		t.Errorf("expected session Title to follow latest prompt, got %q", task.Title)
+	}
+	if task.RootGoal != p2.Prompt {
+		t.Errorf("RootGoal must stay first-round prompt, got %q", task.RootGoal)
+	}
+
+	summarized := "DDD 重构并补齐单测"
+	if !task.ApplyDisplayTitle(summarized) {
+		t.Fatal("ApplyDisplayTitle should accept a real summary")
+	}
+	if task.Title != summarized || task.TitleSource != "llm" {
+		t.Errorf("ApplyDisplayTitle = title=%q source=%q", task.Title, task.TitleSource)
+	}
+	if task.RootGoal != p2.Prompt {
+		t.Errorf("ApplyDisplayTitle must not rewrite RootGoal, got %q", task.RootGoal)
+	}
+
+	task.refreshHeuristicTitle("这条启发式不应覆盖 LLM 标题")
+	if task.Title != summarized {
+		t.Errorf("LLM title must not be overwritten by heuristic, got %q", task.Title)
+	}
+	if task.ApplyDisplayTitle("") || task.ApplyDisplayTitle("ZCode 任务") {
+		t.Error("ApplyDisplayTitle must reject empty/placeholder titles")
+	}
 
 	// 5. Test transient tool failure (should NOT terminate task)
 	pFail := EventPayload{
@@ -112,6 +138,29 @@ func TestTask_LifecycleAndDomainRules(t *testing.T) {
 	clone.Runs[0].Title = "Modified in clone"
 	if task.Runs[0].Title == "Modified in clone" {
 		t.Fatalf("clone was not a deep copy")
+	}
+}
+
+func TestTask_ApplyDisplayTitleSanitizes(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "sess-title-sanitize",
+		Agent:  "ZCode",
+		Event:  "SessionStart",
+		Prompt: "#task 原始长提示词\n第二行",
+	}, 1000000)
+
+	if !task.ApplyDisplayTitle("「会话标题总结」\n后面这行应丢弃") {
+		t.Fatal("expected sanitized title to apply")
+	}
+	if task.Title != "会话标题总结" {
+		t.Errorf("sanitized title = %q", task.Title)
+	}
+	long := strings.Repeat("标", 80)
+	if !task.ApplyDisplayTitle(long) {
+		t.Fatal("expected long title to truncate")
+	}
+	if got := []rune(task.Title); len(got) != 48 {
+		t.Errorf("expected 48 runes, got %d", len(got))
 	}
 }
 
@@ -176,10 +225,10 @@ func TestTask_AfterAgentResponseClosesRunWithoutStop(t *testing.T) {
 		Prompt: "是不是需要支持只统计指定会话和任务呢？",
 	}, 1000000)
 	task.ApplyEvent(EventPayload{
-		ID:        "sess-ai-only",
-		Event:     "sessionStart",
-		Prompt:    "是不是需要支持只统计指定会话和任务呢？",
-		Detail:    "会话启动，分析任务中...",
+		ID:     "sess-ai-only",
+		Event:  "sessionStart",
+		Prompt: "是不是需要支持只统计指定会话和任务呢？",
+		Detail: "会话启动，分析任务中...",
 	}, 1000000, "02:21:14")
 
 	task.ApplyEvent(EventPayload{

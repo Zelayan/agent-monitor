@@ -835,6 +835,14 @@
       }];
     }
 
+    function sessionDisplayTitle(task) {
+      const title = String((task && task.title) || '').trim();
+      if (title) return title;
+      const goal = String((task && task.rootGoal) || '').trim();
+      if (!goal) return 'untitled workflow';
+      return goal.split('\n').map((l) => l.trim()).find(Boolean) || 'untitled workflow';
+    }
+
     function repoLabel(tObj) {
       const repo = tObj.repo || 'workspace';
       if (tObj.branch && !String(repo).includes(tObj.branch) && !String(repo).includes(':')) {
@@ -965,7 +973,7 @@
 
           <!-- 会话主体根目标 -->
           <h3 class="text-[13px] font-medium text-zinc-100 line-clamp-1 mb-1 leading-snug break-words">
-            ${esc(tObj.rootGoal || tObj.title || 'untitled workflow')}
+            ${esc(sessionDisplayTitle(tObj))}
           </h3>
 
           <!-- 微型刻度条 Sparkline -->
@@ -1342,7 +1350,7 @@
       document.getElementById('drawer-agent').innerHTML = agentBadge(task.agent);
       document.getElementById('drawer-repo').textContent = repoLabel(task);
       document.getElementById('drawer-runs-badge').innerText = `${runs.length} Runs`;
-      document.getElementById('drawer-root-title').textContent = task.rootGoal || task.title || 'untitled workflow';
+      document.getElementById('drawer-root-title').textContent = sessionDisplayTitle(task);
       document.getElementById('drawer-session-id').innerText = `ID: ${task.id}`;
       const isTaskRunning = task.status === 'running';
       const curTaskRunSec = isTaskRunning && task.activeRunStart ? Math.max(0, Math.floor((Date.now() - task.activeRunStart) / 1000)) : 0;
@@ -1460,7 +1468,7 @@
       const title = isCompleted
         ? `✓ [${agentName}] ${t('notifyCompleted')}`
         : `✕ [${agentName}] ${t('notifyFailed')}`;
-      const body = task.rootGoal || task.title || (isCompleted ? t('notifyCompletedBody') : t('notifyFailedBody'));
+      const body = sessionDisplayTitle(task) || (isCompleted ? t('notifyCompletedBody') : t('notifyFailedBody'));
 
       try {
         const notification = new Notification(title, {
@@ -1919,7 +1927,8 @@
     function generateMarkdownSession(task) {
       const runs = getTaskRuns(task);
       const exportDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
-      const title = task.rootGoal || task.title || 'Untitled Session';
+      const title = sessionDisplayTitle(task);
+      const rootGoal = (task.rootGoal || task.prompt || title).trim();
 
       let md = `# Agent Session Report: ${title}\n\n`;
       md += `> **Export Time**: ${exportDate}  \n`;
@@ -1928,7 +1937,7 @@
       md += `> **Repository**: \`${repoLabel(task)}\`  \n`;
       md += `> **Total Lifetime**: \`${formatSec(task.totalLifetime || 0)}\` | **Total Runs**: \`${runs.length}\`\n\n`;
       md += `---\n\n## 📋 Session Overview\n\n`;
-      md += `**Root Objective:**\n> ${title}\n\n`;
+      md += `**Root Objective:**\n> ${rootGoal}\n\n`;
 
       md += `### Run History\n`;
       md += `| Run # | Status | Duration | Objective |\n`;

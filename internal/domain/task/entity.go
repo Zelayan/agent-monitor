@@ -34,8 +34,9 @@ type Task struct {
 	Repo           string         `json:"repo"`                     // 仓库名与分支
 	Branch         string         `json:"branch"`                   // 分支名
 	Event          string         `json:"event"`                    // 最近一次事件名
-	RootGoal       string         `json:"rootGoal"`                 // 会话核心总目标（首轮 Prompt）
-	Title          string         `json:"title"`                    // 主标题（兼容字段）
+	RootGoal       string         `json:"rootGoal"`                 // 会话核心总目标（首轮 Prompt 原文，不随 LLM 改写）
+	Title          string         `json:"title"`                    // 会话容器展示标题（启发式短标题或 LLM 总结）
+	TitleSource    string         `json:"titleSource,omitempty"`    // 标题来源：heuristic | llm
 	Prompt         string         `json:"prompt,omitempty"`         // 首轮 Prompt（兼容字段）
 	Status         string         `json:"status"`                   // 全局状态：running / completed / failed
 	StartTime      int64          `json:"startTime"`                // 会话总创建时间戳（毫秒）
@@ -121,105 +122,105 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		Timeline:  make([]TimelineItem, 0),
 	}
 
-		task := &Task{
-			ID:             p.ID,
-			Agent:          p.Agent,
-			Repo:           p.Repo,
-			Branch:         p.Branch,
-			RootGoal:       rootGoal,
-			Title:          title,
-			Prompt:         p.Prompt,
-			Status:         "running",
-			StartTime:      nowMs,
-			ActiveRunStart: nowMs,
-			ActiveRunIndex: 1,
-			TotalRuns:      1,
-			Runs:           []Turn{firstTurn},
-			LastHook:       p.Event,
-			Detail:         p.Detail,
-			PID:            p.PID,
-			PGID:           p.PGID,
-			KeyID:          p.KeyID,
-		}
-
-		return task
+	task := &Task{
+		ID:             p.ID,
+		Agent:          p.Agent,
+		Repo:           p.Repo,
+		Branch:         p.Branch,
+		RootGoal:       rootGoal,
+		Title:          title,
+		Prompt:         p.Prompt,
+		Status:         "running",
+		StartTime:      nowMs,
+		ActiveRunStart: nowMs,
+		ActiveRunIndex: 1,
+		TotalRuns:      1,
+		Runs:           []Turn{firstTurn},
+		LastHook:       p.Event,
+		Detail:         p.Detail,
+		PID:            p.PID,
+		PGID:           p.PGID,
+		KeyID:          p.KeyID,
 	}
 
-	// RequestAbort 标记当前会话请求中断。
-	func (t *Task) RequestAbort(reason string, nowMs int64, nowStr string) {
-		if t.Status == "completed" || t.Status == "failed" {
-			return
-		}
-		t.ControlState = "abort_requested"
-		t.Version++
-		if reason == "" {
-			reason = "用户从 Web 看板请求中断会话"
-		}
-		t.AbortReason = reason
-		t.Detail = "用户请求中断中..."
-		if len(t.Runs) > 0 {
-			curRun := &t.Runs[len(t.Runs)-1]
-			curRun.Detail = "用户请求中断中..."
-			curRun.Timeline = append(curRun.Timeline, TimelineItem{
-				Time:  nowStr,
-				Event: "abortRequested",
-				Desc:  reason,
-			})
-		}
-	}
+	return task
+}
 
-	// MarkAborted 当拦截器成功阻断 Agent 或收到终止收口时，将任务标记为中断终态。
-	func (t *Task) MarkAborted(reason string, nowMs int64, nowStr string) {
-		t.ControlState = "aborted"
-		t.Version++
-		if reason == "" {
-			reason = "会话已被用户成功中断"
-		}
-		t.AbortReason = reason
-		if len(t.Runs) > 0 {
-			curRun := &t.Runs[len(t.Runs)-1]
-			curRun.closeAs("failed", nowMs)
-			curRun.Detail = reason
-			curRun.Timeline = append(curRun.Timeline, TimelineItem{
-				Time:  nowStr,
-				Event: "aborted",
-				Desc:  reason,
-			})
-		}
-		t.Status = "failed"
-		t.EndTime = nowMs
-		t.Detail = reason
-		t.recountLifetime()
+// RequestAbort 标记当前会话请求中断。
+func (t *Task) RequestAbort(reason string, nowMs int64, nowStr string) {
+	if t.Status == "completed" || t.Status == "failed" {
+		return
 	}
+	t.ControlState = "abort_requested"
+	t.Version++
+	if reason == "" {
+		reason = "用户从 Web 看板请求中断会话"
+	}
+	t.AbortReason = reason
+	t.Detail = "用户请求中断中..."
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.Detail = "用户请求中断中..."
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "abortRequested",
+			Desc:  reason,
+		})
+	}
+}
 
-	// MarkKilled 标记当前会话已被进程级强杀。
-	func (t *Task) MarkKilled(reason string, nowMs int64, nowStr string) {
-		t.ControlState = "killed"
-		t.Version++
-		if reason == "" {
-			reason = "会话已被用户强制强杀 (SIGTERM/SIGKILL)"
-		}
-		t.AbortReason = reason
-		t.Status = "failed"
-		t.EndTime = nowMs
-		t.Detail = reason
-		if len(t.Runs) > 0 {
-			curRun := &t.Runs[len(t.Runs)-1]
-			curRun.closeAs("failed", nowMs)
-			curRun.Detail = reason
-			curRun.Timeline = append(curRun.Timeline, TimelineItem{
-				Time:  nowStr,
-				Event: "killed",
-				Desc:  reason,
-			})
-		}
-		t.recountLifetime()
+// MarkAborted 当拦截器成功阻断 Agent 或收到终止收口时，将任务标记为中断终态。
+func (t *Task) MarkAborted(reason string, nowMs int64, nowStr string) {
+	t.ControlState = "aborted"
+	t.Version++
+	if reason == "" {
+		reason = "会话已被用户成功中断"
 	}
+	t.AbortReason = reason
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.closeAs("failed", nowMs)
+		curRun.Detail = reason
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "aborted",
+			Desc:  reason,
+		})
+	}
+	t.Status = "failed"
+	t.EndTime = nowMs
+	t.Detail = reason
+	t.recountLifetime()
+}
 
-	// IsAbortRequested 检查是否处于请求中断状态。
-	func (t *Task) IsAbortRequested() bool {
-		return t.ControlState == "abort_requested"
+// MarkKilled 标记当前会话已被进程级强杀。
+func (t *Task) MarkKilled(reason string, nowMs int64, nowStr string) {
+	t.ControlState = "killed"
+	t.Version++
+	if reason == "" {
+		reason = "会话已被用户强制强杀 (SIGTERM/SIGKILL)"
 	}
+	t.AbortReason = reason
+	t.Status = "failed"
+	t.EndTime = nowMs
+	t.Detail = reason
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.closeAs("failed", nowMs)
+		curRun.Detail = reason
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "killed",
+			Desc:  reason,
+		})
+	}
+	t.recountLifetime()
+}
+
+// IsAbortRequested 检查是否处于请求中断状态。
+func (t *Task) IsAbortRequested() bool {
+	return t.ControlState == "abort_requested"
+}
 
 // IsStartHook 判断事件是否为一轮对话的开端（新 Prompt / 会话启动）。
 func IsStartHook(event string) bool {
@@ -383,6 +384,7 @@ func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
 	t.ActiveRunIndex = newIdx
 	t.ActiveRunStart = nowMs
 	t.Status = "running"
+	t.refreshHeuristicTitle(newTitle)
 }
 
 // ApplyEvent 将 Hook 上报事件应用到当前 Task 聚合根并更新状态机。
@@ -409,7 +411,7 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		curRun.Title = CleanPromptTitle(p.Prompt)
 	}
 
-	// 动态覆写 Task 容器级别的 RootGoal、Title 与 Prompt（当初始创建时为占位符时）
+	// RootGoal 仅在仍为占位时写入首轮 Prompt 原文，后续轮次与 LLM 均不得改写。
 	if IsPlaceholderTitle(t.RootGoal) || t.RootGoal == "" || t.RootGoal == PlaceholderTitle(t.Agent) {
 		if p.Prompt != "" {
 			t.RootGoal = p.Prompt
@@ -417,13 +419,11 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 			t.RootGoal = p.Title
 		}
 	}
-	if IsPlaceholderTitle(t.Title) || t.Title == "" {
-		if IsRealTitle(p.Title) {
-			t.Title = p.Title
-		} else if p.Prompt != "" {
-			t.Title = CleanPromptTitle(p.Prompt)
-		}
+	heuristic := p.Title
+	if !IsRealTitle(heuristic) && p.Prompt != "" {
+		heuristic = CleanPromptTitle(p.Prompt)
 	}
+	t.refreshHeuristicTitle(heuristic)
 	if t.Prompt == "" && p.Prompt != "" {
 		t.Prompt = p.Prompt
 	}
@@ -475,20 +475,20 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 
-		t.LastHook = p.Event
-		t.Detail = p.Detail
-		if p.PID > 0 {
-			t.PID = p.PID
-		}
-		if p.PGID > 0 {
-			t.PGID = p.PGID
-		}
-		if p.KeyID != "" {
-			t.KeyID = p.KeyID
-		}
-		t.Version++
-		t.Turns = t.Runs             // 兼容 turns 别名
-		t.Timeline = curRun.Timeline // 兼容顶层 timeline
+	t.LastHook = p.Event
+	t.Detail = p.Detail
+	if p.PID > 0 {
+		t.PID = p.PID
+	}
+	if p.PGID > 0 {
+		t.PGID = p.PGID
+	}
+	if p.KeyID != "" {
+		t.KeyID = p.KeyID
+	}
+	t.Version++
+	t.Turns = t.Runs             // 兼容 turns 别名
+	t.Timeline = curRun.Timeline // 兼容顶层 timeline
 }
 
 // Clone 返回当前 Task 聚合根的独立深拷贝副本，确保并发安全。

@@ -80,6 +80,7 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 - **🔔 桌面原生通知（Web Notifications）**：任务从运行到完成或异常中断时向操作系统发送原生桌面弹窗，点击即可快速唤起并展开该任务详情。
 - **🔒 多项目 Key 命名空间隔离与鉴权**：支持配置多项目独立 Key (`AGENT_MONITOR_API_KEYS`) 与全局管理员 `Master Key`，实现项目间数据流与操作权限的严格物理隔离。
 - **⏱️ 多轮 Run 会话矩阵（Multi-Turn Timeline）**：自动聚合单会话内的多轮交互，按轮次隔离耗时，清晰还原工具调用（Bash、Edit、Read 等）的完整树状轨迹。
+- **🧾 会话短标题（可选 LLM 总结）**：卡片默认展示清洗后的短标题；配置 OpenAI 兼容接口后，每轮收口会异步总结多轮内容并刷新容器标题（未配置时零网络、原文 RootGoal 不变）。
 - **🔍 智能多 Agent 动态嗅探**：首发深度适配 **Cursor**、**ZCode** 与 **Codex (CLI / Desktop)** 全生命周期 Hook，自动推断运行环境；其他 Agent（Claude Code、Aider 等）持续待适配中。
 
 ---
