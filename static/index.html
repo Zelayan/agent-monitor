@@ -444,7 +444,7 @@
         </span>
         <div class="flex items-center gap-2">
           <button id="drawer-dag-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
-            × Reset Filter
+            × <span id="lbl-drawer-dag-reset">Reset Filter</span>
           </button>
           <span id="drawer-dag-nodes-count" class="text-zinc-500 font-mono text-[10px]"></span>
         </div>
@@ -698,6 +698,11 @@
         focusBrowserFallback: '已在外部浏览器打开。会话信息已复制到剪贴板，请切回 Cursor 查看。',
         subagentTag: 'SUBAGENT',
         subagentsBadge: '{n} 个子代理',
+        resetFilter: '重置筛选',
+        subagentExecuting: '子代理执行中...',
+        filteredPrefix: '已筛选: ',
+        rootWorkflow: '根工作流',
+        dagTitle: '子智能体拓扑网络',
       },
       en: {
         htmlLang: 'en',
@@ -790,6 +795,11 @@
         focusBrowserFallback: 'Opened in browser. Session info copied to clipboard, switch to Cursor to view.',
         subagentTag: 'SUBAGENT',
         subagentsBadge: '{n} subagents',
+        resetFilter: 'Reset Filter',
+        subagentExecuting: 'subagent executing...',
+        filteredPrefix: 'Filtered: ',
+        rootWorkflow: 'ROOT WORKFLOW',
+        dagTitle: 'TOPOLOGY & SUBAGENTS',
       },
     };
 
@@ -901,6 +911,10 @@
       if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = isRunning ? t('drawerSteerPlaceholder') : t('drawerFollowUpPlaceholder');
       const btnSteerEl = document.getElementById('btn-drawer-steer');
       if (btnSteerEl) btnSteerEl.textContent = isRunning ? t('btnSteer') : t('btnFollowUp');
+      const lblDagTitle = document.getElementById('lbl-drawer-dag-title');
+      if (lblDagTitle) lblDagTitle.textContent = t('dagTitle');
+      const lblDagReset = document.getElementById('lbl-drawer-dag-reset');
+      if (lblDagReset) lblDagReset.textContent = t('resetFilter');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1124,7 +1138,7 @@
             <span class="text-zinc-600 font-mono text-[9px] shrink-0 tabular-nums ml-2">${esc(cObj.id)}</span>
           </div>
           <div class="text-zinc-400 text-[11px] mb-1.5 line-clamp-1 font-sans">
-            ${esc(cObj.detail || '(subagent executing...)')}
+            ${esc(cObj.detail || t('subagentExecuting'))}
           </div>
           <div class="flex items-center justify-between font-mono text-[9px] text-zinc-500 pt-1 border-t border-[#191a1e]">
             <span class="flex items-center gap-1 ${isRunning ? 'text-amber-400 font-medium' : 'text-zinc-400'}">
@@ -1211,10 +1225,10 @@
         </div>` : '';
 
       const abortBtnHTML = isRunning ? `
-        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')\"
-          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}\"
+        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
+          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
-          title=\"${isAborting ? t('statusAborting') : t('confirmAbort')}\">
+          title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
           ${isAborting ? t('statusAborting') : t('btnAbort')}
         </button>
       ` : '';
@@ -1626,7 +1640,7 @@
       if (activeTraceSubagentFilter) {
         events = events.filter(e => e.subagentId === activeTraceSubagentFilter || e.subagentType === activeTraceSubagentFilter || (e.desc && e.desc.includes(activeTraceSubagentFilter)));
       }
-      const filterBadge = activeTraceSubagentFilter ? ` (Filtered: ${esc(activeTraceSubagentFilter)})` : '';
+      const filterBadge = activeTraceSubagentFilter ? ` (${t('filteredPrefix')}${esc(activeTraceSubagentFilter)})` : '';
       document.getElementById('run-detail-event-count').innerText = `${events.length} events${filterBadge}`;
 
       const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
@@ -1738,7 +1752,8 @@
       const cardH = 46;
       const gapX = 16;
       const totalChildrenW = allChildren.length * cardW + (allChildren.length - 1) * gapX;
-      const svgW = Math.max(520, totalChildrenW + 40);
+      const containerW = (svgWrapper.clientWidth && svgWrapper.clientWidth > 40) ? (svgWrapper.clientWidth - 20) : 520;
+      const svgW = Math.max(containerW, totalChildrenW + 40);
       const svgH = 150;
 
       const rootW = 180;
@@ -1762,7 +1777,7 @@
           <circle cx="${rootX + 14}" cy="${rootY + rootH/2}" r="3.5" fill="${rootColor}">
             ${isRootRunning ? '<animate attributeName="opacity" values="1;0.4;1" dur="1.2s" repeatCount="indefinite"/>' : ''}
           </circle>
-          <text x="${rootX + 24}" y="${rootY + 16}" font-family="monospace" font-size="9" fill="#a1a1aa" font-weight="600">ROOT WORKFLOW</text>
+          <text x="${rootX + 24}" y="${rootY + 16}" font-family="monospace" font-size="9" fill="#a1a1aa" font-weight="600">${esc(t('rootWorkflow'))}</text>
           <text x="${rootX + 24}" y="${rootY + 30}" font-family="sans-serif" font-size="11" fill="#f4f4f5" font-weight="500">
             ${esc(sessionDisplayTitle(task)).substring(0, 16)}...
           </text>
