@@ -654,51 +654,9 @@ func TestSafeSessionFilename(t *testing.T) {
 		t.Fatalf("filename %q exceeds safe length bounds: %d", base2, len(base2))
 	}
 
-		// 4. 幂等性：同一 sessionID 多次生成必须一致
-		f3 := safeSessionFilename(dirtyID, "test-file", ".json")
-		if f1 != f3 {
-			t.Fatalf("safeSessionFilename must be deterministic, got %q vs %q", f1, f3)
-		}
-	}
-
-func TestSubagentRecognition(t *testing.T) {
-	// 1. isAgentTool 检测
-	if !isAgentTool("Agent") || !isAgentTool("agent") || !isAgentTool("spawn_subagent") || !isAgentTool("subagent") {
-		t.Fatalf("expected Agent tools to be recognized as agent tools")
-	}
-	if isAgentTool("Bash") || isAgentTool("read_file") {
-		t.Fatalf("non-agent tools should not be recognized as agent tool")
-	}
-
-	// 2. extractSubagentMetadata 提取
-	p := Payload{
-		ToolName:  "Agent",
-		ToolInput: json.RawMessage(`{"subagent_type":"Explore","description":"检索领域并发竞态","prompt":"check race"}`),
-		ParentID:  "parent-sess-001",
-	}
-	subType, _, desc := extractSubagentMetadata(p)
-	if subType != "Explore" {
-		t.Errorf("expected subagent_type Explore, got %s", subType)
-	}
-	if desc != "检索领域并发竞态" {
-		t.Errorf("expected description '检索领域并发竞态', got %s", desc)
-	}
-
-	// 3. ExtractDetail 格式化
-	detail := ExtractDetail(p, "PreToolUse", "Agent", false)
-	if !strings.Contains(detail, "派发子智能体 [Explore]") || !strings.Contains(detail, "检索领域并发竞态") {
-		t.Errorf("unexpected detail: %s", detail)
-	}
-
-	// 4. MapHookEvent 映射为 subagentStart
-	evt := MapHookEvent("PreToolUse", "Agent", p)
-	if evt != "subagentStart" {
-		t.Errorf("expected PreToolUse + Agent mapped to subagentStart, got %s", evt)
-	}
-
-	// 5. extractParentID 提取
-	parentID := extractParentID(p)
-	if parentID != "parent-sess-001" {
-		t.Errorf("expected parent_id parent-sess-001, got %s", parentID)
+	// 4. 幂等性：同一 sessionID 多次生成必须一致
+	f3 := safeSessionFilename(dirtyID, "test-file", ".json")
+	if f1 != f3 {
+		t.Fatalf("safeSessionFilename must be deterministic, got %q vs %q", f1, f3)
 	}
 }

@@ -674,8 +674,6 @@
         drawerFollowUpCopied: '追问内容已复制到剪贴板，请切回 Cursor 粘贴发送',
         btnFollowUp: '追问',
         focusBrowserFallback: '已在外部浏览器打开。会话信息已复制到剪贴板，请切回 Cursor 查看。',
-        subagentTag: 'SUBAGENT',
-        subagentsBadge: '{n} 个子代理',
       },
       en: {
         htmlLang: 'en',
@@ -766,8 +764,6 @@
         drawerFollowUpCopied: 'Copied to clipboard! Switch to Cursor and paste.',
         btnFollowUp: 'Follow-up',
         focusBrowserFallback: 'Opened in browser. Session info copied to clipboard, switch to Cursor to view.',
-        subagentTag: 'SUBAGENT',
-        subagentsBadge: '{n} subagents',
       },
     };
 
@@ -1129,13 +1125,6 @@
         <span class="inline-flex items-center px-1.5 py-0.5 rounded border border-indigo-900/60 bg-indigo-950/40 font-mono text-[9px] text-indigo-300 font-medium">📁 ${esc(tObj.keyId)}</span>
       ` : '';
 
-      const subagentBadgeHTML = (tObj.subagentCount && tObj.subagentCount > 0) ? `
-        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-900/60 bg-purple-950/40 font-mono text-[9px] text-purple-300 font-medium shrink-0" title="${esc(t('subagentsBadge').replace('{n}', tObj.subagentCount))}">
-          <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          <span>${tObj.subagentCount}</span>
-        </span>
-      ` : '';
-
       return `
         <article class="task-card cursor-pointer bg-card border border-line border-l-2 ${accent} ${selectBorder} p-3 rounded text-[13px] relative"
           data-task-id="${esc(tObj.id)}" role="button" tabindex="0">
@@ -1144,7 +1133,6 @@
             <div class="flex items-center gap-1.5 min-w-0">
               ${checkboxHTML}
               ${agentBadge(tObj.agent)}
-              ${subagentBadgeHTML}
               ${keyBadgeHTML}
             </div>
             <div class="flex items-center gap-1.5 min-w-0">
@@ -1497,10 +1485,7 @@
         breadcrumbBox.innerHTML = events.map(e => {
           let tagClass = 'text-zinc-400 bg-zinc-800/80 border-zinc-700/60';
           let tagText = e.event || 'EVENT';
-          if (e.event === 'subagentStart' || e.event === 'subagentStop' || e.event === 'subagent' || e.subagentType) {
-            tagClass = 'text-purple-300 bg-purple-950/60 border-purple-800/60';
-            tagText = t('subagentTag');
-          } else if (e.event === 'beforeShellExecution') {
+          if (e.event === 'beforeShellExecution') {
             tagClass = 'text-indigo-300 bg-indigo-950/60 border-indigo-800/60';
             tagText = 'EXEC';
           } else if (e.event === 'toolUse') {
@@ -1520,15 +1505,10 @@
             tagText = 'FAIL';
           }
 
-          const subTypeBadge = e.subagentType ? `
-            <span class="font-mono text-[9px] px-1 py-0.5 rounded bg-purple-950/40 text-purple-300 border border-purple-800/40 font-semibold uppercase">${esc(e.subagentType)}</span>
-          ` : '';
-
           return `
             <div class="flex items-start justify-between text-zinc-400 bg-[#09090b] px-2.5 py-1.5 rounded border border-[#1e1e22]">
               <div class="min-w-0 pr-2 flex items-baseline gap-1.5">
                 <span class="font-mono text-[9px] px-1 py-0.5 rounded border font-semibold ${tagClass}">${esc(tagText)}</span>
-                ${subTypeBadge}
                 <span class="text-zinc-300 text-xs break-all">${esc(e.desc || '—')}</span>
               </div>
               <span class="text-[10px] text-zinc-600 font-mono shrink-0 tabular-nums">${esc(e.time || '--:--:--')}</span>
