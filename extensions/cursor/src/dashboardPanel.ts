@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { DaemonManager } from './daemonManager';
+import { CursorBridge } from './cursorBridge';
 
 export class DashboardPanel {
   public static currentPanel: DashboardPanel | undefined;
@@ -9,6 +10,11 @@ export class DashboardPanel {
   private constructor(panel: vscode.WebviewPanel, private daemonManager: DaemonManager) {
     this.panel = panel;
     this.update();
+    this.panel.webview.onDidReceiveMessage(
+      (message) => CursorBridge.handleMessage(message),
+      null,
+      this.disposables
+    );
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
   }
 
@@ -62,6 +68,14 @@ export class DashboardPanel {
       </head>
       <body>
         <iframe src="${serverUrl}" allow="clipboard-read; clipboard-write"></iframe>
+        <script>
+          const vscode = acquireVsCodeApi();
+          window.addEventListener('message', (event) => {
+            if (event.data && event.data.source === 'agent-monitor-web') {
+              vscode.postMessage(event.data);
+            }
+          });
+        </script>
       </body>
       </html>
     `;
@@ -91,6 +105,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
     };
 
+    webviewView.webview.onDidReceiveMessage((message) => {
+      CursorBridge.handleMessage(message);
+    });
+
     const serverUrl = this.daemonManager.getServerUrl();
     webviewView.webview.html = `
       <!DOCTYPE html>
@@ -117,6 +135,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       </head>
       <body>
         <iframe src="${serverUrl}" allow="clipboard-read; clipboard-write"></iframe>
+        <script>
+          const vscode = acquireVsCodeApi();
+          window.addEventListener('message', (event) => {
+            if (event.data && event.data.source === 'agent-monitor-web') {
+              vscode.postMessage(event.data);
+            }
+          });
+        </script>
       </body>
       </html>
     `;
