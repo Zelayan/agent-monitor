@@ -41,6 +41,13 @@
   <p align="center">
     <img src="docs/images/drawer.png" alt="AGENT MONITOR drawer multi-turn timeline" width="90%">
   </p>
+  <p align="center"><b>Multi-Agent Topology</b>: collapsible hierarchy tree on board and native SVG DAG flowchart in drawer</p>
+  <p align="center">
+    <img src="docs/images/subagent-tree.png" alt="Multi-Agent Collapsible Hierarchy Tree on Board" width="90%">
+  </p>
+  <p align="center">
+    <img src="docs/images/subagent-dag.png" alt="Native SVG DAG Topology Flowchart in Drawer" width="90%">
+  </p>
 </details>
 
 ---

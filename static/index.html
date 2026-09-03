@@ -432,6 +432,28 @@
       </div>
     </div>
 
+    <!-- 核心可视化：Multi-Agent 拓扑流向图 (TOPOLOGY & SUBAGENTS DAG) -->
+    <div id="drawer-dag-section" class="mt-3 sm:mt-4 p-2.5 bg-[#0e0f13] border border-purple-900/40 rounded-md hidden">
+      <div class="flex items-center justify-between font-mono text-[10px] text-zinc-400 mb-2">
+        <span class="flex items-center gap-1.5 text-purple-300 font-semibold tracking-wider">
+          <svg class="w-3.5 h-3.5 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+          </svg>
+          <span id="lbl-drawer-dag-title">TOPOLOGY & SUBAGENTS</span>
+        </span>
+        <div class="flex items-center gap-2">
+          <button id="drawer-dag-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
+            × Reset Filter
+          </button>
+          <span id="drawer-dag-nodes-count" class="text-zinc-500 font-mono text-[10px]"></span>
+        </div>
+      </div>
+      <div id="drawer-dag-svg-wrapper" class="w-full overflow-x-auto overflow-y-hidden rounded bg-[#09090b] border border-[#1e1e24] p-2 min-h-[140px] flex items-center justify-center">
+        <!-- 动态渲染的 SVG DAG 拓扑流向图 -->
+      </div>
+    </div>
+
     <!-- 工业级核心组件：Run 步进器与自定义下拉切换器 (Linear/Sentry Run Switcher) -->
     <div class="mt-3 sm:mt-4 flex flex-wrap sm:flex-nowrap items-center justify-between gap-2 bg-card border border-line p-2 rounded-md">
       <div class="flex items-center justify-between sm:justify-start gap-1.5 w-full sm:w-auto">
@@ -775,6 +797,8 @@
     let isWidescreen = false;
     let isSelectMode = false;
     const selectedTaskIds = new Set();
+    const expandedSubagentParents = new Set();
+    let activeTraceSubagentFilter = null;
 
     const tasksMap = new Map();
     let query = '';
@@ -1070,7 +1094,77 @@
         </div>`;
     }
 
-    function cardHTML(tObj) {
+    function toggleSubagents(parentId) {
+      if (expandedSubagentParents.has(parentId)) {
+        expandedSubagentParents.delete(parentId);
+      } else {
+        expandedSubagentParents.add(parentId);
+      }
+      scheduleRender();
+    }
+
+    function childCardHTML(cObj) {
+      const isRunning = cObj.status === 'running';
+      const isSelected = selectedTaskIds.has(cObj.id);
+      const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
+      const accent = isRunning ? 'border-l-amber-500' : (cObj.status === 'completed' ? 'border-l-purple-500' : 'border-l-rose-500');
+      const roleLabel = cObj.subagentType ? cObj.subagentType.toUpperCase() : 'SUBAGENT';
+      const curRunSec = isRunning && cObj.activeRunStart ? Math.max(0, Math.floor((Date.now() - cObj.activeRunStart) / 1000)) : (cObj.totalLifetime || 0);
+
+      return `
+        <article class="task-card subagent-card cursor-pointer bg-[#0e0f13] hover:bg-[#13141a] border border-[#23242a] border-l-2 ${accent} ${selectBorder} p-2.5 rounded text-[12px] relative transition-colors shadow-sm"
+          data-task-id="${esc(cObj.id)}" role="button" tabindex="0">
+          <div class="flex items-center justify-between font-mono text-[10px] mb-1">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-800/70 font-semibold font-mono text-[9px] uppercase tracking-wider shrink-0">
+                ↳ ${esc(roleLabel)}
+              </span>
+              <span class="text-zinc-300 font-sans truncate font-medium">${esc(cObj.title || cObj.prompt || cObj.id)}</span>
+            </div>
+            <span class="text-zinc-600 font-mono text-[9px] shrink-0 tabular-nums ml-2">${esc(cObj.id)}</span>
+          </div>
+          <div class="text-zinc-400 text-[11px] mb-1.5 line-clamp-1 font-sans">
+            ${esc(cObj.detail || '(subagent executing...)')}
+          </div>
+          <div class="flex items-center justify-between font-mono text-[9px] text-zinc-500 pt-1 border-t border-[#191a1e]">
+            <span class="flex items-center gap-1 ${isRunning ? 'text-amber-400 font-medium' : 'text-zinc-400'}">
+              <span class="w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-amber-400 animate-pulse' : (cObj.status === 'completed' ? 'bg-purple-400' : 'bg-rose-400')}"></span>
+              <span class="live-run-timer" data-start="${cObj.activeRunStart || Date.now()}" data-running="${isRunning}">${formatSec(curRunSec)}</span>
+            </span>
+            <span class="text-zinc-600 font-mono">${esc(cObj.status.toUpperCase())}</span>
+          </div>
+        </article>
+      `;
+    }
+
+    function renderTreeNode(node) {
+      const { task, children } = node;
+      const hasChildren = children && children.length > 0;
+      const isExpanded = expandedSubagentParents.has(task.id) || (hasChildren && children.some(c => c.status === 'running'));
+      
+      const parentHTML = cardHTML(task, children, isExpanded);
+      if (!isExpanded || !hasChildren) {
+        return `<div class="task-tree-group space-y-1.5">${parentHTML}</div>`;
+      }
+
+      const childrenHTML = children.map(child => `
+        <div class="relative pl-1">
+          <div class="absolute -left-[16px] top-4 w-3.5 h-0.5 border-t-2 border-dashed border-purple-800/50 pointer-events-none"></div>
+          ${childCardHTML(child)}
+        </div>
+      `).join('');
+
+      return `
+        <div class="task-tree-group space-y-1.5">
+          ${parentHTML}
+          <div class="subagent-tree ml-4 sm:ml-5 pl-3 border-l-2 border-dashed border-purple-800/40 space-y-2 pt-1 pb-1 relative">
+            ${childrenHTML}
+          </div>
+        </div>
+      `;
+    }
+
+    function cardHTML(tObj, children = [], isExpanded = false) {
       const runs = getTaskRuns(tObj);
       const sparklineHTML = renderTickSparkline(runs);
       const latestRun = runs[runs.length - 1] || {};
@@ -1117,10 +1211,10 @@
         </div>` : '';
 
       const abortBtnHTML = isRunning ? `
-        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
-          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
+        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')\"
+          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}\"
           ${isAborting ? 'disabled' : ''}
-          title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
+          title=\"${isAborting ? t('statusAborting') : t('confirmAbort')}\">
           ${isAborting ? t('statusAborting') : t('btnAbort')}
         </button>
       ` : '';
@@ -1129,11 +1223,19 @@
         <span class="inline-flex items-center px-1.5 py-0.5 rounded border border-indigo-900/60 bg-indigo-950/40 font-mono text-[9px] text-indigo-300 font-medium">📁 ${esc(tObj.keyId)}</span>
       ` : '';
 
-      const subagentBadgeHTML = (tObj.subagentCount && tObj.subagentCount > 0) ? `
-        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-900/60 bg-purple-950/40 font-mono text-[9px] text-purple-300 font-medium shrink-0" title="${esc(t('subagentsBadge').replace('{n}', tObj.subagentCount))}">
-          <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-          <span>${tObj.subagentCount}</span>
-        </span>
+      const childCount = (children && children.length > 0) ? children.length : (tObj.subagentCount || 0);
+      const subagentBadgeHTML = childCount > 0 ? `
+        <button type="button" onclick="event.stopPropagation(); toggleSubagents('${esc(tObj.id)}')"
+          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-800/60 bg-purple-950/50 hover:bg-purple-900/60 text-purple-300 font-mono text-[9px] font-medium transition-colors cursor-pointer shrink-0"
+          title="${esc(t('subagentsBadge').replace('{n}', childCount))}">
+          ${(children && children.length > 0) ? `
+            <svg class="w-2.5 h-2.5 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+          ` : ''}
+          <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          <span>${childCount}</span>
+        </button>
       ` : '';
 
       return `
@@ -1192,20 +1294,54 @@
 
     function render() {
       renderAgentFilters();
+      const allTasks = Array.from(tasksMap.values());
+      const parentToChildren = new Map();
+      for (const t of allTasks) {
+        if (t.parentId) {
+          if (!parentToChildren.has(t.parentId)) parentToChildren.set(t.parentId, []);
+          parentToChildren.get(t.parentId).push(t);
+        }
+      }
+      for (const list of parentToChildren.values()) {
+        list.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+      }
+
+      const rootNodes = [];
+      for (const t of allTasks) {
+        const isChild = t.parentId && tasksMap.has(t.parentId);
+        if (!isChild) {
+          const children = parentToChildren.get(t.id) || [];
+          rootNodes.push({ task: t, children });
+        }
+      }
+
+      rootNodes.sort((a, b) => (b.task.startTime || 0) - (a.task.startTime || 0));
+
       const buckets = { running: [], completed: [], failed: [] };
-      Array.from(tasksMap.values())
-        .filter(matchesFilter)
-        .sort((a, b) => (b.startTime || 0) - (a.startTime || 0))
-        .forEach((tObj) => {
-          const status = buckets[tObj.status] ? tObj.status : 'failed';
-          buckets[status].push(tObj);
-        });
+      rootNodes.forEach(node => {
+        const { task, children } = node;
+        const matchesParent = matchesFilter(task);
+        const matchesChild = children.some(c => matchesFilter(c));
+        if (!matchesParent && !matchesChild) return;
+
+        if (query && matchesChild) {
+          expandedSubagentParents.add(task.id);
+        }
+
+        const hasRunningChild = children.some(c => c.status === 'running');
+        let status = task.status;
+        if (hasRunningChild && status !== 'running') {
+          status = 'running';
+        }
+        if (!buckets[status]) status = 'failed';
+        buckets[status].push(node);
+      });
 
       document.getElementById('col-running').innerHTML = buckets.running.length
-        ? buckets.running.map(cardHTML).join('')
+        ? buckets.running.map(renderTreeNode).join('')
         : emptyState(t('noRunning'));
       document.getElementById('col-completed').innerHTML = buckets.completed.length
-        ? buckets.completed.map(cardHTML).join('')
+        ? buckets.completed.map(renderTreeNode).join('')
         : emptyState(t('noCompleted'));
       const hasFailed = buckets.failed.length > 0;
       const failedSection = document.getElementById('section-failed');
@@ -1215,13 +1351,12 @@
       failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
       boardGrid.classList.toggle('has-failed', hasFailed);
       document.getElementById('col-failed').innerHTML = hasFailed
-        ? buckets.failed.map(cardHTML).join('')
+        ? buckets.failed.map(renderTreeNode).join('')
         : '';
 
-      const all = Array.from(tasksMap.values());
-      const runningN = all.filter((tObj) => tObj.status === 'running').length;
-      const done = all.filter((tObj) => tObj.status === 'completed');
-      const lifetimes = all.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
+      const runningN = allTasks.filter((tObj) => tObj.status === 'running').length;
+      const done = allTasks.filter((tObj) => tObj.status === 'completed');
+      const lifetimes = allTasks.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
       const avg = lifetimes.length ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
 
       document.getElementById('stat-running').textContent = runningN;
@@ -1487,8 +1622,12 @@
         }
       }
 
-      const events = (run.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
-      document.getElementById('run-detail-event-count').innerText = `${events.length} events`;
+      let events = (run.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
+      if (activeTraceSubagentFilter) {
+        events = events.filter(e => e.subagentId === activeTraceSubagentFilter || e.subagentType === activeTraceSubagentFilter || (e.desc && e.desc.includes(activeTraceSubagentFilter)));
+      }
+      const filterBadge = activeTraceSubagentFilter ? ` (Filtered: ${esc(activeTraceSubagentFilter)})` : '';
+      document.getElementById('run-detail-event-count').innerText = `${events.length} events${filterBadge}`;
 
       const breadcrumbBox = document.getElementById('run-detail-breadcrumbs');
       if (events.length === 0) {
@@ -1538,9 +1677,166 @@
       }
     }
 
+    function resetTraceFilter() {
+      activeTraceSubagentFilter = null;
+      if (selectedId) refreshDrawer();
+    }
+
+    function selectTraceSubagentFilter(subId, subType, isTimelineOnly) {
+      if (!isTimelineOnly && tasksMap.has(subId) && subId !== selectedId) {
+        openDrawer(subId);
+        return;
+      }
+      if (activeTraceSubagentFilter === subId || activeTraceSubagentFilter === subType) {
+        activeTraceSubagentFilter = null;
+      } else {
+        activeTraceSubagentFilter = subId || subType;
+      }
+      if (selectedId) refreshDrawer();
+    }
+
+    function renderDrawerDAG(task) {
+      const container = document.getElementById('drawer-dag-section');
+      const svgWrapper = document.getElementById('drawer-dag-svg-wrapper');
+      const countEl = document.getElementById('drawer-dag-nodes-count');
+      const resetBtn = document.getElementById('drawer-dag-filter-reset');
+      if (!container || !svgWrapper) return;
+
+      const childTasks = Array.from(tasksMap.values()).filter(t => t.parentId === task.id);
+      const timelineSubagents = [];
+      const seenIds = new Set(childTasks.map(c => c.id));
+      for (const run of (task.runs || [])) {
+        for (const e of (run.timeline || [])) {
+          if (e.event === 'subagentStart' || e.subagentType || e.subagentId) {
+            const sid = e.subagentId || e.desc;
+            if (sid && !seenIds.has(sid)) {
+              seenIds.add(sid);
+              timelineSubagents.push({
+                id: e.subagentId || `sub_${timelineSubagents.length + 1}`,
+                title: e.desc || 'Subagent',
+                subagentType: e.subagentType || 'subagent',
+                status: 'completed',
+                isTimelineOnly: true,
+                time: e.time
+              });
+            }
+          }
+        }
+      }
+
+      const allChildren = [...childTasks, ...timelineSubagents];
+      if (allChildren.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+      if (countEl) countEl.textContent = `${allChildren.length + 1} NODES`;
+      if (resetBtn) resetBtn.classList.toggle('hidden', !activeTraceSubagentFilter);
+
+      const cardW = 168;
+      const cardH = 46;
+      const gapX = 16;
+      const totalChildrenW = allChildren.length * cardW + (allChildren.length - 1) * gapX;
+      const svgW = Math.max(520, totalChildrenW + 40);
+      const svgH = 150;
+
+      const rootW = 180;
+      const rootH = 42;
+      const rootX = (svgW - rootW) / 2;
+      const rootY = 12;
+
+      const childrenStartY = 94;
+      const startChildrenX = (svgW - totalChildrenW) / 2;
+
+      const isRootRunning = task.status === 'running';
+      const rootColor = isRootRunning ? '#f59e0b' : (task.status === 'completed' ? '#10b981' : '#f43f5e');
+
+      let linesHTML = '';
+      let nodesHTML = '';
+
+      nodesHTML += `
+        <g class="cursor-pointer" onclick="resetTraceFilter()" opacity="${activeTraceSubagentFilter ? '0.6' : '1'}">
+          <rect x="${rootX}" y="${rootY}" width="${rootW}" height="${rootH}" rx="6" 
+            fill="#121318" stroke="${rootColor}" stroke-width="1.5" stroke-opacity="0.8"/>
+          <circle cx="${rootX + 14}" cy="${rootY + rootH/2}" r="3.5" fill="${rootColor}">
+            ${isRootRunning ? '<animate attributeName="opacity" values="1;0.4;1" dur="1.2s" repeatCount="indefinite"/>' : ''}
+          </circle>
+          <text x="${rootX + 24}" y="${rootY + 16}" font-family="monospace" font-size="9" fill="#a1a1aa" font-weight="600">ROOT WORKFLOW</text>
+          <text x="${rootX + 24}" y="${rootY + 30}" font-family="sans-serif" font-size="11" fill="#f4f4f5" font-weight="500">
+            ${esc(sessionDisplayTitle(task)).substring(0, 16)}...
+          </text>
+        </g>
+      `;
+
+      allChildren.forEach((child, idx) => {
+        const cX = startChildrenX + idx * (cardW + gapX);
+        const cY = childrenStartY;
+
+        const isChildRunning = child.status === 'running';
+        const strokeColor = isChildRunning ? '#f59e0b' : (child.status === 'completed' ? '#a855f7' : '#f43f5e');
+        const roleLabel = (child.subagentType || 'SUBAGENT').toUpperCase();
+        const childTitle = child.title || child.prompt || child.desc || child.id;
+
+        const startX = rootX + rootW / 2;
+        const startY = rootY + rootH;
+        const targetX = cX + cardW / 2;
+        const targetY = cY;
+        const dy = (targetY - startY) / 2;
+        const pathD = `M ${startX} ${startY} C ${startX} ${startY + dy}, ${targetX} ${targetY - dy}, ${targetX} ${targetY}`;
+
+        linesHTML += `
+          <path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="1.5" stroke-opacity="0.6" 
+            ${isChildRunning ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#arrow-${child.status === 'running' ? 'amber' : (child.status === 'completed' ? 'purple' : 'rose')})">
+            ${isChildRunning ? '<animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.8s" repeatCount="indefinite"/>' : ''}
+          </path>
+        `;
+
+        const isSelectedFilter = activeTraceSubagentFilter === child.id || activeTraceSubagentFilter === child.subagentType;
+
+        nodesHTML += `
+          <g class="cursor-pointer transition-opacity" 
+            onclick="selectTraceSubagentFilter('${esc(child.id)}', '${esc(child.subagentType || '')}', ${Boolean(child.isTimelineOnly)})"
+            opacity="${(!activeTraceSubagentFilter || isSelectedFilter) ? '1' : '0.4'}">
+            <rect x="${cX}" y="${cY}" width="${cardW}" height="${cardH}" rx="6" 
+              fill="#101116" stroke="${isSelectedFilter ? '#6366f1' : strokeColor}" stroke-width="${isSelectedFilter ? '2' : '1.2'}" stroke-opacity="${isSelectedFilter ? '1' : '0.7'}"/>
+            <circle cx="${cX + 12}" cy="${cY + 14}" r="3" fill="${strokeColor}">
+              ${isChildRunning ? '<animate attributeName="opacity" values="1;0.4;1" dur="1s" repeatCount="indefinite"/>' : ''}
+            </circle>
+            <text x="${cX + 20}" y="${cY + 17}" font-family="monospace" font-size="9" fill="#d8b4fe" font-weight="700" letter-spacing="0.5">
+              ↳ ${esc(roleLabel)}
+            </text>
+            <text x="${cX + 12}" y="${cY + 33}" font-family="sans-serif" font-size="10" fill="#e4e4e7" font-weight="400">
+              ${esc(childTitle).substring(0, 18)}...
+            </text>
+          </g>
+        `;
+      });
+
+      svgWrapper.innerHTML = `
+        <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" class="select-none" style="min-width:${svgW}px;">
+          <defs>
+            <marker id="arrow-purple" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,1 L5,3 L0,5 Z" fill="#a855f7" />
+            </marker>
+            <marker id="arrow-amber" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,1 L5,3 L0,5 Z" fill="#f59e0b" />
+            </marker>
+            <marker id="arrow-rose" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
+              <path d="M0,1 L5,3 L0,5 Z" fill="#f43f5e" />
+            </marker>
+          </defs>
+          ${linesHTML}
+          ${nodesHTML}
+        </svg>
+      `;
+    }
+
     function refreshDrawer() {
       const task = tasksMap.get(selectedId);
       if (!task) { closeDrawer(); return; }
+
+      renderDrawerDAG(task);
 
       const runs = getTaskRuns(task);
 

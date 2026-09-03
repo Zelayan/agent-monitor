@@ -41,6 +41,13 @@
   <p align="center">
     <img src="docs/images/drawer.png" alt="AGENT MONITOR 抽屉多轮时间线" width="90%">
   </p>
+  <p align="center"><b>Multi-Agent 拓扑协同</b>：主看板父子嵌套折叠树与抽屉原生 SVG DAG 拓扑连线</p>
+  <p align="center">
+    <img src="docs/images/subagent-tree.png" alt="Multi-Agent 主看板父子折叠树" width="90%">
+  </p>
+  <p align="center">
+    <img src="docs/images/subagent-dag.png" alt="抽屉原生 SVG DAG 拓扑流向图" width="90%">
+  </p>
 </details>
 
 ---
