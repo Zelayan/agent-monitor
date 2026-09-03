@@ -55,6 +55,8 @@
     body { background: #09090b; }
     @media (min-width: 1024px) {
       .lane { max-height: calc(100vh - 8.75rem); }
+      #board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #board-grid.has-failed { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
     .task-card { transition: border-color 0.12s ease, transform 0.1s ease; }
     .task-card:hover { border-color: #3f3f46; }
@@ -264,7 +266,7 @@
 
   <!-- 2. 看板三列主体 -->
   <main class="max-w-[1440px] mx-auto px-3 sm:px-4 py-3">
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-3">
+    <div id="board-grid" class="grid grid-cols-1 gap-3">
       
       <!-- 活跃中 (ACTIVE WORKFLOWS) -->
       <section class="min-w-0">
@@ -290,8 +292,8 @@
         <div id="col-completed" class="lane overflow-y-visible lg:overflow-y-auto space-y-2 pr-0.5"></div>
       </section>
 
-      <!-- 异常/终止 (TERMINATED / FAILED) -->
-      <section class="min-w-0">
+      <!-- 异常/终止 (TERMINATED / FAILED)：无 failed 任务时隐藏，避免空列占宽 -->
+      <section id="section-failed" class="min-w-0 hidden" hidden aria-hidden="true">
         <h2 class="h-7 flex items-center justify-between border-b border-line mb-2">
           <span class="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.14em] text-zinc-300">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 8v4.5"/><path d="M12 16.2h.01"/></svg>
@@ -1033,9 +1035,16 @@
       document.getElementById('col-completed').innerHTML = buckets.completed.length
         ? buckets.completed.map(cardHTML).join('')
         : emptyState(t('noCompleted'));
-      document.getElementById('col-failed').innerHTML = buckets.failed.length
+      const hasFailed = buckets.failed.length > 0;
+      const failedSection = document.getElementById('section-failed');
+      const boardGrid = document.getElementById('board-grid');
+      failedSection.hidden = !hasFailed;
+      failedSection.classList.toggle('hidden', !hasFailed);
+      failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
+      boardGrid.classList.toggle('has-failed', hasFailed);
+      document.getElementById('col-failed').innerHTML = hasFailed
         ? buckets.failed.map(cardHTML).join('')
-        : emptyState(t('noFailed'));
+        : '';
 
       const all = Array.from(tasksMap.values());
       const runningN = all.filter((tObj) => tObj.status === 'running').length;
