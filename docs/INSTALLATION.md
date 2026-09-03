@@ -17,7 +17,26 @@
 
 ---
 
-## 1. 一键安装脚本（推荐）
+## 1. 安装 Cursor 专属扩展（推荐，开箱即用）
+
+如果你使用 **Cursor IDE**，最推荐直接安装官方专属扩展 `agent-monitor-cursor`：
+- **功能特性**：
+  - 自动检测并拉起本地 `agent-monitor` 守护进程，无需手动启动服务；
+  - 提供一键注入工作区 `.cursor/hooks.json` 命令，自动绑定绝对路径，杜绝 PATH 缺失；
+  - 底部状态栏秒表计时，实时显示 Agent 运行与耗时；
+  - 在 Cursor 内部直接分栏或在左侧活动栏查看 Agent Monitor 看板。
+
+### 安装方法
+1. 从 Releases 下载 `agent-monitor-cursor-1.0.0.vsix`；
+2. 在 Cursor 中按 `⌘⇧P`，执行 `Extensions: Install from VSIX...` 并选择该文件；
+3. 或在终端运行：
+   ```bash
+   cursor --install-extension agent-monitor-cursor-1.0.0.vsix
+   ```
+
+---
+
+## 2. 一键安装脚本（系统级 CLI / 独立服务）
 
 通过官方安装脚本，全自动识别系统架构并拉取最新 Release，零外部运行时依赖：
 

@@ -1,0 +1,107 @@
+{
+  "name": "agent-monitor",
+  "displayName": "Agent Monitor for Cursor",
+  "description": "Real-time AI Coding Agent flight dashboard and lifecycle monitor embedded inside Cursor IDE",
+  "version": "1.0.0",
+  "publisher": "Zelayan",
+  "author": {
+    "name": "Zelayan"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Zelayan/agent-monitor"
+  },
+  "categories": [
+    "Machine Learning",
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "cursor",
+    "agent",
+    "monitor",
+    "apm",
+    "ai"
+  ],
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "agent-monitor.openDashboard",
+        "title": "Agent Monitor: Open Dashboard",
+        "icon": "$(dashboard)"
+      },
+      {
+        "command": "agent-monitor.configureHooks",
+        "title": "Agent Monitor: Configure Workspace Hooks (.cursor/hooks.json)",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "agent-monitor.restartDaemon",
+        "title": "Agent Monitor: Restart Backend Daemon",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agent-monitor-container",
+          "title": "Agent Monitor",
+          "icon": "assets/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agent-monitor-container": [
+        {
+          "type": "webview",
+          "id": "agent-monitor.sidebarView",
+          "name": "Agent Monitor"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Agent Monitor",
+      "properties": {
+        "agentMonitor.serverUrl": {
+          "type": "string",
+          "default": "http://127.0.0.1:8000",
+          "description": "Agent Monitor server endpoint URL"
+        },
+        "agentMonitor.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API Key for authentication"
+        },
+        "agentMonitor.autoStartDaemon": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically start background agent-monitor binary if not running"
+        },
+        "agentMonitor.statusBarEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Display live Agent timer and status indicator in Cursor status bar"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.80.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.3"
+  }
+}

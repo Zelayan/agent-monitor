@@ -37,9 +37,22 @@ jobs:
           go-version: "1.24"
           cache: true
 
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
       - name: Run Tests
         run: |
           go test -v -race ./...
+
+      - name: Build Cursor Extension VSIX
+        run: |
+          cd extensions/cursor
+          npm ci
+          npm run build
+          npx --yes @vscode/vsce package --no-dependencies --out ../../release-assets/agent-monitor-cursor-${GITHUB_REF_NAME}.vsix
+          cd ../..
 
       - name: Build Cross-Platform Binaries
         env:

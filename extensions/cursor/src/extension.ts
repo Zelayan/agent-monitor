@@ -1,0 +1,68 @@
+import * as vscode from 'vscode';
+import { DaemonManager } from './daemonManager';
+import { HooksManager } from './hooksManager';
+import { StatusBarTracker } from './statusBar';
+import { DashboardPanel, SidebarViewProvider } from './dashboardPanel';
+
+let daemonManager: DaemonManager | undefined;
+let hooksManager: HooksManager | undefined;
+let statusBarTracker: StatusBarTracker | undefined;
+
+export async function activate(context: vscode.ExtensionContext) {
+  daemonManager = new DaemonManager(context);
+  hooksManager = new HooksManager(daemonManager);
+  statusBarTracker = new StatusBarTracker(daemonManager);
+
+  // 1. 自动启动后台服务并提示配置工作区 Hooks
+  daemonManager.ensureRunning().then((running) => {
+    if (running && hooksManager) {
+      hooksManager.promptIfHooksMissing();
+    }
+  });
+
+  // 2. 注册命令
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agent-monitor.openDashboard', () => {
+      DashboardPanel.createOrShow(daemonManager!);
+    }),
+
+    vscode.commands.registerCommand('agent-monitor.configureHooks', async () => {
+      if (hooksManager) {
+        await hooksManager.configureWorkspaceHooks();
+      }
+    }),
+
+    vscode.commands.registerCommand('agent-monitor.restartDaemon', async () => {
+      if (daemonManager) {
+        vscode.window.showInformationMessage('Restarting Agent Monitor daemon...');
+        const success = await daemonManager.startDaemon();
+        if (success) {
+          vscode.window.showInformationMessage('✓ Agent Monitor daemon restarted successfully!');
+          if (statusBarTracker) {
+            statusBarTracker.connectSSE();
+          }
+        } else {
+          vscode.window.showErrorMessage('Failed to restart Agent Monitor daemon.');
+        }
+      }
+    })
+  );
+
+  // 3. 注册侧边栏 WebviewView
+  const sidebarProvider = new SidebarViewProvider(daemonManager);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('agent-monitor.sidebarView', sidebarProvider)
+  );
+
+  // 4. 清理注册
+  context.subscriptions.push(daemonManager, statusBarTracker);
+}
+
+export function deactivate() {
+  if (daemonManager) {
+    daemonManager.dispose();
+  }
+  if (statusBarTracker) {
+    statusBarTracker.dispose();
+  }
+}

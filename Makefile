@@ -48,5 +48,16 @@ build-all: clean
 test:
 	go test -v -race ./...
 
+extension:
+	@echo "Building Cursor / VS Code extension..."
+	cd extensions/cursor && npm run build
+	@echo "✓ Extension bundled successfully in extensions/cursor/dist/"
+
+vsix: extension
+	@echo "Packaging VSIX archive..."
+	mkdir -p $(DIST_DIR)
+	cd extensions/cursor && npx --yes @vscode/vsce package --no-dependencies --out $(CURDIR)/$(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix
+	@echo "✓ VSIX package generated at $(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix"
+
 clean:
-	rm -rf $(BIN_DIR) $(DIST_DIR)
+	rm -rf $(BIN_DIR) $(DIST_DIR) extensions/cursor/dist extensions/cursor/node_modules

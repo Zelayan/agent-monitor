@@ -22,5 +22,11 @@
 .idea/
 .vscode/
 
+# node & extension builds
+node_modules/
+extensions/cursor/node_modules/
+extensions/cursor/dist/
+*.vsix
+
 # zcode agent workspace & local cache
 .zcode/

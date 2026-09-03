@@ -38,6 +38,20 @@
 ## ⚡️ 快速开始 (30 秒上手)
 
 ### 1. 一键安装
+
+#### 方式 A：安装 Cursor 专属扩展（最推荐，零配置在 IDE 内开箱即用）
+- 从 Releases 下载 `agent-monitor-cursor-1.0.0.vsix`；
+- 在 Cursor 中按 `⌘⇧P`（Windows/Linux 为 `Ctrl+Shift+P`），输入并执行：
+  ```text
+  Extensions: Install from VSIX...
+  ```
+- 或通过终端执行：
+  ```bash
+  cursor --install-extension dist/agent-monitor-cursor-1.0.0.vsix
+  ```
+> 💡 **Cursor 插件开箱即用**：自带后台守护进程自启、工作区 `.cursor/hooks.json` 一键配置、底部状态栏秒表与左侧活动栏 / 主编辑区内嵌看板！
+
+#### 方式 B：系统级 CLI / 独立服务安装
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.sh | bash
 ```
