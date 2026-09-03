@@ -14,6 +14,7 @@
   - **严禁提交密钥、凭证、`.env` 文件或本机私有绝对路径**（如 `/Users/xxx/...`）。
   - 本地运行工作区 `.zcode/` 已被 `.gitignore` 忽略，禁止强制跟踪提交。
 - **保护 Git 历史**：严禁修改全局 git config；严禁 `--amend`、force push、hard reset，除非用户明确要求。
+- **主干保护（GitHub Flow）**：`master` 为默认可发布分支。功能与修复走 `feat/`、`fix/` 短命分支，通过 Pull Request 合入；禁止直推 `master`。合入默认 Squash merge。发版只打 `v*` tag，不另设长期 `dev` 分支。PR 必须通过 `.github/workflows/ci.yml` 的 `go test -race ./...`。
 
 ---
 

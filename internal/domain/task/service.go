@@ -43,6 +43,51 @@ func PlaceholderTitle(agent string) string {
 	return agent + " 任务"
 }
 
+const (
+	titleSourceHeuristic = "heuristic"
+	titleSourceLLM       = "llm"
+	displayTitleMaxRunes = 48
+)
+
+// ApplyDisplayTitle 将 LLM 生成的短标题写入会话容器。RootGoal 保持不变。
+func (t *Task) ApplyDisplayTitle(s string) bool {
+	if t == nil {
+		return false
+	}
+	s = strings.TrimSpace(s)
+	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
+		s = strings.TrimSpace(s[:i])
+	}
+	s = strings.Trim(s, `"'「」『』`)
+	s = strings.TrimSpace(s)
+	if !IsRealTitle(s) {
+		return false
+	}
+	runes := []rune(s)
+	if len(runes) > displayTitleMaxRunes {
+		s = string(runes[:displayTitleMaxRunes])
+	}
+	if t.Title == s && t.TitleSource == titleSourceLLM {
+		return false
+	}
+	t.Title = s
+	t.TitleSource = titleSourceLLM
+	t.Version++
+	return true
+}
+
+// refreshHeuristicTitle 在尚未被 LLM 总结覆盖时，用最新有效 Prompt 短标题刷新会话容器标题。
+func (t *Task) refreshHeuristicTitle(candidate string) {
+	if t == nil || t.TitleSource == titleSourceLLM {
+		return
+	}
+	if !IsRealTitle(candidate) {
+		return
+	}
+	t.Title = candidate
+	t.TitleSource = titleSourceHeuristic
+}
+
 // CleanPromptTitle 从 Prompt 中提取首行作为简洁标题，过滤常用前缀标记并限制长度。
 func CleanPromptTitle(prompt string) string {
 	for _, line := range strings.Split(prompt, "\n") {

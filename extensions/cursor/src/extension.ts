@@ -54,7 +54,36 @@ export async function activate(context: vscode.ExtensionContext) {
     vscode.window.registerWebviewViewProvider('agent-monitor.sidebarView', sidebarProvider)
   );
 
-  // 4. 清理注册
+  // 4. 插件 Settings 变更时：仅重启由本扩展 spawn 的 daemon
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeConfiguration(async (e) => {
+      if (!daemonManager) {
+        return;
+      }
+      const watched = [
+        'agentMonitor.llmBaseUrl',
+        'agentMonitor.llmModel',
+        'agentMonitor.llmApiKey',
+        'agentMonitor.apiKey',
+        'agentMonitor.serverUrl',
+      ];
+      if (!watched.some((key) => e.affectsConfiguration(key))) {
+        return;
+      }
+
+      if (daemonManager.isManagedDaemon()) {
+        const success = await daemonManager.startDaemon();
+        if (success && statusBarTracker) {
+          statusBarTracker.connectSSE();
+        }
+        return;
+      }
+
+      daemonManager.logUnmanagedSettingsHint();
+    })
+  );
+
+  // 5. 清理注册
   context.subscriptions.push(daemonManager, statusBarTracker);
 }
 

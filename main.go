@@ -83,6 +83,10 @@ func main() {
 
 	// 3. 应用层：初始化 Monitor 应用服务并恢复已有会话
 	svc := monitor.NewMonitorService(repo, hub)
+	if sum := monitor.NewTitleSummarizerFromEnv(); sum != nil {
+		svc.SetTitleSummarizer(sum)
+		log.Printf("[Application] LLM session titles enabled")
+	}
 
 	// 4. 用户接口层 / HTTP 适配器：注册路由
 	handler := transport.NewHandler(svc, hub, indexHTML).

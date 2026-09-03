@@ -19,6 +19,22 @@ export class DaemonManager {
     return this.serverUrl;
   }
 
+  public isManagedDaemon(): boolean {
+    return this.childProcess !== null;
+  }
+
+  public logUnmanagedSettingsHint(): void {
+    const msg =
+      'Settings changed, but the running Agent Monitor process was not started by this extension (e.g. systemd). Run "Agent Monitor: Restart Backend Daemon", or stop the external service so the extension can launch it with the new settings.';
+    this.outputChannel.appendLine(`[DaemonManager] ${msg}`);
+    void vscode.window.showInformationMessage(msg);
+  }
+
+  public refreshServerUrlFromConfig(): void {
+    const config = vscode.workspace.getConfiguration('agentMonitor');
+    this.serverUrl = config.get<string>('serverUrl', 'http://127.0.0.1:8000').replace(/\/+$/, '');
+  }
+
   public async ensureRunning(): Promise<boolean> {
     const isLive = await this.pingServer();
     if (isLive) {
@@ -68,13 +84,32 @@ export class DaemonManager {
     this.outputChannel.appendLine(`[DaemonManager] Starting agent-monitor daemon from: ${binaryPath}`);
 
     try {
+      this.refreshServerUrlFromConfig();
       const port = new URL(this.serverUrl).port || '8000';
       const env = { ...process.env, PORT: port };
 
       const config = vscode.workspace.getConfiguration('agentMonitor');
-      const apiKey = config.get<string>('apiKey', '');
+      const apiKey = (config.get<string>('apiKey', '') || '').trim();
       if (apiKey) {
         env['AGENT_MONITOR_API_KEY'] = apiKey;
+      }
+
+      const llmBaseUrl = (config.get<string>('llmBaseUrl', '') || '').trim();
+      const llmModel = (config.get<string>('llmModel', '') || '').trim();
+      const llmApiKey = (config.get<string>('llmApiKey', '') || '').trim();
+      if (llmBaseUrl) {
+        env['AGENT_MONITOR_LLM_BASE_URL'] = llmBaseUrl;
+      }
+      if (llmModel) {
+        env['AGENT_MONITOR_LLM_MODEL'] = llmModel;
+      }
+      if (llmApiKey) {
+        env['AGENT_MONITOR_LLM_API_KEY'] = llmApiKey;
+      }
+      if (llmBaseUrl && llmModel) {
+        this.outputChannel.appendLine(
+          `[DaemonManager] LLM session titles enabled (model=${llmModel}, base=${llmBaseUrl})`
+        );
       }
 
       this.childProcess = spawn(binaryPath, [], {
