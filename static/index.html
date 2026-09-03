@@ -325,23 +325,16 @@
         <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate"></span>
         <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
-      <div class="flex items-center gap-1.5">
-        <button id="btn-drawer-abort" type="button" class="hidden px-2 py-1 rounded border border-rose-800/80 bg-rose-950/40 font-mono text-[10px] text-rose-300 hover:bg-rose-900/60 hover:text-white flex items-center gap-1 transition-colors" title="Abort Session / 中断此 Agent 执行">
+      <div class="flex items-center gap-1.5 shrink-0">
+        <!-- 中断执行 (仅在 running 状态下显示) -->
+        <button id="btn-drawer-abort" type="button" class="hidden h-7 px-2 rounded border border-rose-800/80 bg-rose-950/40 font-mono text-[10px] text-rose-300 hover:bg-rose-900/60 hover:text-white flex items-center gap-1 transition-colors" title="Abort Session / 中断此 Agent 执行">
           <svg class="w-3 h-3 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect width="6" height="6" x="9" y="9"/></svg>
-          <span id="lbl-drawer-abort">中断执行</span>
-        </button>
-        <button id="btn-drawer-kill" type="button" class="hidden px-2 py-1 rounded border border-rose-600 bg-rose-950/60 font-mono text-[10px] text-rose-200 hover:bg-rose-600 hover:text-white flex items-center gap-1 transition-colors" title="Force Kill Process / 强杀进程">
-          <svg class="w-3 h-3 text-rose-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-          <span id="lbl-drawer-kill">强杀</span>
-        </button>
-        <button id="btn-delete-session" type="button" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-rose-400 hover:border-rose-500 hover:text-rose-200 flex items-center gap-1" title="Delete this session / 删除此会话">
-          <svg class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-          <span id="lbl-drawer-del">删除会话</span>
+          <span id="lbl-drawer-abort">中断</span>
         </button>
 
         <!-- 导出菜单 (Export Session Markdown / JSON) -->
         <div class="relative inline-block" id="export-dropdown-container">
-          <button id="btn-export-dropdown" type="button" aria-haspopup="true" aria-expanded="false" class="px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-300 hover:border-zinc-500 hover:text-white flex items-center gap-1 transition-colors" title="Export Session / 导出此会话">
+          <button id="btn-export-dropdown" type="button" aria-haspopup="true" aria-expanded="false" class="h-7 px-2 rounded border border-line bg-card font-mono text-[10px] text-zinc-300 hover:border-zinc-500 hover:text-white flex items-center gap-1 transition-colors" title="Export Session / 导出此会话">
             <svg class="w-3 h-3 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
             <span id="lbl-export-btn">导出</span>
             <svg class="w-2.5 h-2.5 text-zinc-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 9 6 6 6-6"/></svg>
@@ -364,11 +357,33 @@
           </div>
         </div>
 
-        <button id="btn-toggle-widescreen" type="button" class="hidden md:flex px-2 py-1 rounded border border-line bg-card font-mono text-[10px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 items-center gap-1">
-          <svg id="icon-expand" class="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
-          <span id="lbl-widescreen">宽屏</span>
+        <!-- 更多操作菜单 (More Actions: 强杀进程、删除会话) -->
+        <div class="relative inline-block" id="more-dropdown-container">
+          <button id="btn-more-dropdown" type="button" aria-haspopup="true" aria-expanded="false" class="h-7 w-7 rounded border border-line bg-card text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 inline-flex items-center justify-center transition-colors" title="更多操作">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></svg>
+          </button>
+          <div id="more-dropdown-menu" class="hidden absolute right-0 top-full mt-1.5 w-44 bg-[#121316] border border-[#27272a] rounded-md shadow-2xl p-1 z-30 font-mono text-xs">
+            <button id="btn-drawer-kill" type="button" class="hidden w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-rose-300 hover:bg-rose-950/40 text-left transition-colors" title="Force Kill Process / 强杀进程">
+              <svg class="w-3 h-3 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+              <div class="flex flex-col">
+                <span class="text-[11px]" id="lbl-drawer-kill">强杀进程</span>
+                <span class="text-[9px] text-zinc-500" id="lbl-drawer-kill-sub">SIGTERM / SIGKILL</span>
+              </div>
+            </button>
+            <button id="btn-delete-session" type="button" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded text-rose-400 hover:bg-rose-950/40 text-left transition-colors" title="Delete this session / 删除此会话">
+              <svg class="w-3 h-3 text-rose-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <div class="flex flex-col">
+                <span class="text-[11px]" id="lbl-drawer-del">删除会话</span>
+                <span class="text-[9px] text-zinc-500" id="lbl-drawer-del-sub">从本地历史清理</span>
+              </div>
+            </button>
+          </div>
+        </div>
+
+        <button id="btn-toggle-widescreen" type="button" class="hidden md:inline-flex h-7 w-7 rounded border border-line bg-card text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 items-center justify-center transition-colors" title="切换宽屏 (W)">
+          <svg id="icon-expand" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
         </button>
-        <button id="drawer-close" type="button" class="w-7 h-7 rounded border border-line text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 inline-flex items-center justify-center font-mono text-xs" aria-label="Close">
+        <button id="drawer-close" type="button" class="h-7 w-7 rounded border border-line text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 inline-flex items-center justify-center font-mono text-xs transition-colors" aria-label="Close" title="关闭 (Esc)">
           ✕
         </button>
       </div>
@@ -553,6 +568,7 @@
         actAll: '清空全部会话 (含运行中)',
         actSelect: '批量选择清理...',
         drawerDel: '删除会话',
+        drawerDelSub: '从本地历史清理',
         batchSelected: '已选择 {n} 项任务',
         batchSelectAll: '全选',
         batchInvert: '反选',
@@ -614,6 +630,9 @@
         confirmKill: '危险：将向此 Agent 进程直接发送 SIGTERM/SIGKILL 强制终止，用于死循环或卡死任务。确认立即强杀？',
         statusKilled: '已强杀',
         btnExport: '导出',
+        moreActions: '更多操作',
+        drawerDelSub: '从本地历史清理',
+        drawerKillSub: 'SIGTERM / SIGKILL',
       },
       en: {
         htmlLang: 'en',
@@ -627,6 +646,7 @@
         actAll: 'Clear All Sessions (inc. Active)',
         actSelect: 'Batch Selection Mode...',
         drawerDel: 'Delete Session',
+        drawerDelSub: 'Remove from local history',
         batchSelected: '{n} session(s) selected',
         batchSelectAll: 'Select All',
         batchInvert: 'Invert',
@@ -680,14 +700,16 @@
         authClear: 'Clear Key',
         authRequired: '401 Unauthorized: Valid API key required',
         btnAbort: 'Abort',
-        drawerAbort: 'Abort Session',
+        drawerAbort: 'Abort',
         confirmAbort: 'Send abort instruction to this agent? Next tool execution will be blocked immediately.',
         statusAborting: 'ABORTING...',
         btnKill: 'Kill',
-        drawerKill: 'Force Kill',
+        drawerKill: 'Force Kill Process',
+        drawerKillSub: 'SIGTERM / SIGKILL',
         confirmKill: 'Warning: Force kill this agent process via SIGTERM/SIGKILL for frozen/hung loops. Proceed with kill?',
         statusKilled: 'KILLED',
         btnExport: 'Export',
+        moreActions: 'More Actions',
       },
     };
 
@@ -721,6 +743,8 @@
       document.getElementById('lbl-act-all').textContent = t('actAll');
       document.getElementById('lbl-act-select').textContent = t('actSelect');
       document.getElementById('lbl-drawer-del').textContent = t('drawerDel');
+      const lblDelSub = document.getElementById('lbl-drawer-del-sub');
+      if (lblDelSub) lblDelSub.textContent = t('drawerDelSub');
       document.getElementById('header-running').textContent = t('headerRunning');
       document.getElementById('header-completed').textContent = t('headerCompleted');
       document.getElementById('header-failed').textContent = t('headerFailed');
@@ -737,7 +761,10 @@
       document.getElementById('btn-batch-invert').textContent = t('batchInvert');
       document.getElementById('btn-batch-delete').textContent = t('batchDelete');
       document.getElementById('btn-batch-cancel').textContent = t('batchCancel');
-      document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
+      const widescreenBtn = document.getElementById('btn-toggle-widescreen');
+      if (widescreenBtn) widescreenBtn.title = isWidescreen ? t('standardWidth') : t('widescreen');
+      const moreBtn = document.getElementById('btn-more-dropdown');
+      if (moreBtn) moreBtn.title = t('moreActions');
       const authBtn = document.getElementById('btn-auth');
       if (authBtn) authBtn.title = t('btnAuthTitle');
       const authTitle = document.getElementById('auth-modal-title');
@@ -784,7 +811,8 @@
         drawer.classList.remove('max-w-[92vw]', 'lg:max-w-5xl');
         drawer.classList.add('max-w-2xl');
       }
-      document.getElementById('lbl-widescreen').textContent = isWidescreen ? t('standardWidth') : t('widescreen');
+      const widescreenBtn = document.getElementById('btn-toggle-widescreen');
+      if (widescreenBtn) widescreenBtn.title = isWidescreen ? t('standardWidth') : t('widescreen');
     }
 
     function esc(s) {
@@ -2030,6 +2058,19 @@
       const isOpen = typeof force === 'boolean' ? force : menu.classList.contains('hidden');
       if (isOpen) {
         menu.classList.remove('hidden');
+        toggleMoreDropdown(false);
+      } else {
+        menu.classList.add('hidden');
+      }
+    }
+
+    function toggleMoreDropdown(force) {
+      const menu = document.getElementById('more-dropdown-menu');
+      if (!menu) return;
+      const isOpen = typeof force === 'boolean' ? force : menu.classList.contains('hidden');
+      if (isOpen) {
+        menu.classList.remove('hidden');
+        toggleExportDropdown(false);
       } else {
         menu.classList.add('hidden');
       }
@@ -2097,9 +2138,15 @@
     document.getElementById('btn-batch-invert').addEventListener('click', invertTaskSelection);
     document.getElementById('btn-batch-delete').addEventListener('click', deleteSelectedBatch);
     document.getElementById('btn-batch-cancel').addEventListener('click', () => toggleSelectMode(false));
-    document.getElementById('btn-delete-session').addEventListener('click', () => deleteSingleSession(selectedId));
+    document.getElementById('btn-delete-session').addEventListener('click', () => {
+      toggleMoreDropdown(false);
+      deleteSingleSession(selectedId);
+    });
     document.getElementById('btn-drawer-abort').addEventListener('click', () => abortSession(selectedId));
-    document.getElementById('btn-drawer-kill').addEventListener('click', () => killSession(selectedId));
+    document.getElementById('btn-drawer-kill').addEventListener('click', () => {
+      toggleMoreDropdown(false);
+      killSession(selectedId);
+    });
     document.getElementById('btn-notify').addEventListener('click', toggleNotification);
     document.getElementById('btn-auth').addEventListener('click', () => showAuthModal(false));
 
@@ -2141,6 +2188,13 @@
         toggleExportDropdown();
       });
     }
+    const btnMoreDropdown = document.getElementById('btn-more-dropdown');
+    if (btnMoreDropdown) {
+      btnMoreDropdown.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMoreDropdown();
+      });
+    }
     const btnExportMd = document.getElementById('btn-export-md');
     if (btnExportMd) {
       btnExportMd.addEventListener('click', () => exportCurrentSession('markdown'));
@@ -2170,6 +2224,10 @@
       const exportContainer = document.getElementById('export-dropdown-container');
       if (exportContainer && !exportContainer.contains(e.target)) {
         toggleExportDropdown(false);
+      }
+      const moreContainer = document.getElementById('more-dropdown-container');
+      if (moreContainer && !moreContainer.contains(e.target)) {
+        toggleMoreDropdown(false);
       }
     });
 
