@@ -48,6 +48,7 @@ jobs:
 
       - name: Build Cursor Extension VSIX
         run: |
+          mkdir -p release-assets
           cd extensions/cursor
           npm ci
           npm run build
