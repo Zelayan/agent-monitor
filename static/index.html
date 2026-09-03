@@ -55,8 +55,15 @@
     body { background: #09090b; }
     @media (min-width: 1024px) {
       .lane { max-height: calc(100vh - 8.75rem); }
-      #board-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      #board-grid.has-failed { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      #board-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        max-width: 960px;
+        margin-inline: auto;
+      }
+      #board-grid.has-failed {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        max-width: none;
+      }
     }
     .task-card { transition: border-color 0.12s ease, transform 0.1s ease; }
     .task-card:hover { border-color: #3f3f46; }
@@ -265,7 +272,7 @@
   </header>
 
   <!-- 2. 看板三列主体 -->
-  <main class="max-w-[1440px] mx-auto px-3 sm:px-4 py-3">
+  <main class="max-w-[1440px] mx-auto px-3 sm:px-4 lg:px-8 py-3">
     <div id="board-grid" class="grid grid-cols-1 gap-3">
       
       <!-- 活跃中 (ACTIVE WORKFLOWS) -->
