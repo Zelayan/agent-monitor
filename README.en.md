@@ -83,6 +83,8 @@ In a browser: **[http://127.0.0.1:8000/](http://127.0.0.1:8000/)**
 - **Per-project Key namespaces and auth**: optional per-project keys (`AGENT_MONITOR_API_KEYS`) plus a global admin Master Key, isolating data and operations across projects.
 - **Multi-Turn Timeline**: aggregates many turns in one session, isolates duration per run, and reconstructs the tool tree (Bash, Edit, Read, and so on).
 - **Short session titles (optional LLM)**: cards show a cleaned short title; with an OpenAI-compatible endpoint each run can summarize asynchronously. Session `goalSummary` refreshes every N completed runs (default 3, `AGENT_MONITOR_LLM_GOAL_EVERY_N`); the original `rootGoal` is never rewritten. Unset means no network.
+- **Deep Cursor Native Integration (Focus & Follow-up Bridge)**: a bidirectional `postMessage` bridge connects the Cursor extension and the webview dashboard. Click **Focus** in the drawer to instantly switch to the Agent / Composer panel in Cursor; the collaboration input automatically adapts to **Live Steer** when running and **Follow-up (Next Run)** when completed, with automatic clipboard copy fallback in standalone browsers.
+- **Tick Sparkline Matrix**: compact micro-sparklines embedded in cards visually map running, completed, and failed status across dozens of interaction turns at a glance.
 - **Multi-Agent sniffing**: first-class lifecycle Hooks for **Cursor**, **ZCode**, and **Codex (CLI / Desktop)**; other Agents (Claude Code, Aider, and more) are still being adapted.
 
 ---

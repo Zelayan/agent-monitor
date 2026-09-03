@@ -24,7 +24,8 @@
   - 自动检测并拉起本地 `agent-monitor` 守护进程，无需手动启动服务；
   - 提供一键注入工作区 `.cursor/hooks.json` 命令，自动绑定绝对路径，杜绝 PATH 缺失；
   - 底部状态栏秒表计时，实时显示 Agent 运行与耗时；
-  - 在 Cursor 内部直接分栏或在左侧活动栏查看 Agent Monitor 看板。
+  - 在 Cursor 内部直接分栏或在左侧活动栏查看 Agent Monitor 看板；
+  - **双向通信网桥**：抽屉一键「聚焦 (Focus)」直达对应 Agent / Composer 窗口，支持完结任务直接「追问 (Follow-up)」开启下一轮。
 
 ### 安装方法
 1. 从 Releases 下载最新的 `agent-monitor-cursor-*.vsix`；

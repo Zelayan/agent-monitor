@@ -1068,6 +1068,7 @@
 
     function cardHTML(tObj) {
       const runs = getTaskRuns(tObj);
+      const sparklineHTML = renderTickSparkline(runs);
       const latestRun = runs[runs.length - 1] || {};
       const passedCount = runs.filter(r => r.status === 'completed').length;
       const isRunning = tObj.status === 'running';
@@ -1111,7 +1112,6 @@
             class="w-4 h-4 rounded bg-zinc-900 border-line text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer">
         </div>` : '';
 
-      const isAborting = tObj.controlState === 'abort_requested';
       const abortBtnHTML = isRunning ? `
         <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
           class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
