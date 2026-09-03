@@ -75,10 +75,11 @@ loginctl enable-linger "$USER"
 [Service]
 Environment="PORT=8000"
 Environment="DATA_DIR=%h/.local/share/agent-monitor/sessions"
-# Optional: LLM session titles (OpenAI-compatible, e.g. Ollama / vLLM)
+# Optional: LLM session titles / goal summaries (OpenAI-compatible, e.g. Ollama / vLLM)
 # Environment="AGENT_MONITOR_LLM_BASE_URL=http://127.0.0.1:11434/v1"
 # Environment="AGENT_MONITOR_LLM_MODEL=qwen2.5:7b"
 # Environment="AGENT_MONITOR_LLM_API_KEY="
+# Environment="AGENT_MONITOR_LLM_GOAL_EVERY_N=3"
 ```
 修改后执行重载：
 ```bash
@@ -90,9 +91,9 @@ systemctl --user restart agent-monitor
 
 默认关闭。未配置时看板使用本地清洗短标题（Prompt 首行），**不会发任何模型请求**，并保持离线可用。
 
-配置 OpenAI 兼容的 Chat Completions 后，Monitor 在每一轮 `completed` / `failed` 收口后异步生成不超过约 24 字的会话总标题；失败或超时静默忽略，绝不阻断 Hook 上报。
+配置 OpenAI 兼容的 Chat Completions 后，Monitor 在每一轮 `completed` / `failed` 收口后异步生成不超过约 24 字的会话总标题；并按间隔 N（默认 3，`AGENT_MONITOR_LLM_GOAL_EVERY_N` / 插件 `llmGoalEveryN`）刷新会话总目标 `goalSummary`。会话收口时余数轮也会补一次。失败或超时静默忽略，绝不阻断 Hook 上报。`0` 只关闭总目标总结，不影响每轮短标题。
 
-**Cursor 用户优先在扩展设置里填写**（Settings 搜索 `Agent Monitor`）：`llmBaseUrl` / `llmModel` / `llmApiKey`。插件拉起守护进程时会注入 `AGENT_MONITOR_LLM_*`，不必手写 systemd 环境变量。由插件启动的 daemon 在改设置后会自动重启；若本机已有 systemd 等外部进程，需执行命令 **Agent Monitor: Restart Backend Daemon**，或先停掉外部服务再让插件拉起。
+**Cursor 用户优先在扩展设置里填写**（Settings 搜索 `Agent Monitor`）：`llmBaseUrl` / `llmModel` / `llmApiKey` / `llmGoalEveryN`。插件拉起守护进程时会注入 `AGENT_MONITOR_LLM_*`，不必手写 systemd 环境变量。由插件启动的 daemon 在改设置后会自动重启；若本机已有 systemd 等外部进程，需执行命令 **Agent Monitor: Restart Backend Daemon**，或先停掉外部服务再让插件拉起。
 
 也可以直接导出环境变量（CLI / systemd / Docker）：
 
@@ -100,9 +101,10 @@ systemctl --user restart agent-monitor
 export AGENT_MONITOR_LLM_BASE_URL="http://127.0.0.1:11434/v1"   # 或 https://api.openai.com/v1
 export AGENT_MONITOR_LLM_MODEL="qwen2.5:7b"                      # 或 gpt-4o-mini 等
 export AGENT_MONITOR_LLM_API_KEY=""                              # 本地 Ollama 可留空
+export AGENT_MONITOR_LLM_GOAL_EVERY_N="3"                        # 每 N 轮刷新 goalSummary；0 关闭
 ```
 
-`agent-reporter` 热路径不会调用 LLM。首轮 Prompt 原文仍保存在 `rootGoal`，抽屉 GOAL 区可查看完整内容。
+`agent-reporter` 热路径不会调用 LLM。首轮 Prompt 原文仍保存在 `rootGoal`；抽屉 SESSION GOAL 优先显示 `goalSummary`，当轮 PROMPT 仍是该 Run 原文。
 
 ### 系统级服务 (Root 模式)
 在多用户服务器环境中，如果你以 `root` 或 `sudo bash install.sh` 运行，服务将安装为全局系统服务：

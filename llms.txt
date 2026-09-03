@@ -14,7 +14,7 @@ For AI Coding Agents that want to automatically self-configure hooks for the cur
 
 ## Core Components
 
-- `agent-monitor`: The backend HTTP & SSE dashboard service written in pure Go (embeds the frontend SPA).
+- `agent-monitor`: The backend HTTP & SSE dashboard service written in pure Go (embeds the frontend SPA). Optional OpenAI-compatible LLM titles via `AGENT_MONITOR_LLM_BASE_URL` / `AGENT_MONITOR_LLM_MODEL` / `AGENT_MONITOR_LLM_API_KEY`; session `goalSummary` interval via `AGENT_MONITOR_LLM_GOAL_EVERY_N` (default 3, `0` disables). `rootGoal` stays the first-prompt original.
 - `agent-reporter`: Zero-dependency static CLI binary called by agent hooks (`--event`, `--agent`, `--turn`).
 - `http://127.0.0.1:8000/api/event`: HTTP POST endpoint for hook ingestion.
 - `http://127.0.0.1:8000/api/stream`: SSE live update stream.
