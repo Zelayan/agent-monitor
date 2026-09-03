@@ -14,7 +14,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -1224,26 +1223,6 @@ func spoolFile() string {
 
 func spoolLockFile() string {
 	return spoolFile() + ".lock"
-}
-
-// withSpoolLock 提供跨进程排他文件锁保护
-func withSpoolLock(fn func() error) error {
-	lockPath := spoolLockFile()
-	if err := os.MkdirAll(filepath.Dir(lockPath), 0755); err != nil {
-		return err
-	}
-	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		return err
-	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-
-	return fn()
 }
 
 // truncateSpoolKeepTail 丢弃旧数据，仅保留文件尾部最新的 targetBytes 字节（按行对齐）
