@@ -432,25 +432,29 @@
       </div>
     </div>
 
-    <!-- 核心可视化：Multi-Agent 拓扑流向图 (TOPOLOGY & SUBAGENTS DAG) -->
-    <div id="drawer-dag-section" class="mt-3 sm:mt-4 p-2.5 bg-[#0e0f13] border border-purple-900/40 rounded-md hidden">
+    <!-- 工业级核心可视化：智能体协同执行时序瀑布甘特图 (AGENT TRACE WATERFALL) -->
+    <div id="drawer-waterfall-section" class="mt-3 sm:mt-4 p-3 bg-[#0e0f13] border border-purple-900/40 rounded-md hidden">
       <div class="flex items-center justify-between font-mono text-[10px] text-zinc-400 mb-2">
         <span class="flex items-center gap-1.5 text-purple-300 font-semibold tracking-wider">
           <svg class="w-3.5 h-3.5 text-purple-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-            <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            <line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="14" y2="12"/><line x1="4" y1="18" x2="18" y2="18"/>
           </svg>
-          <span id="lbl-drawer-dag-title">TOPOLOGY & SUBAGENTS</span>
+          <span id="lbl-drawer-waterfall-title">AGENT TRACE WATERFALL</span>
         </span>
         <div class="flex items-center gap-2">
-          <button id="drawer-dag-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
-            × <span id="lbl-drawer-dag-reset">Reset Filter</span>
+          <button id="drawer-waterfall-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
+            × <span id="lbl-drawer-waterfall-reset">Reset Filter</span>
           </button>
-          <span id="drawer-dag-nodes-count" class="text-zinc-500 font-mono text-[10px]"></span>
+          <span id="drawer-waterfall-total-badge" class="text-zinc-500 font-mono text-[10px]"></span>
         </div>
       </div>
-      <div id="drawer-dag-svg-wrapper" class="w-full overflow-x-auto overflow-y-hidden rounded bg-[#09090b] border border-[#1e1e24] p-2 min-h-[140px] flex items-center justify-center">
-        <!-- 动态渲染的 SVG DAG 拓扑流向图 -->
+      
+      <!-- 刻度与时序泳道容器 -->
+      <div id="drawer-waterfall-container" class="w-full bg-[#09090b] border border-[#1e1e24] p-2.5 rounded space-y-2 select-none">
+        <!-- 动态渲染的瀑布甘特泳道 -->
+      </div>
+      <div id="lbl-drawer-waterfall-hint" class="text-[10px] text-zinc-500 font-mono mt-1.5 text-right">
+        点击任意泳道条，直接高亮过滤下方该智能体的具体工具轨迹
       </div>
     </div>
 
@@ -703,6 +707,10 @@
         filteredPrefix: '已筛选: ',
         rootWorkflow: '根工作流',
         dagTitle: '子智能体拓扑网络',
+        waterfallTitle: '智能体协同执行时序 (TRACE WATERFALL)',
+        waterfallTotal: '总生命周期',
+        waterfallHint: '点击任意泳道条，直接高亮过滤下方该智能体的具体工具轨迹',
+        pipelineTitle: '智能体协同流',
       },
       en: {
         htmlLang: 'en',
@@ -800,6 +808,10 @@
         filteredPrefix: 'Filtered: ',
         rootWorkflow: 'ROOT WORKFLOW',
         dagTitle: 'TOPOLOGY & SUBAGENTS',
+        waterfallTitle: 'AGENT TRACE WATERFALL',
+        waterfallTotal: 'TOTAL LIFETIME',
+        waterfallHint: 'Click any waterfall track to highlight & filter its specific execution trace',
+        pipelineTitle: 'AGENT PIPELINE',
       },
     };
 
@@ -911,10 +923,12 @@
       if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = isRunning ? t('drawerSteerPlaceholder') : t('drawerFollowUpPlaceholder');
       const btnSteerEl = document.getElementById('btn-drawer-steer');
       if (btnSteerEl) btnSteerEl.textContent = isRunning ? t('btnSteer') : t('btnFollowUp');
-      const lblDagTitle = document.getElementById('lbl-drawer-dag-title');
-      if (lblDagTitle) lblDagTitle.textContent = t('dagTitle');
-      const lblDagReset = document.getElementById('lbl-drawer-dag-reset');
-      if (lblDagReset) lblDagReset.textContent = t('resetFilter');
+      const lblWaterfallTitle = document.getElementById('lbl-drawer-waterfall-title');
+      if (lblWaterfallTitle) lblWaterfallTitle.textContent = t('waterfallTitle');
+      const lblWaterfallReset = document.getElementById('lbl-drawer-waterfall-reset');
+      if (lblWaterfallReset) lblWaterfallReset.textContent = t('resetFilter');
+      const lblWaterfallHint = document.getElementById('lbl-drawer-waterfall-hint');
+      if (lblWaterfallHint) lblWaterfallHint.textContent = t('waterfallHint');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1108,82 +1122,110 @@
         </div>`;
     }
 
-    function toggleSubagents(parentId) {
-      if (expandedSubagentParents.has(parentId)) {
-        expandedSubagentParents.delete(parentId);
-      } else {
-        expandedSubagentParents.add(parentId);
+    // 核心提取器：聚合任务直接关联的子智能体列表（涵盖独立 Session 与时间线派发项）
+    function getTaskSubagents(task, children = []) {
+      const list = [];
+      const seen = new Set();
+      if (children && children.length > 0) {
+        for (const c of children) {
+          if (!seen.has(c.id)) {
+            seen.add(c.id);
+            const isRun = c.status === 'running';
+            const dur = isRun && c.activeRunStart ? Math.max(0, Math.floor((Date.now() - c.activeRunStart)/1000)) : (c.totalLifetime || 0);
+            list.push({
+              id: c.id,
+              role: (c.subagentType || 'SUBAGENT').toUpperCase(),
+              status: c.status || 'completed',
+              duration: dur,
+              title: c.title || c.prompt || c.id,
+              startTime: c.startTime || 0,
+              isStandalone: true,
+            });
+          }
+        }
       }
-      scheduleRender();
+      for (const run of (task.runs || [])) {
+        for (const e of (run.timeline || [])) {
+          if (e.event === 'subagentStart' || e.subagentType || e.subagentId) {
+            const sid = e.subagentId || e.desc;
+            if (sid && !seen.has(sid)) {
+              seen.add(sid);
+              list.push({
+                id: e.subagentId || `sub_${list.length + 1}`,
+                role: (e.subagentType || 'SUBAGENT').toUpperCase(),
+                status: 'completed',
+                duration: 0,
+                title: e.desc || 'Subagent',
+                startTime: 0,
+                isStandalone: false,
+              });
+            }
+          }
+        }
+      }
+      return list;
     }
 
-    function childCardHTML(cObj) {
-      const isRunning = cObj.status === 'running';
-      const isSelected = selectedTaskIds.has(cObj.id);
-      const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
-      const accent = isRunning ? 'border-l-amber-500' : (cObj.status === 'completed' ? 'border-l-purple-500' : 'border-l-rose-500');
-      const roleLabel = cObj.subagentType ? cObj.subagentType.toUpperCase() : 'SUBAGENT';
-      const curRunSec = isRunning && cObj.activeRunStart ? Math.max(0, Math.floor((Date.now() - cObj.activeRunStart) / 1000)) : (cObj.totalLifetime || 0);
-
-      return `
-        <article class="task-card subagent-card cursor-pointer bg-[#0e0f13] hover:bg-[#13141a] border border-[#23242a] border-l-2 ${accent} ${selectBorder} p-2.5 rounded text-[12px] relative transition-colors shadow-sm"
-          data-task-id="${esc(cObj.id)}" role="button" tabindex="0">
-          <div class="flex items-center justify-between font-mono text-[10px] mb-1">
-            <div class="flex items-center gap-1.5 min-w-0">
-              <span class="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-950/70 text-purple-300 border border-purple-800/70 font-semibold font-mono text-[9px] uppercase tracking-wider shrink-0">
-                ↳ ${esc(roleLabel)}
-              </span>
-              <span class="text-zinc-300 font-sans truncate font-medium">${esc(cObj.title || cObj.prompt || cObj.id)}</span>
-            </div>
-            <span class="text-zinc-600 font-mono text-[9px] shrink-0 tabular-nums ml-2">${esc(cObj.id)}</span>
-          </div>
-          <div class="text-zinc-400 text-[11px] mb-1.5 line-clamp-1 font-sans">
-            ${esc(cObj.detail || t('subagentExecuting'))}
-          </div>
-          <div class="flex items-center justify-between font-mono text-[9px] text-zinc-500 pt-1 border-t border-[#191a1e]">
-            <span class="flex items-center gap-1 ${isRunning ? 'text-amber-400 font-medium' : 'text-zinc-400'}">
-              <span class="w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-amber-400 animate-pulse' : (cObj.status === 'completed' ? 'bg-purple-400' : 'bg-rose-400')}"></span>
-              <span class="live-run-timer" data-start="${cObj.activeRunStart || Date.now()}" data-running="${isRunning}">${formatSec(curRunSec)}</span>
-            </span>
-            <span class="text-zinc-600 font-mono">${esc(cObj.status.toUpperCase())}</span>
-          </div>
-        </article>
-      `;
-    }
-
-    function renderTreeNode(node) {
-      const { task, children } = node;
-      const hasChildren = children && children.length > 0;
-      const isExpanded = expandedSubagentParents.has(task.id) || (hasChildren && children.some(c => c.status === 'running'));
+    // 方案一精髓：卡片内嵌横向智能体协同流程条 (Agent Pipeline Strip)
+    function renderAgentPipelineStrip(tObj, subagents) {
+      if (!subagents || subagents.length === 0) return '';
+      const isRunning = tObj.status === 'running';
       
-      const parentHTML = cardHTML(task, children, isExpanded);
-      if (!isExpanded || !hasChildren) {
-        return `<div class="task-tree-group space-y-1.5">${parentHTML}</div>`;
-      }
-
-      const childrenHTML = children.map(child => `
-        <div class="relative pl-1">
-          <div class="absolute -left-[16px] top-4 w-3.5 h-0.5 border-t-2 border-dashed border-purple-800/50 pointer-events-none"></div>
-          ${childCardHTML(child)}
-        </div>
-      `).join('');
+      const nodes = [
+        {
+          role: 'ROOT',
+          status: tObj.status,
+          label: 'ROOT',
+          isRoot: true,
+        },
+        ...subagents.map(s => ({
+          role: s.role,
+          status: s.status,
+          duration: s.duration,
+          label: s.role,
+          id: s.id,
+          title: s.title,
+        }))
+      ];
 
       return `
-        <div class="task-tree-group space-y-1.5">
-          ${parentHTML}
-          <div class="subagent-tree ml-4 sm:ml-5 pl-3 border-l-2 border-dashed border-purple-800/40 space-y-2 pt-1 pb-1 relative">
-            ${childrenHTML}
-          </div>
+        <div class="bg-[#09090b] border border-[#1e1e24] p-1.5 rounded flex items-center gap-1.5 overflow-x-auto text-[10px] font-mono my-2 select-none no-scrollbar">
+          ${nodes.map((node, idx) => {
+            const isLast = idx === nodes.length - 1;
+            const isNodeRunning = node.status === 'running';
+            const bgClass = node.isRoot 
+              ? 'bg-[#16171d] border-zinc-700/60 text-zinc-200'
+              : (isNodeRunning ? 'bg-amber-950/40 border-amber-800/70 text-amber-300' : 'bg-purple-950/40 border-purple-800/60 text-purple-300');
+            const dotClass = isNodeRunning ? 'bg-amber-400 animate-pulse' : (node.status === 'completed' ? 'bg-emerald-400' : 'bg-rose-400');
+            const durText = node.duration ? `<span class="text-[9px] text-zinc-500 ml-1">${formatSec(node.duration)}</span>` : '';
+
+            const arrowHTML = !isLast ? `
+              <svg class="w-3 h-3 text-zinc-600 shrink-0 ${isNodeRunning ? 'text-amber-400/80 animate-pulse' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            ` : '';
+
+            return `
+              <div class="flex items-center gap-1 px-1.5 py-0.5 rounded border ${bgClass} shrink-0" title="${esc(node.title || node.label)}">
+                <span class="w-1.5 h-1.5 rounded-full ${dotClass}"></span>
+                <span class="font-semibold tracking-wider">${esc(node.label)}</span>
+                ${durText}
+              </div>
+              ${arrowHTML}
+            `;
+          }).join('')}
         </div>
       `;
     }
 
-    function cardHTML(tObj, children = [], isExpanded = false) {
+    function cardHTML(tObj, children = []) {
       const runs = getTaskRuns(tObj);
       const sparklineHTML = renderTickSparkline(runs);
       const latestRun = runs[runs.length - 1] || {};
       const passedCount = runs.filter(r => r.status === 'completed').length;
       const isRunning = tObj.status === 'running';
+      const subagents = getTaskSubagents(tObj, children);
+      const pipelineHTML = renderAgentPipelineStrip(tObj, subagents);
 
       const curRunSec = isRunning && tObj.activeRunStart 
         ? Math.max(0, Math.floor((Date.now() - tObj.activeRunStart) / 1000))
@@ -1237,19 +1279,13 @@
         <span class="inline-flex items-center px-1.5 py-0.5 rounded border border-indigo-900/60 bg-indigo-950/40 font-mono text-[9px] text-indigo-300 font-medium">📁 ${esc(tObj.keyId)}</span>
       ` : '';
 
-      const childCount = (children && children.length > 0) ? children.length : (tObj.subagentCount || 0);
+      const childCount = subagents.length;
       const subagentBadgeHTML = childCount > 0 ? `
-        <button type="button" onclick="event.stopPropagation(); toggleSubagents('${esc(tObj.id)}')"
-          class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-800/60 bg-purple-950/50 hover:bg-purple-900/60 text-purple-300 font-mono text-[9px] font-medium transition-colors cursor-pointer shrink-0"
+        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-purple-800/60 bg-purple-950/50 text-purple-300 font-mono text-[9px] font-medium shrink-0"
           title="${esc(t('subagentsBadge').replace('{n}', childCount))}">
-          ${(children && children.length > 0) ? `
-            <svg class="w-2.5 h-2.5 transition-transform duration-150 ${isExpanded ? 'rotate-90' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="9 18 15 12 9 6"></polyline>
-            </svg>
-          ` : ''}
           <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
           <span>${childCount}</span>
-        </button>
+        </span>
       ` : '';
 
       return `
@@ -1276,6 +1312,9 @@
 
           <!-- 微型刻度条 Sparkline -->
           ${sparklineHTML}
+
+          <!-- 方案一核心呈现：微型横向智能体协同流程条 (Pipeline Strip) -->
+          ${pipelineHTML}
 
           <!-- 最新活跃 Run 动作 -->
           <div class="text-zinc-300 text-xs mb-2 line-clamp-1 font-sans">
@@ -1338,10 +1377,6 @@
         const matchesChild = children.some(c => matchesFilter(c));
         if (!matchesParent && !matchesChild) return;
 
-        if (query && matchesChild) {
-          expandedSubagentParents.add(task.id);
-        }
-
         const hasRunningChild = children.some(c => c.status === 'running');
         let status = task.status;
         if (hasRunningChild && status !== 'running') {
@@ -1351,11 +1386,12 @@
         buckets[status].push(node);
       });
 
+      // 方案一：保持主看板每列卡片规整干净的高级网格形态，彻底告别破坏对齐的纵向大折线
       document.getElementById('col-running').innerHTML = buckets.running.length
-        ? buckets.running.map(renderTreeNode).join('')
+        ? buckets.running.map(node => cardHTML(node.task, node.children)).join('')
         : emptyState(t('noRunning'));
       document.getElementById('col-completed').innerHTML = buckets.completed.length
-        ? buckets.completed.map(renderTreeNode).join('')
+        ? buckets.completed.map(node => cardHTML(node.task, node.children)).join('')
         : emptyState(t('noCompleted'));
       const hasFailed = buckets.failed.length > 0;
       const failedSection = document.getElementById('section-failed');
@@ -1365,7 +1401,7 @@
       failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
       boardGrid.classList.toggle('has-failed', hasFailed);
       document.getElementById('col-failed').innerHTML = hasFailed
-        ? buckets.failed.map(renderTreeNode).join('')
+        ? buckets.failed.map(node => cardHTML(node.task, node.children)).join('')
         : '';
 
       const runningN = allTasks.filter((tObj) => tObj.status === 'running').length;
@@ -1709,141 +1745,110 @@
       if (selectedId) refreshDrawer();
     }
 
-    function renderDrawerDAG(task) {
-      const container = document.getElementById('drawer-dag-section');
-      const svgWrapper = document.getElementById('drawer-dag-svg-wrapper');
-      const countEl = document.getElementById('drawer-dag-nodes-count');
-      const resetBtn = document.getElementById('drawer-dag-filter-reset');
-      if (!container || !svgWrapper) return;
+    function renderDrawerWaterfall(task) {
+      const container = document.getElementById('drawer-waterfall-section');
+      const wfWrapper = document.getElementById('drawer-waterfall-container');
+      const totalBadge = document.getElementById('drawer-waterfall-total-badge');
+      const resetBtn = document.getElementById('drawer-waterfall-filter-reset');
+      if (!container || !wfWrapper) return;
 
       const childTasks = Array.from(tasksMap.values()).filter(t => t.parentId === task.id);
-      const timelineSubagents = [];
-      const seenIds = new Set(childTasks.map(c => c.id));
-      for (const run of (task.runs || [])) {
-        for (const e of (run.timeline || [])) {
-          if (e.event === 'subagentStart' || e.subagentType || e.subagentId) {
-            const sid = e.subagentId || e.desc;
-            if (sid && !seenIds.has(sid)) {
-              seenIds.add(sid);
-              timelineSubagents.push({
-                id: e.subagentId || `sub_${timelineSubagents.length + 1}`,
-                title: e.desc || 'Subagent',
-                subagentType: e.subagentType || 'subagent',
-                status: 'completed',
-                isTimelineOnly: true,
-                time: e.time
-              });
-            }
-          }
-        }
-      }
+      const subagents = getTaskSubagents(task, childTasks);
 
-      const allChildren = [...childTasks, ...timelineSubagents];
-      if (allChildren.length === 0) {
+      if (subagents.length === 0) {
         container.classList.add('hidden');
         return;
       }
 
       container.classList.remove('hidden');
-      if (countEl) countEl.textContent = `${allChildren.length + 1} NODES`;
       if (resetBtn) resetBtn.classList.toggle('hidden', !activeTraceSubagentFilter);
 
-      const cardW = 168;
-      const cardH = 46;
-      const gapX = 16;
-      const totalChildrenW = allChildren.length * cardW + (allChildren.length - 1) * gapX;
-      const containerW = (svgWrapper.clientWidth && svgWrapper.clientWidth > 40) ? (svgWrapper.clientWidth - 20) : 520;
-      const svgW = Math.max(containerW, totalChildrenW + 40);
-      const svgH = 150;
-
-      const rootW = 180;
-      const rootH = 42;
-      const rootX = (svgW - rootW) / 2;
-      const rootY = 12;
-
-      const childrenStartY = 94;
-      const startChildrenX = (svgW - totalChildrenW) / 2;
-
       const isRootRunning = task.status === 'running';
-      const rootColor = isRootRunning ? '#f59e0b' : (task.status === 'completed' ? '#10b981' : '#f43f5e');
+      const curTaskRunSec = isRootRunning && task.activeRunStart ? Math.max(0, Math.floor((Date.now() - task.activeRunStart) / 1000)) : 0;
+      const totalSec = Math.max(1, (task.totalLifetime || 0) + curTaskRunSec);
+      if (totalBadge) totalBadge.textContent = `${t('waterfallTotal')}: ${formatSec(totalSec)}`;
 
-      let linesHTML = '';
-      let nodesHTML = '';
+      // 生成时间刻度标尺 (5 等分)
+      const ticks = [0, 0.25, 0.5, 0.75, 1].map(r => formatSec(Math.round(totalSec * r)));
 
-      nodesHTML += `
-        <g class="cursor-pointer" onclick="resetTraceFilter()" opacity="${activeTraceSubagentFilter ? '0.6' : '1'}">
-          <rect x="${rootX}" y="${rootY}" width="${rootW}" height="${rootH}" rx="6" 
-            fill="#121318" stroke="${rootColor}" stroke-width="1.5" stroke-opacity="0.8"/>
-          <circle cx="${rootX + 14}" cy="${rootY + rootH/2}" r="3.5" fill="${rootColor}">
-            ${isRootRunning ? '<animate attributeName="opacity" values="1;0.4;1" dur="1.2s" repeatCount="indefinite"/>' : ''}
-          </circle>
-          <text x="${rootX + 24}" y="${rootY + 16}" font-family="monospace" font-size="9" fill="#a1a1aa" font-weight="600">${esc(t('rootWorkflow'))}</text>
-          <text x="${rootX + 24}" y="${rootY + 30}" font-family="sans-serif" font-size="11" fill="#f4f4f5" font-weight="500">
-            ${esc(sessionDisplayTitle(task)).substring(0, 16)}...
-          </text>
-        </g>
+      // 泳道条 1: ROOT WORKFLOW
+      const isRootFiltered = activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT';
+      const rootTrackHTML = `
+        <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isRootFiltered ? 'opacity-40' : 'opacity-100'}"
+          onclick="resetTraceFilter()" title="${esc(task.title || task.rootGoal)}">
+          <span class="w-28 text-zinc-300 truncate shrink-0 flex items-center gap-1.5 font-semibold text-[11px]">
+            <span class="w-1.5 h-1.5 rounded-full ${isRootRunning ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}"></span>
+            <span>ROOT</span>
+          </span>
+          <div class="flex-1 bg-black/40 h-6 rounded border border-line relative overflow-hidden flex items-center px-1.5">
+            <div class="absolute left-0 top-0 bottom-0 bg-indigo-950/60 border border-indigo-700/60 rounded flex items-center px-2" style="width: 100%;">
+              <span class="text-[10px] text-indigo-200 font-semibold truncate flex items-center gap-1">
+                ${isRootRunning ? '<span class="w-1 h-1 rounded-full bg-amber-400 animate-ping"></span>' : ''}
+                ${esc(task.title || 'Root Workflow')} · ${formatSec(totalSec)}
+              </span>
+            </div>
+          </div>
+        </div>
       `;
 
-      allChildren.forEach((child, idx) => {
-        const cX = startChildrenX + idx * (cardW + gapX);
-        const cY = childrenStartY;
+      // 泳道条 2..N: 各个子智能体泳道
+      const subTracksHTML = subagents.map(s => {
+        const isChildRunning = s.status === 'running';
+        const isSelected = activeTraceSubagentFilter === s.id || activeTraceSubagentFilter === s.role;
+        const isDimmed = activeTraceSubagentFilter && !isSelected;
 
-        const isChildRunning = child.status === 'running';
-        const strokeColor = isChildRunning ? '#f59e0b' : (child.status === 'completed' ? '#a855f7' : '#f43f5e');
-        const roleLabel = (child.subagentType || 'SUBAGENT').toUpperCase();
-        const childTitle = child.title || child.prompt || child.desc || child.id;
+        // 计算相对时间偏移与宽度百分比
+        let leftPct = 10;
+        let widthPct = 40;
+        if (s.startTime && task.startTime && s.startTime >= task.startTime) {
+          const offsetSec = Math.max(0, (s.startTime - task.startTime) / 1000);
+          leftPct = Math.min(85, Math.max(5, Math.round((offsetSec / totalSec) * 100)));
+          const durSec = s.duration || Math.round(totalSec * 0.35);
+          widthPct = Math.min(100 - leftPct, Math.max(15, Math.round((durSec / totalSec) * 100)));
+        } else {
+          // 兜底时间占位
+          widthPct = Math.min(70, Math.max(25, s.duration ? Math.round((s.duration / totalSec) * 100) : 35));
+          leftPct = Math.min(100 - widthPct, 15);
+        }
 
-        const startX = rootX + rootW / 2;
-        const startY = rootY + rootH;
-        const targetX = cX + cardW / 2;
-        const targetY = cY;
-        const dy = (targetY - startY) / 2;
-        const pathD = `M ${startX} ${startY} C ${startX} ${startY + dy}, ${targetX} ${targetY - dy}, ${targetX} ${targetY}`;
+        const borderClass = isSelected ? 'border-indigo-400 ring-1 ring-indigo-400/50' : (isChildRunning ? 'border-amber-600/70' : 'border-purple-700/70');
+        const bgTrackClass = isChildRunning ? 'bg-amber-950/50' : 'bg-purple-950/60';
+        const textTrackClass = isChildRunning ? 'text-amber-200 font-medium' : 'text-purple-200';
+        const dotColor = isChildRunning ? 'bg-amber-400 animate-pulse' : (s.status === 'completed' ? 'bg-emerald-400' : 'bg-rose-400');
 
-        linesHTML += `
-          <path d="${pathD}" fill="none" stroke="${strokeColor}" stroke-width="1.5" stroke-opacity="0.6" 
-            ${isChildRunning ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#arrow-${child.status === 'running' ? 'amber' : (child.status === 'completed' ? 'purple' : 'rose')})">
-            ${isChildRunning ? '<animate attributeName="stroke-dashoffset" from="14" to="0" dur="0.8s" repeatCount="indefinite"/>' : ''}
-          </path>
+        return `
+          <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isDimmed ? 'opacity-35' : 'opacity-100'}"
+            onclick="selectTraceSubagentFilter('${esc(s.id)}', '${esc(s.role)}', ${Boolean(!s.isStandalone)})"
+            title="${esc(s.title || s.role)}">
+            <span class="w-28 text-purple-300 truncate shrink-0 flex items-center gap-1 text-[11px]">
+              <span class="text-zinc-600 font-mono text-[10px]">↳</span>
+              <span class="w-1.5 h-1.5 rounded-full ${dotColor} shrink-0"></span>
+              <span class="truncate font-semibold uppercase tracking-wider text-[10px]">${esc(s.role)}</span>
+            </span>
+            <div class="flex-1 bg-black/40 h-6 rounded border border-line relative overflow-hidden flex items-center">
+              <div class="absolute top-0 bottom-0 ${bgTrackClass} border ${borderClass} rounded flex items-center px-2 transition-all"
+                style="left: ${leftPct}%; width: ${widthPct}%;">
+                <span class="text-[10px] ${textTrackClass} truncate flex items-center gap-1.5">
+                  ${isChildRunning ? '<span class="w-1 h-1 rounded-full bg-amber-400 animate-ping shrink-0"></span>' : ''}
+                  <span class="truncate">${esc(s.title)}</span>
+                  <span class="text-[9px] text-zinc-400 shrink-0 font-mono tabular-nums">(${formatSec(s.duration)})</span>
+                </span>
+              </div>
+            </div>
+          </div>
         `;
+      }).join('');
 
-        const isSelectedFilter = activeTraceSubagentFilter === child.id || activeTraceSubagentFilter === child.subagentType;
-
-        nodesHTML += `
-          <g class="cursor-pointer transition-opacity" 
-            onclick="selectTraceSubagentFilter('${esc(child.id)}', '${esc(child.subagentType || '')}', ${Boolean(child.isTimelineOnly)})"
-            opacity="${(!activeTraceSubagentFilter || isSelectedFilter) ? '1' : '0.4'}">
-            <rect x="${cX}" y="${cY}" width="${cardW}" height="${cardH}" rx="6" 
-              fill="#101116" stroke="${isSelectedFilter ? '#6366f1' : strokeColor}" stroke-width="${isSelectedFilter ? '2' : '1.2'}" stroke-opacity="${isSelectedFilter ? '1' : '0.7'}"/>
-            <circle cx="${cX + 12}" cy="${cY + 14}" r="3" fill="${strokeColor}">
-              ${isChildRunning ? '<animate attributeName="opacity" values="1;0.4;1" dur="1s" repeatCount="indefinite"/>' : ''}
-            </circle>
-            <text x="${cX + 20}" y="${cY + 17}" font-family="monospace" font-size="9" fill="#d8b4fe" font-weight="700" letter-spacing="0.5">
-              ↳ ${esc(roleLabel)}
-            </text>
-            <text x="${cX + 12}" y="${cY + 33}" font-family="sans-serif" font-size="10" fill="#e4e4e7" font-weight="400">
-              ${esc(childTitle).substring(0, 18)}...
-            </text>
-          </g>
-        `;
-      });
-
-      svgWrapper.innerHTML = `
-        <svg viewBox="0 0 ${svgW} ${svgH}" width="${svgW}" height="${svgH}" class="select-none" style="min-width:${svgW}px;">
-          <defs>
-            <marker id="arrow-purple" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-              <path d="M0,1 L5,3 L0,5 Z" fill="#a855f7" />
-            </marker>
-            <marker id="arrow-amber" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-              <path d="M0,1 L5,3 L0,5 Z" fill="#f59e0b" />
-            </marker>
-            <marker id="arrow-rose" markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-              <path d="M0,1 L5,3 L0,5 Z" fill="#f43f5e" />
-            </marker>
-          </defs>
-          ${linesHTML}
-          ${nodesHTML}
-        </svg>
+      wfWrapper.innerHTML = `
+        <!-- 刻度标尺 (Timeline Axis) -->
+        <div class="relative flex justify-between text-[9px] font-mono text-zinc-600 pl-28 pr-1 pb-1 border-b border-[#191a20]">
+          ${ticks.map(tStr => `<span>${tStr}</span>`).join('')}
+        </div>
+        <!-- 智能体时序泳道 -->
+        <div class="space-y-1.5 pt-1">
+          ${rootTrackHTML}
+          ${subTracksHTML}
+        </div>
       `;
     }
 
@@ -1851,7 +1856,7 @@
       const task = tasksMap.get(selectedId);
       if (!task) { closeDrawer(); return; }
 
-      renderDrawerDAG(task);
+      renderDrawerWaterfall(task);
 
       const runs = getTaskRuns(task);
 
