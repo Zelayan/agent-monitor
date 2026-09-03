@@ -90,6 +90,21 @@
           "type": "boolean",
           "default": true,
           "description": "Display live Agent timer and status indicator in Cursor status bar"
+        },
+        "agentMonitor.llmBaseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "OpenAI-compatible LLM base URL for session titles (e.g. http://127.0.0.1:11434/v1). Empty disables LLM titles unless set in the process environment."
+        },
+        "agentMonitor.llmModel": {
+          "type": "string",
+          "default": "",
+          "description": "LLM model name for session titles (e.g. qwen2.5:7b or gpt-4o-mini). Empty disables LLM titles unless set in the process environment."
+        },
+        "agentMonitor.llmApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Optional API key for the LLM endpoint (password field). Leave empty for local Ollama."
         }
       }
     }
