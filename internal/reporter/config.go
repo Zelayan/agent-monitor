@@ -4,15 +4,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 // DefaultRequireTag 定义开箱即用默认过滤标签
 const DefaultRequireTag = "#task"
 
+// DefaultDeleteTag 定义开箱即用默认会话删除/丢弃标签
+const DefaultDeleteTag = "#drop,#untrack"
+
 // GlobalConfig 表示全局与项目级通用配置结构
 type GlobalConfig struct {
 	RequireTag  string   `json:"require_tag,omitempty"`  // 过滤标签（默认 "#task"；设为 "" 可强制全量放行）
+	DeleteTag   string   `json:"delete_tag,omitempty"`   // 会话删除/取消追踪标签（默认 "#drop,#untrack"）
 	ServerURL   string   `json:"server_url,omitempty"`   // 监控服务 API 地址
 	Disabled    bool     `json:"disabled,omitempty"`     // 是否禁用监控
 	FilterRepos []string `json:"filter_repos,omitempty"` // 仅监控的仓库名白名单（可选）
@@ -57,6 +62,7 @@ func FindProjectConfigFile(workspaceRoot string) string {
 func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 	cfg := GlobalConfig{
 		RequireTag: DefaultRequireTag,
+		DeleteTag:  DefaultDeleteTag,
 	}
 
 	// 1. 读取全局配置
@@ -89,6 +95,17 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 				}
 				cfg.RequireTag = strings.Join(tags, ",")
 			}
+			if delVal, ok := globalMap["delete_tag"].(string); ok {
+				cfg.DeleteTag = delVal
+			} else if delList, ok := globalMap["delete_tag"].([]interface{}); ok {
+				var tags []string
+				for _, item := range delList {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						tags = append(tags, strings.TrimSpace(s))
+					}
+				}
+				cfg.DeleteTag = strings.Join(tags, ",")
+			}
 			if urlVal, ok := globalMap["server_url"].(string); ok && urlVal != "" {
 				cfg.ServerURL = urlVal
 			}
@@ -118,6 +135,17 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 					}
 					cfg.RequireTag = strings.Join(tags, ",")
 				}
+				if delVal, ok := projCfg["delete_tag"].(string); ok {
+					cfg.DeleteTag = delVal
+				} else if delList, ok := projCfg["delete_tag"].([]interface{}); ok {
+					var tags []string
+					for _, item := range delList {
+						if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+							tags = append(tags, strings.TrimSpace(s))
+						}
+					}
+					cfg.DeleteTag = strings.Join(tags, ",")
+				}
 				if urlVal, ok := projCfg["server_url"].(string); ok && urlVal != "" {
 					cfg.ServerURL = urlVal
 				}
@@ -134,6 +162,9 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 	// 3. 环境变量最高层级覆盖
 	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
 		cfg.RequireTag = envTag
+	}
+	if envDelTag, ok := os.LookupEnv("AGENT_MONITOR_DELETE_TAG"); ok {
+		cfg.DeleteTag = envDelTag
 	}
 	if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
 		cfg.ServerURL = envURL
@@ -156,6 +187,7 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 func LoadGlobalConfig() GlobalConfig {
 	cfg := GlobalConfig{
 		RequireTag: DefaultRequireTag,
+		DeleteTag:  DefaultDeleteTag,
 	}
 
 	path := DefaultConfigPath()
@@ -189,6 +221,17 @@ func LoadGlobalConfig() GlobalConfig {
 				}
 				cfg.RequireTag = strings.Join(tags, ",")
 			}
+			if delVal, ok := rawMap["delete_tag"].(string); ok {
+				cfg.DeleteTag = delVal
+			} else if delList, ok := rawMap["delete_tag"].([]interface{}); ok {
+				var tags []string
+				for _, item := range delList {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						tags = append(tags, strings.TrimSpace(s))
+					}
+				}
+				cfg.DeleteTag = strings.Join(tags, ",")
+			}
 			if urlVal, ok := rawMap["server_url"].(string); ok {
 				cfg.ServerURL = urlVal
 			}
@@ -204,6 +247,9 @@ func LoadGlobalConfig() GlobalConfig {
 	// 环境变量层级覆盖（优先级高于文件）
 	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
 		cfg.RequireTag = envTag
+	}
+	if envDelTag, ok := os.LookupEnv("AGENT_MONITOR_DELETE_TAG"); ok {
+		cfg.DeleteTag = envDelTag
 	}
 	if envURL := os.Getenv("AGENT_MONITOR_URL"); envURL != "" {
 		cfg.ServerURL = envURL
@@ -244,6 +290,41 @@ func LoadGlobalConfig() GlobalConfig {
 		return false
 	}
 
+	// MatchesDeleteTag 检查文本是否包含指定删除/取消追踪标签（如 "#drop", "#untrack"）
+	// 为防止代码子串误触，要求按独立 Token / 词边界匹配
+	func (c *GlobalConfig) MatchesDeleteTag(texts ...string) bool {
+		tagStr := strings.TrimSpace(c.DeleteTag)
+		if tagStr == "" || tagStr == "none" {
+			return false
+		}
+
+		tags := strings.Split(tagStr, ",")
+		for _, t := range tags {
+			t = strings.TrimSpace(t)
+			if t == "" {
+				continue
+			}
+			// 匹配以空格、标点或行首行尾为边界的标签，支持忽略大小写
+			pattern := `(?i)(?:^|[\s,;，。！？!?]|^)` + regexp.QuoteMeta(t) + `(?:$|[\s,;，。！？!?]|$)`
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				// 正则编译兜底
+				for _, text := range texts {
+					if strings.Contains(text, t) {
+						return true
+					}
+				}
+				continue
+			}
+			for _, text := range texts {
+				if re.MatchString(text) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
 	// WriteDefaultConfigFile 将配置写入指定路径
 	func WriteDefaultConfigFile(cfg GlobalConfig, targetPath string) error {
 		if targetPath == "" {
@@ -256,6 +337,7 @@ func LoadGlobalConfig() GlobalConfig {
 		// 不忽略空字段，确保如 require_tag: "" 能被显式写出以覆盖全局
 		m := map[string]interface{}{
 			"require_tag": cfg.RequireTag,
+			"delete_tag":  cfg.DeleteTag,
 			"server_url":  cfg.ServerURL,
 			"disabled":    cfg.Disabled,
 		}

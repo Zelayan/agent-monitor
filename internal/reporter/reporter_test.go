@@ -516,3 +516,114 @@ func TestShouldSkipUnstartedLifecycle(t *testing.T) {
 		t.Fatal("tool events must not be skipped as unstarted lifecycle")
 	}
 }
+
+func TestDeleteSession_And_DroppedSession(t *testing.T) {
+	origExit := exitFunc
+	exitFunc = func(code int) {}
+	defer func() { exitFunc = origExit }()
+
+	sessionID := "test-drop-sess-001"
+	unmarkSessionDropped(sessionID)
+	unmarkSessionTracked(sessionID)
+	defer func() {
+		unmarkSessionDropped(sessionID)
+		unmarkSessionTracked(sessionID)
+	}()
+
+	var receivedMethod, receivedPath, receivedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedMethod = r.Method
+		receivedPath = r.URL.Path
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"deleted":true}`))
+	}))
+	defer srv.Close()
+
+	// 1. 验证 DeleteSession HTTP 请求生成与鉴权头
+	serverURL := srv.URL + "/api/event"
+	ok := DeleteSession(serverURL, "my-test-key", sessionID)
+	if !ok {
+		t.Fatalf("expected DeleteSession to succeed")
+	}
+	if receivedMethod != http.MethodDelete {
+		t.Fatalf("expected method DELETE, got %s", receivedMethod)
+	}
+	if receivedPath != "/api/tasks/"+sessionID {
+		t.Fatalf("expected path /api/tasks/%s, got %s", sessionID, receivedPath)
+	}
+	if receivedAuth != "Bearer my-test-key" {
+		t.Fatalf("expected Authorization header 'Bearer my-test-key', got %q", receivedAuth)
+	}
+
+	// 2. 验证本地 dropped 状态流转
+	if isSessionDropped(sessionID) {
+		t.Fatalf("session should not be dropped initially")
+	}
+	markSessionTracked(sessionID, "#task 初始化任务")
+	if !isSessionTracked(sessionID) {
+		t.Fatalf("session should be tracked")
+	}
+
+	markSessionDropped(sessionID)
+	unmarkSessionTracked(sessionID)
+
+	if !isSessionDropped(sessionID) {
+		t.Fatalf("session should now be dropped")
+	}
+	if isSessionTracked(sessionID) {
+		t.Fatalf("session should no longer be tracked")
+	}
+
+	// 3. 验证 Run 中遇到 #drop 关键字自动发起删除并标记 drop
+	runSessionID := "test-run-drop-sess-002"
+	unmarkSessionDropped(runSessionID)
+	unmarkSessionTracked(runSessionID)
+	defer func() {
+		unmarkSessionDropped(runSessionID)
+		unmarkSessionTracked(runSessionID)
+	}()
+
+	markSessionTracked(runSessionID, "#task 之前跟踪的任务")
+
+	receivedMethod = ""
+	receivedPath = ""
+	dropPayload := fmt.Sprintf(`{"session_id":"%s","prompt":"请不要再监控这个会话了 #drop"}`, runSessionID)
+	cfg := Config{
+		Event:     "beforeSubmitPrompt",
+		ServerURL: serverURL,
+		DeleteTag: "#drop",
+	}
+
+	Run(cfg, strings.NewReader(dropPayload))
+
+	if !isSessionDropped(runSessionID) {
+		t.Fatalf("Run with #drop should mark session as dropped")
+	}
+	if isSessionTracked(runSessionID) {
+		t.Fatalf("Run with #drop should unmark session tracked")
+	}
+	if receivedMethod != http.MethodDelete || receivedPath != "/api/tasks/"+runSessionID {
+		t.Fatalf("expected DELETE /api/tasks/%s to be called, got %s %s", runSessionID, receivedMethod, receivedPath)
+	}
+
+	// 4. 处于 dropped 状态的后续事件（如工具调用）应该被直接静默忽略，不调用 Server
+	callCount := 0
+	srvCount := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srvCount.Close()
+
+	toolPayload := fmt.Sprintf(`{"session_id":"%s","tool_name":"bash","command":"ls"}`, runSessionID)
+	toolCfg := Config{
+		Event:     "beforeToolUse",
+		ServerURL: srvCount.URL + "/api/event",
+	}
+	Run(toolCfg, strings.NewReader(toolPayload))
+
+	if callCount != 0 {
+		t.Fatalf("dropped session events should be silenced and not send requests, got %d calls", callCount)
+	}
+}
+

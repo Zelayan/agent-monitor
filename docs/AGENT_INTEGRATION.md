@@ -229,9 +229,18 @@ agent-reporter config
 ```json
 {
   "require_tag": "#task",
+  "delete_tag": "#drop,#untrack",
   "server_url": "http://127.0.0.1:8000/api/event",
   "api_key": "your-secret-api-key",
   "disabled": false
+}
+```
+
+### Keyword-Based Session Deletion / Untracking
+Users can drop or untrack any ongoing session on Monitor by including delete keywords in the prompt (e.g. `#drop` or `#untrack`).
+- When detected in a prompt, `agent-reporter` invokes `DELETE /api/tasks/{session_id}` on Monitor, broadcasting card removal in real-time.
+- Local tracking flags for the session are removed, and subsequent events of the session are automatically silenced.
+
 }
 ```
 

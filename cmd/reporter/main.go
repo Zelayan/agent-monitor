@@ -17,6 +17,7 @@ func main() {
 			case "init-config":
 				initFs := flag.NewFlagSet("init-config", flag.ExitOnError)
 				tagFlag := initFs.String("tag", "#task", "Filter tag required in prompt (e.g. #task)")
+				delTagFlag := initFs.String("delete-tag", "#drop,#untrack", "Delete/untrack tag (e.g. #drop,#untrack)")
 				urlFlag := initFs.String("url", "http://127.0.0.1:8000/api/event", "Monitor server URL")
 				keyFlag := initFs.String("api-key", "", "API key for monitor server authentication")
 				pathFlag := initFs.String("path", "", "Custom target config path")
@@ -25,6 +26,7 @@ func main() {
 
 				cfg := reporter.GlobalConfig{
 					RequireTag: *tagFlag,
+					DeleteTag:  *delTagFlag,
 					ServerURL:  *urlFlag,
 					APIKey:     *keyFlag,
 					Disabled:   false,
@@ -48,6 +50,9 @@ func main() {
 				}
 				fmt.Printf("✓ Successfully created %s config: %s\n", scope, target)
 				fmt.Printf("  Filter Tag: %s (only prompts containing %q will be monitored)\n", cfg.RequireTag, cfg.RequireTag)
+				if cfg.DeleteTag != "" {
+					fmt.Printf("  Delete Tag: %s (prompts containing this will delete/untrack session)\n", cfg.DeleteTag)
+				}
 				fmt.Printf("  Server URL: %s\n", cfg.ServerURL)
 				if cfg.APIKey != "" {
 					fmt.Printf("  API Key:    %s\n", cfg.APIKey)
@@ -68,6 +73,7 @@ func main() {
 				}
 				fmt.Printf("  Global Config:  %s\n", globalPath)
 				fmt.Printf("  Require Tag:    %q\n", effectiveCfg.RequireTag)
+				fmt.Printf("  Delete Tag:     %q\n", effectiveCfg.DeleteTag)
 				fmt.Printf("  Server URL:     %q\n", effectiveCfg.ServerURL)
 				if effectiveCfg.APIKey != "" {
 					fmt.Printf("  API Key:        (set)\n")
@@ -85,6 +91,7 @@ func main() {
 			turnFlag       = flag.Int("turn", 0, "Current turn index")
 			serverURL      = flag.String("server", "", "Monitor server endpoint (default: http://127.0.0.1:8000/api/event)")
 			requireTagFlag = flag.String("require-tag", "", "Filter tag required in prompt (e.g. #task)")
+			deleteTagFlag  = flag.String("delete-tag", "", "Delete/untrack tag in prompt (e.g. #drop,#untrack)")
 			apiKeyFlag     = flag.String("api-key", "", "API Key for monitor server authentication")
 		)
 		flag.Parse()
@@ -95,6 +102,7 @@ func main() {
 			Turn:       *turnFlag,
 			ServerURL:  *serverURL,
 			RequireTag: *requireTagFlag,
+			DeleteTag:  *deleteTagFlag,
 			APIKey:     *apiKeyFlag,
 		}
 

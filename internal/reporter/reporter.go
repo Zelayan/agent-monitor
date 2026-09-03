@@ -64,6 +64,7 @@ type Config struct {
 	Turn       int
 	ServerURL  string
 	RequireTag string
+	DeleteTag  string
 	APIKey     string
 }
 
@@ -364,10 +365,12 @@ func isPreOrPostToolUse(eventName string) bool {
 	}
 }
 
+var exitFunc = os.Exit
+
 // RespondAndExit 打印 Hook 协议响应并以退出码 0 退出
 func RespondAndExit(event string) {
 	fmt.Println(GetHookResponse(event))
-	os.Exit(0)
+	exitFunc(0)
 }
 
 func sessionTrackedFile(sessionID string) string {
@@ -409,6 +412,38 @@ func getSessionTrackedPrompt(sessionID string) string {
 
 func unmarkSessionTracked(sessionID string) {
 	p := sessionTrackedFile(sessionID)
+	if p != "" {
+		_ = os.Remove(p)
+	}
+}
+
+func sessionDroppedFile(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	cleanID := strings.ReplaceAll(sessionID, "/", "_")
+	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-dropped-%s", cleanID))
+}
+
+func isSessionDropped(sessionID string) bool {
+	p := sessionDroppedFile(sessionID)
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+func markSessionDropped(sessionID string) {
+	p := sessionDroppedFile(sessionID)
+	if p != "" {
+		_ = os.WriteFile(p, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0644)
+	}
+}
+
+func unmarkSessionDropped(sessionID string) {
+	p := sessionDroppedFile(sessionID)
 	if p != "" {
 		_ = os.Remove(p)
 	}
@@ -489,6 +524,9 @@ func Run(cfg Config, inputReader io.Reader) {
 				effectiveCfg.RequireTag = cfg.RequireTag
 			}
 		}
+		if cfg.DeleteTag != "" {
+			effectiveCfg.DeleteTag = cfg.DeleteTag
+		}
 
 		// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
 		agentName := DetectAgentName(cfg.Agent, payload.Agent)
@@ -510,6 +548,12 @@ func Run(cfg Config, inputReader io.Reader) {
 
 		// 3. 获取 Session ID
 		sessionID := ExtractSessionID(payload)
+
+		// 若当前会话已被标记为 dropped，任何后续事件（包括 toolUse、stop、afterAgentResponse 等）直接静默放行
+		if isSessionDropped(sessionID) {
+			RespondAndExit(eventName)
+			return
+		}
 
 		// 4. 事件过滤
 		toolName := payload.ToolName
@@ -552,6 +596,28 @@ func Run(cfg Config, inputReader io.Reader) {
 		title := ShortTitle(currentPrompt)
 		if title == "" {
 			title = ShortTitle(firstPrompt)
+		}
+
+		// 5.-1 会话删除/取消跟踪关键字检测 (如 delete_tag: "#drop,#untrack")
+		if strings.TrimSpace(effectiveCfg.DeleteTag) != "" {
+			hasDeleteTag := effectiveCfg.MatchesDeleteTag(currentPrompt, title)
+			if hasDeleteTag {
+				// 用户明确要求丢弃/删除当前会话：
+				// 1. 本地标记已丢弃，并清除已追踪标记与历史记录
+				markSessionDropped(sessionID)
+				unmarkSessionTracked(sessionID)
+				// 2. 向 Monitor 发起 DELETE /api/tasks/{sessionID} 回调
+				DeleteSession(cfg.ServerURL, cfg.APIKey, sessionID)
+				// 3. 静默放行退出
+				RespondAndExit(eventName)
+				return
+			}
+		}
+
+		// 检查当前会话是否处于已丢弃黑名单中
+		if isSessionDropped(sessionID) {
+			RespondAndExit(eventName)
+			return
 		}
 
 		// 5.0 空开会话：Cursor 打开 Agent 后立刻关闭会打 sessionStart，无 Prompt 则不上报。
@@ -1413,4 +1479,40 @@ func SendEventWithAction(serverURL, apiKey string, report EventReport) (bool, Se
 		return true, controlResp
 	}
 	return false, controlResp
+}
+
+// DeleteSession 向 Monitor 发送 DELETE /api/tasks/{sessionID} 请求以移除该会话
+func DeleteSession(serverURL, apiKey, sessionID string) bool {
+	if sessionID == "" || serverURL == "" {
+		return false
+	}
+
+	// 派生 DELETE 目标 URL：通常 serverURL 是形如 http://127.0.0.1:8000/api/event
+	targetURL := strings.TrimSuffix(serverURL, "/api/event")
+	targetURL = strings.TrimSuffix(targetURL, "/api/report")
+	targetURL = strings.TrimSuffix(targetURL, "/")
+	targetURL = fmt.Sprintf("%s/api/tasks/%s", targetURL, sessionID)
+
+	req, err := http.NewRequest("DELETE", targetURL, nil)
+	if err != nil {
+		return false
+	}
+
+	if apiKey == "" {
+		apiKey = os.Getenv("AGENT_MONITOR_API_KEY")
+		if apiKey == "" {
+			apiKey = os.Getenv("MONITOR_API_KEY")
+		}
+	}
+	if apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	resp, err := defaultHTTPClient.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
