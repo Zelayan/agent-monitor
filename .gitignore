@@ -26,6 +26,7 @@
 node_modules/
 extensions/cursor/node_modules/
 extensions/cursor/dist/
+extensions/cursor/bin/
 *.vsix
 
 # zcode agent workspace & local cache

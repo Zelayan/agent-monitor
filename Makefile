@@ -53,11 +53,13 @@ extension:
 	cd extensions/cursor && npm run build
 	@echo "✓ Extension bundled successfully in extensions/cursor/dist/"
 
-vsix: extension
-	@echo "Packaging VSIX archive..."
-	mkdir -p $(DIST_DIR)
+vsix: build extension
+	@echo "Packaging VSIX archive with embedded binaries..."
+	mkdir -p $(DIST_DIR) extensions/cursor/bin
+	cp $(BIN_DIR)/agent-monitor extensions/cursor/bin/
+	cp $(BIN_DIR)/agent-reporter extensions/cursor/bin/
 	cd extensions/cursor && npx --yes @vscode/vsce package --no-dependencies --out $(CURDIR)/$(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix
 	@echo "✓ VSIX package generated at $(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix"
 
 clean:
-	rm -rf $(BIN_DIR) $(DIST_DIR) extensions/cursor/dist extensions/cursor/node_modules
+	rm -rf $(BIN_DIR) $(DIST_DIR) extensions/cursor/dist extensions/cursor/bin extensions/cursor/node_modules
