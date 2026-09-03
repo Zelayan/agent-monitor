@@ -25,7 +25,7 @@ Cursor 创建 worktree 时会读取 [`.cursor/worktrees.json`](../.cursor/worktr
 
 1. 在 Agents Window 把 Agent 放进 Worktree，或在聊天中使用 `/worktree`。
 2. 确认当前 checkout 不是主工作区，且已切到独立 `feat/` / `fix/` 分支。
-3. 完成后在该 worktree 内提交，然后：
+3. 完成改动后在该 worktree 内提交，运行 `make pre-pr`（包含单元测试与本地 AI Review）确保无阻断问题，然后：
 
 ```bash
 git push -u origin HEAD

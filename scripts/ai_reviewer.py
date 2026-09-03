@@ -1,21 +1,28 @@
 #!/usr/bin/env python3
 """
-AI Code Reviewer for GitHub Pull Requests.
+AI Code Reviewer for GitHub Pull Requests & Local Workspaces.
 Zero-external-dependency script using Python standard library.
-Analyzes git diffs against project-specific DDD, race-free, and fail-safe rules,
-then posts or updates a structured review comment on the Pull Request.
+Analyzes git diffs against project-specific DDD, race-free, and fail-safe rules.
+Supports:
+  - CI Mode: fetches PR diff and publishes/updates GitHub comments.
+  - Local Mode: inspects local git diff against base branch or staged changes,
+    rendering structured review findings directly in the terminal.
+  - Strict Exit Mode: exits with non-zero code when critical/blocking flaws are found,
+    enabling pre-PR local automated quality gates.
 """
 
+import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Dict, List, Optional, Tuple
 
-SYSTEM_PROMPT = """你是一个世界顶级的资深 Go 语言与全栈架构师，正在对 Pull Request 进行严格、务实且高信噪比的代码审查。
+SYSTEM_PROMPT = """你是一个世界顶级的资深 Go 语言与全栈架构师，正在对代码变更进行严格、务实且高信噪比的代码审查。
 
 请重点针对当前项目的专有架构与质量准则进行审查：
 
@@ -34,8 +41,11 @@ SYSTEM_PROMPT = """你是一个世界顶级的资深 Go 语言与全栈架构师
    - 严禁硬编码密钥、Token、私有路径（如本机绝对路径）。
 
 **输出格式要求**：
-- 如果代码质量良好且没有实质性隐患，请给出简洁肯定，并总结核心变更与价值。
-- 如果发现潜在 Bug、数据竞争（Data Race）、未翻译文案或架构违规，请按严重级别（Critical / Warning / Suggestion）清晰列出：
+- 第一行必须给出明确的评级结论标签：
+  - 若代码合格、没有阻断合并的严重隐患，第一行输出：`### 审查结论: [PASS]`
+  - 若发现潜在 Bug、数据竞争 (Data Race)、未翻译文案或严重架构违规，第一行输出：`### 审查结论: [BLOCK]`
+- 紧随其后给出核心变更总结与价值说明。
+- 如果存在问题，请按严重级别（Critical / Warning / Suggestion）清晰列出：
   - 问题所在文件及行号范围（如能定位）。
   - 具体原因与可能引发的后果。
   - 具体、可操作的修改建议或示例代码。
@@ -79,6 +89,37 @@ def get_pr_diff(github_token: str, repo: str, pr_number: int) -> str:
     return body.decode("utf-8", errors="replace")
 
 
+def get_local_git_diff(base: str = "origin/master", staged_only: bool = False) -> Tuple[str, str]:
+    """Retrieve local git diff and commit log.
+    Tries base branch, falls back to local master if remote is not fetched.
+    """
+    if staged_only:
+        cmd = ["git", "diff", "--cached"]
+        title = "Local Staged Changes"
+    else:
+        check_base = subprocess.run(["git", "rev-parse", "--verify", base], capture_output=True, text=True)
+        target_base = base
+        if check_base.returncode != 0:
+            target_base = "master"
+
+        cmd = ["git", "diff", f"{target_base}...HEAD"]
+        title = f"Local Branch Diff ({target_base}...HEAD)"
+
+    diff_res = subprocess.run(cmd, capture_output=True, text=True)
+    diff_text = diff_res.stdout
+
+    if not staged_only:
+        wt_diff = subprocess.run(["git", "diff"], capture_output=True, text=True).stdout
+        if wt_diff.strip():
+            diff_text += "\n" + wt_diff
+
+    log_cmd = ["git", "log", "-n", "5", "--oneline"]
+    log_res = subprocess.run(log_cmd, capture_output=True, text=True)
+    summary = log_res.stdout.strip()
+
+    return diff_text, f"{title}\nRecent Commits:\n{summary}"
+
+
 def filter_diff(diff_text: str, max_chars: int = 50000) -> str:
     """Filter out binary, minified, or lock files to preserve prompt budget."""
     ignored_patterns = [
@@ -117,11 +158,11 @@ def call_llm(
     pr_diff: str,
 ) -> str:
     endpoint = base_url.rstrip("/") + "/chat/completions"
-    user_content = f"""请审查以下 Pull Request：
+    user_content = f"""请审查以下代码变更：
 
-**标题**: {pr_title}
-**描述**:
-{pr_body or '(无描述)'}
+**标题/概要**: {pr_title}
+**描述/上下文**:
+{pr_body or '(无具体描述)'}
 
 **代码变更 (Diff)**:
 ```diff
@@ -213,27 +254,125 @@ def post_or_update_comment(
     print(f"✓ {action_desc} on PR #{pr_number}")
 
 
+def load_env_defaults() -> None:
+    """Load configuration from local or machine-level .env files if not already in env.
+    Priority order:
+      1. Existing os.environ (highest priority)
+      2. Current working directory .env
+      3. ~/.config/ai-reviewer/.env
+      4. ~/.agent-monitor/.env
+    """
+    home = os.path.expanduser("~")
+    candidates = [
+        os.path.join(os.getcwd(), ".env"),
+        os.path.join(home, ".config", "ai-reviewer", ".env"),
+        os.path.join(home, ".agent-monitor", ".env"),
+    ]
+
+    for env_path in candidates:
+        if not os.path.isfile(env_path):
+            continue
+        try:
+            with open(env_path, "r", encoding="utf-8", errors="ignore") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#") or "=" not in line:
+                        continue
+                    key, val = line.split("=", 1)
+                    key = key.strip()
+                    val = val.strip().strip("'\"")
+                    if key and key not in os.environ:
+                        os.environ[key] = val
+        except Exception:
+            pass
+
+
+def is_review_blocked(review_text: str) -> bool:
+    """Check if the review indicates blocking issues."""
+    first_lines = review_text.splitlines()[:5]
+    header_text = "\n".join(first_lines).upper()
+    if "[BLOCK]" in header_text or "结论: BLOCK" in header_text:
+        return True
+    if re.search(r"###\s*审查结论\s*:\s*\[?BLOCK\]?", header_text, re.IGNORECASE):
+        return True
+    return False
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="AI Code Reviewer for PRs & Local Branches.")
+    parser.add_argument("--local", action="store_true", help="Run in local workspace review mode instead of CI.")
+    parser.add_argument("--base", default="origin/master", help="Base branch to compare against (default: origin/master).")
+    parser.add_argument("--staged", action="store_true", help="Only review staged git changes.")
+    parser.add_argument("--strict", action="store_true", help="Exit with non-zero exit code if review yields [BLOCK].")
+    parser.add_argument("--model", default=None, help="LLM model (overrides OPENAI_MODEL env).")
+    return parser.parse_args()
+
+
 def main() -> int:
-    github_token = os.getenv("GITHUB_TOKEN")
+    load_env_defaults()
+    args = parse_args()
+
     openai_api_key = os.getenv("OPENAI_API_KEY")
     base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
-    model = os.getenv("OPENAI_MODEL", "gpt-4o")
+    model = args.model or os.getenv("OPENAI_MODEL", "gpt-4o")
+
+    github_token = os.getenv("GITHUB_TOKEN")
     repo = os.getenv("GITHUB_REPOSITORY")
     pr_number_str = os.getenv("PR_NUMBER")
     pr_title = os.getenv("PR_TITLE", "")
     pr_body = os.getenv("PR_BODY", "")
 
-    if not github_token:
-        print("[Error] GITHUB_TOKEN is required.", file=sys.stderr)
-        return 1
-
-    if not repo or not pr_number_str:
-        print("[Error] GITHUB_REPOSITORY and PR_NUMBER are required.", file=sys.stderr)
-        return 1
+    # Auto-detect mode: if --local is passed, or not in GitHub Actions PR context
+    is_local = args.local or not (github_token and repo and pr_number_str)
 
     if not openai_api_key:
-        print("[Notice] OPENAI_API_KEY is not set. Skipping AI review gracefully.")
+        if is_local:
+            print("[Error] OPENAI_API_KEY environment variable is not set.", file=sys.stderr)
+            print("Please configure ~/.config/ai-reviewer/.env or export OPENAI_API_KEY='sk-...'", file=sys.stderr)
+            return 1
+        else:
+            print("[Notice] OPENAI_API_KEY is not set. Skipping AI review gracefully.")
+            return 0
+
+    if is_local:
+        print(f"==> [Local Mode] Extracting git diff against {args.base}...")
+        raw_diff, context_info = get_local_git_diff(base=args.base, staged_only=args.staged)
+        filtered_diff = filter_diff(raw_diff)
+
+        if not filtered_diff.strip():
+            print("✓ No changes detected compared to base. Working directory clean.")
+            return 0
+
+        print(f"==> Reviewing changes using {model} at {base_url}...")
+        review_output = call_llm(
+            api_key=openai_api_key,
+            base_url=base_url,
+            model=model,
+            pr_title="Local Workspace Changes",
+            pr_body=context_info,
+            pr_diff=filtered_diff,
+        )
+
+        print("\n" + "=" * 60)
+        print(f"🤖 AI Code Review Findings ({model})")
+        print("=" * 60 + "\n")
+        print(review_output)
+        print("\n" + "=" * 60)
+
+        blocked = is_review_blocked(review_output)
+        if args.strict and blocked:
+            print("\n❌ Local AI Review failed: blocking issues found. Please address them before creating PR.", file=sys.stderr)
+            return 1
+        elif blocked:
+            print("\n⚠️ Review noted blocking issues, but --strict was not specified.", file=sys.stderr)
+        else:
+            print("\n✓ Local AI Review passed cleanly.")
         return 0
+
+    # CI Mode (GitHub Actions)
+    if not github_token or not repo or not pr_number_str:
+        print("[Error] GITHUB_TOKEN, GITHUB_REPOSITORY, and PR_NUMBER are required in CI mode.", file=sys.stderr)
+        return 1
 
     pr_number = int(pr_number_str)
     print(f"==> Fetching diff for {repo} PR #{pr_number}...")
