@@ -1,0 +1,15 @@
+---
+description: Concurrent Cursor Agents must use isolated worktrees or Cloud Agents plus feat/fix GitHub PRs
+alwaysApply: true
+---
+
+# Parallel Agents (GitHub Flow)
+
+- Do not let multiple Agents write the same checkout. Use a Git worktree (`/worktree`, Agents Window) or a Cloud Agent (`/in-cloud`).
+- Branch from a clean `origin/master`. Use `feat/<topic>` or `fix/<topic>`. Never push `master`.
+- One Agent, one branch, one Pull Request (`git push -u origin HEAD` then `gh pr create`). Default merge is Squash. Rebase onto `master` if files overlap.
+- Split by DDD directory (`internal/domain`, `internal/reporter`, `extensions/cursor`, `docs/`). Do not parallelize the same `static/index.html` or a change that also edits `main.go` (`go:embed`).
+- Run one `agent-monitor` on this machine (default `:8000`). Do not start another daemon from a worktree.
+- Never commit `.cursor/hooks.json` (machine-local absolute paths). Worktree setup copies it from the main checkout via `.cursor/worktrees.json`.
+- Before commit: `go test -v -race ./...`. Run `npm install` / `make extension` only when the task touches `extensions/cursor`.
+- Full workflow: [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md) / [docs/PARALLEL_AGENTS.en.md](docs/PARALLEL_AGENTS.en.md).

@@ -15,6 +15,12 @@
   - 本地运行工作区 `.zcode/` 已被 `.gitignore` 忽略，禁止强制跟踪提交。
 - **保护 Git 历史**：严禁修改全局 git config；严禁 `--amend`、force push、hard reset，除非用户明确要求。
 - **主干保护（GitHub Flow）**：`master` 为默认可发布分支。功能与修复走 `feat/`、`fix/` 短命分支，通过 Pull Request 合入；禁止直推 `master`。合入默认 Squash merge。发版只打 `v*` tag，不另设长期 `dev` 分支。PR 必须通过 `.github/workflows/ci.yml` 的 `go test -race ./...`。
+- **多 Agent 并发铁律**（详见 [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md)）：
+  - 每个 Agent 使用独立 Git worktree 或 Cloud Agent，以及独立的 `feat/` / `fix/` 分支；禁止多个 Agent 同时写同一份 checkout。
+  - 从干净的 `origin/master` 拉分支；本机 `.cursor/hooks.json` 含绝对路径，已被 gitignore，禁止提交。
+  - 按 DDD 目录拆任务（`internal/domain`、`internal/reporter`、`extensions/cursor`、`docs/` 等），避免并行改同一份 `static/index.html` 或 `main.go` embed。
+  - 本机只跑一份 `agent-monitor`（默认 `:8000`）；Worktree 内不要再起守护进程。扩展任务才在对应 worktree 执行 `npm install`。
+  - 完成后在该分支 `git push -u origin HEAD` 并 `gh pr create`；有文件重叠的后合者 rebase `master` 再过 CI。
 
 ---
 

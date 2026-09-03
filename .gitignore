@@ -22,6 +22,9 @@
 .idea/
 .vscode/
 
+# machine-local Cursor hooks (absolute reporter paths; do not commit)
+.cursor/hooks.json
+
 # node & extension builds
 node_modules/
 extensions/cursor/node_modules/
