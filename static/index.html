@@ -481,6 +481,27 @@
         </div>
         <div id="run-detail-breadcrumbs" class="space-y-1.5 font-mono text-[11px]"></div>
       </div>
+
+      <!-- 实时人机协同 / 动态上下文注入 (Live Steer & Context Injection) -->
+      <div id="drawer-steer-section" class="pt-2.5 border-t border-[#1e1e22]">
+        <div class="font-mono text-[10px] text-zinc-400 uppercase mb-1.5 flex items-center justify-between">
+          <span class="flex items-center gap-1.5 text-indigo-400 font-semibold">
+            <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="3 11 22 2 13 21 11 13 3 11"/>
+            </svg>
+            <span id="lbl-drawer-steer">向 AGENT 注入指引 / 上下文 (LIVE STEER)</span>
+          </span>
+          <span class="text-[9px] text-zinc-500 font-mono">在下个Hook注入</span>
+        </div>
+        <div class="flex items-center gap-1.5">
+          <input id="drawer-steer-input" type="text" placeholder="例如：注意不要修改 main.go，并严格保持测试全绿..."
+            class="flex-1 h-7 px-2.5 rounded bg-black/40 border border-line text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-indigo-500/70">
+          <button id="btn-drawer-steer" type="button"
+            class="h-7 px-2.5 rounded bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-mono text-xs font-medium transition-colors shadow-sm shrink-0">
+            注入
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 抽屉底部安全垫片，确保在任何屏幕与浏览器中完整滑到底部且不贴底裁切 -->
@@ -971,11 +992,14 @@
 
       const lifetimeSec = (tObj.totalLifetime || 0) + (isRunning ? curRunSec : 0);
 
-      const accent = isRunning 
-        ? 'border-l-amber-500' 
-        : tObj.status === 'completed' 
-          ? 'border-l-emerald-600' 
-          : 'border-l-rose-500';
+      const isAborting = tObj.controlState === 'abort_requested';
+      const accent = isAborting
+        ? 'border-l-amber-500 ring-1 ring-amber-500/30'
+        : isRunning 
+          ? 'border-l-amber-500' 
+          : tObj.status === 'completed' 
+            ? 'border-l-emerald-600' 
+            : 'border-l-rose-500';
 
       const sparklineHTML = renderTickSparkline(runs);
 
@@ -995,10 +1019,10 @@
       const isAborting = tObj.controlState === 'abort_requested';
       const abortBtnHTML = isRunning ? `
         <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
-          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-60 cursor-wait' : ''}"
+          class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
           title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
-          ${isAborting ? t('statusAborting') : '🛑 ' + t('btnAbort')}
+          ${isAborting ? '⏳ ' + t('statusAborting') : '🛑 ' + t('btnAbort')}
         </button>
       ` : '';
 
@@ -1873,6 +1897,28 @@
       } catch (_) { /* local fallback */ }
     }
 
+    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer)
+    async function steerSession(id, message) {
+      if (!id || !message) return;
+      try {
+        const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/steer`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message })
+        });
+        if (resp && resp.ok) {
+          const inputEl = document.getElementById('drawer-steer-input');
+          if (inputEl) {
+            inputEl.value = '';
+            inputEl.placeholder = '已排队，将在下个动作时注入 Agent 上下文！';
+            setTimeout(() => {
+              inputEl.placeholder = '例如：注意不要修改 main.go，并严格保持测试全绿...';
+            }, 3000);
+          }
+        }
+      } catch (_) { /* local fallback */ }
+    }
+
     // 4. 批量选择模式控制（严格基于当前可见任务集合，杜绝误选过滤隐藏项）
     function getVisibleTasks() {
       return Array.from(tasksMap.values()).filter(matchesFilter);
@@ -2236,6 +2282,25 @@
         toggleMoreDropdown(false);
       }
     });
+
+    // Steer 按钮与回车事件绑定
+    const btnSteer = document.getElementById('btn-drawer-steer');
+    const inputSteer = document.getElementById('drawer-steer-input');
+    function triggerSteer() {
+      if (!currentDrawerTaskId || !inputSteer) return;
+      const text = inputSteer.value.trim();
+      if (!text) return;
+      steerSession(currentDrawerTaskId, text);
+    }
+    if (btnSteer) btnSteer.addEventListener('click', triggerSteer);
+    if (inputSteer) {
+      inputSteer.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          triggerSteer();
+        }
+      });
+    }
 
     // 模态框事件绑定
     const modalEl = document.getElementById('confirm-modal');

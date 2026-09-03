@@ -120,8 +120,24 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if hookRes.Action != "deny" {
 		t.Fatalf("expected action 'deny', got %q", hookRes.Action)
 	}
-	if hookRes.Task.Status != "failed" || hookRes.Task.ControlState != "aborted" {
-		t.Fatalf("expected task to be terminated as failed/aborted, got status=%s controlState=%s", hookRes.Task.Status, hookRes.Task.ControlState)
+	// 在真正收口前，任务保持 running 与 abort_requested，不会提前假装已结束
+	if hookRes.Task.Status != "running" || hookRes.Task.ControlState != "abort_requested" {
+		t.Fatalf("expected task to remain running/abort_requested while intercepting, got status=%s controlState=%s", hookRes.Task.Status, hookRes.Task.ControlState)
+	}
+
+	// 真正的终态收口（如 stop / agentCompletion）到来时正式转为 aborted 终态
+	stopRes, err := svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-abort-test",
+		Agent:     "Cursor Agent",
+		Event:     "stop",
+		Detail:    "任务执行完成",
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("HandleHookEvent stop failed: %v", err)
+	}
+	if stopRes.Task.Status != "failed" || stopRes.Task.ControlState != "aborted" {
+		t.Fatalf("expected task to be terminated as failed/aborted on stop, got status=%s controlState=%s", stopRes.Task.Status, stopRes.Task.ControlState)
 	}
 
 	// 5. Test KillTask Hard Kill

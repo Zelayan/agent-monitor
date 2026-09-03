@@ -214,17 +214,23 @@ type EventReport struct {
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
 type ServerControlResponse struct {
-	Status string `json:"status"`           // "ok"
-	Action string `json:"action,omitempty"` // "allow" | "deny" | "abort"
-	Reason string `json:"reason,omitempty"`
+	Status            string `json:"status"` // "ok"
+	Action            string `json:"action,omitempty"` // "allow" | "deny" | "abort"
+	Reason            string `json:"reason,omitempty"`
+	AdditionalContext string `json:"additional_context,omitempty"` // 动态注入上下文
+	AgentMessage      string `json:"agent_message,omitempty"`      // 随工具返回给模型的指导
 }
 
-// RespondWithAction 根据服务端的控制决策输出阻断协议或默认放行协议。
+// RespondWithAction 根据服务端的控制决策输出阻断协议或默认放行协议，并支持动态上下文注入。
 func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
 	if ctrl.Action == "deny" || ctrl.Action == "abort" {
 		reason := ctrl.Reason
 		if reason == "" {
 			reason = "Workflow aborted from Agent Monitor Dashboard"
+		}
+		agentMsg := ctrl.AgentMessage
+		if agentMsg == "" {
+			agentMsg = "CRITICAL: The user has intentionally aborted this session. Do not invoke any more tools. Acknowledge and stop immediately."
 		}
 
 		switch agentName {
@@ -237,8 +243,9 @@ func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
 				fmt.Println(string(out))
 			} else {
 				out, _ := json.Marshal(map[string]interface{}{
-					"permission":   "deny",
-					"user_message": reason,
+					"permission":    "deny",
+					"user_message":  reason,
+					"agent_message": agentMsg,
 				})
 				fmt.Println(string(out))
 			}
@@ -250,7 +257,7 @@ func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
 				"hookSpecificOutput": map[string]string{
 					"permissionDecision": "deny",
 				},
-				"systemMessage": reason,
+				"systemMessage": reason + "\n" + agentMsg,
 			})
 			fmt.Println(string(out))
 			os.Exit(2)
@@ -266,6 +273,33 @@ func RespondWithAction(event, agentName string, ctrl ServerControlResponse) {
 			os.Exit(2)
 		}
 		return
+	}
+
+	// 放行分支：若有动态上下文注入需求，根据 Hook 协议输出对应的注入字段
+	if ctrl.AdditionalContext != "" || ctrl.AgentMessage != "" {
+		switch event {
+		case "postToolUse", "PostToolUse":
+			out, _ := json.Marshal(map[string]interface{}{
+				"additional_context": ctrl.AdditionalContext,
+			})
+			fmt.Println(string(out))
+			exitFunc(0)
+			return
+		case "preToolUse", "PreToolUse", "beforeShellExecution", "beforeMCPExecution", "subagentStart":
+			resp := map[string]interface{}{
+				"permission": "allow",
+			}
+			if ctrl.AgentMessage != "" {
+				resp["agent_message"] = ctrl.AgentMessage
+			}
+			if ctrl.AdditionalContext != "" {
+				resp["additional_context"] = ctrl.AdditionalContext
+			}
+			out, _ := json.Marshal(resp)
+			fmt.Println(string(out))
+			exitFunc(0)
+			return
+		}
 	}
 
 	// 默认安全放行
@@ -449,6 +483,38 @@ func unmarkSessionDropped(sessionID string) {
 	}
 }
 
+func sessionAbortingFile(sessionID string) string {
+	if sessionID == "" {
+		return ""
+	}
+	cleanID := strings.ReplaceAll(sessionID, "/", "_")
+	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
+	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-aborting-%s", cleanID))
+}
+
+func isSessionAborting(sessionID string) bool {
+	p := sessionAbortingFile(sessionID)
+	if p == "" {
+		return false
+	}
+	_, err := os.Stat(p)
+	return err == nil
+}
+
+func markSessionAborting(sessionID string) {
+	p := sessionAbortingFile(sessionID)
+	if p != "" {
+		_ = os.WriteFile(p, []byte(strconv.FormatInt(time.Now().Unix(), 10)), 0644)
+	}
+}
+
+func unmarkSessionAborting(sessionID string) {
+	p := sessionAbortingFile(sessionID)
+	if p != "" {
+		_ = os.Remove(p)
+	}
+}
+
 func sessionPromptsFile(sessionID string) string {
 	if sessionID == "" {
 		return ""
@@ -571,19 +637,25 @@ func Run(cfg Config, inputReader io.Reader) {
 
 		if isPreOrPostToolUse(eventName) {
 			if !isFailure {
-				if IgnoredTools[toolName] {
+				// 如果该会话已被标记为中断中 (aborting)，绝不能被 IgnoredTools 静默放行，必须穿透至后端拦截！
+				if isSessionAborting(sessionID) {
+					// 处于中断中，继续向下交付并阻断
+				} else if IgnoredTools[toolName] {
 					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
 					RespondAndExit(eventName)
 					return
 				}
 				if eventName == "PostToolUse" || eventName == "postToolUse" {
-					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
-					RespondAndExit(eventName)
-					return
+					// PostToolUse 若没有被标记中断且无需等待注入，可根据情况放行或上报
+					if !isSessionAborting(sessionID) {
+						flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+						RespondAndExit(eventName)
+						return
+					}
 				}
 				// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
 				// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
-				if eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
+				if !isSessionAborting(sessionID) && eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
 					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
 					RespondAndExit(eventName)
 					return
@@ -670,6 +742,12 @@ func Run(cfg Config, inputReader io.Reader) {
 		detail = detail[:160]
 	}
 
+		// 获取真实的常驻宿主 PID（若是 CLI/Bash 执行，优先使用 PPID）
+		reportedPID := os.Getpid()
+		if ppid := os.Getppid(); ppid > 1 {
+			reportedPID = ppid
+		}
+
 		data := EventReport{
 			ID:        sessionID,
 			Agent:     agentName,
@@ -679,7 +757,7 @@ func Run(cfg Config, inputReader io.Reader) {
 			Detail:    detail,
 			TurnIndex: turnCount,
 			Title:     title,
-			PID:       os.Getpid(),
+			PID:       reportedPID,
 			PGID:      os.Getppid(),
 		}
 		if len(currentPrompt) > 4000 {
@@ -693,6 +771,13 @@ func Run(cfg Config, inputReader io.Reader) {
 
 		// 10. 先补报失败队列，再发当前事件；接收服务端返回的控制决策
 		_, ctrl := DeliverEventWithAction(cfg.ServerURL, cfg.APIKey, data)
+
+		// 若服务端要求中断，在本地标记 sessionAborting，使得后续即便是 IgnoredTools 也被穿透拦截
+		if ctrl.Action == "deny" || ctrl.Action == "abort" {
+			markSessionAborting(sessionID)
+		} else if mappedEvent == "agentCompletion" || mappedEvent == "failed" {
+			unmarkSessionAborting(sessionID)
+		}
 
 		// 11. 根据控制决策输出响应协议（支持从 Web 看板反向中断/拒绝）
 		RespondWithAction(eventName, agentName, ctrl)
