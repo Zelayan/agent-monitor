@@ -456,3 +456,39 @@ func TestTask_CloseOrphanRunsHealsMatrixHole(t *testing.T) {
 		t.Fatalf("matrix hole returned: %s / %s / %s", task.Runs[0].Status, task.Runs[1].Status, task.Runs[2].Status)
 	}
 }
+
+func TestTask_VacuousLifecycleAndHasUserWork(t *testing.T) {
+	emptyStart := EventPayload{ID: "sess-empty", Agent: "Cursor Agent", Event: "sessionStart"}
+	if !IsVacuousLifecycle(emptyStart) {
+		t.Fatal("empty sessionStart should be vacuous")
+	}
+	if !IsVacuousLifecycle(EventPayload{ID: "sess-empty", Event: "agentCompletion"}) {
+		t.Fatal("empty sessionEnd/agentCompletion should be vacuous")
+	}
+	if IsVacuousLifecycle(EventPayload{ID: "sess-empty", Event: "sessionStart", Prompt: "修 bug"}) {
+		t.Fatal("sessionStart with prompt is real work")
+	}
+	if IsVacuousLifecycle(EventPayload{ID: "sess-empty", Event: "sessionStart", Title: "Connection Test"}) {
+		t.Fatal("sessionStart with a real title is intentional")
+	}
+	if IsVacuousLifecycle(EventPayload{ID: "sess-empty", Event: "beforeShellExecution", Detail: "ls"}) {
+		t.Fatal("tool events are not lifecycle shells")
+	}
+
+	idle := NewTask(emptyStart, 1000000)
+	idle.ApplyEvent(EventPayload{ID: "sess-empty", Event: "sessionStart", Detail: "会话启动，分析任务中..."}, 1000000, "10:00:00")
+	if idle.HasUserWork() {
+		t.Fatal("placeholder open-and-close session has no user work")
+	}
+
+	worked := NewTask(EventPayload{ID: "sess-work", Event: "sessionStart", Prompt: "修 bug"}, 1000000)
+	if !worked.HasUserWork() {
+		t.Fatal("prompted session has user work")
+	}
+
+	tools := NewTask(EventPayload{ID: "sess-tool", Agent: "Cursor Agent", Event: "beforeShellExecution"}, 1000000)
+	tools.ApplyEvent(EventPayload{ID: "sess-tool", Event: "beforeShellExecution", Detail: "ls"}, 1000000, "10:00:00")
+	if !tools.HasUserWork() {
+		t.Fatal("tool-only session has user work")
+	}
+}

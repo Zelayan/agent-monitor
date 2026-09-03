@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -230,6 +231,64 @@ func IsStartHook(event string) bool {
 	default:
 		return false
 	}
+}
+
+// IsTerminalHook 判断事件是否为会话/轮次收口（完成、失败或 Cursor 回复交付）。
+func IsTerminalHook(event string) bool {
+	switch event {
+	case "agentCompletion", "onComplete", "complete", "Stop", "stop",
+		"SessionEnd", "sessionEnd", "afterAgentResponse", "failed", "error":
+		return true
+	default:
+		return false
+	}
+}
+
+// IsLifecycleShellEvent 判断是否仅为会话开闭壳事件，不含工具调用或其它实际工作。
+func IsLifecycleShellEvent(event string) bool {
+	return IsStartHook(event) || IsTerminalHook(event)
+}
+
+// IsVacuousLifecycle 判断上报是否为空开会话的开闭事件：无 Prompt、无真实标题、无 AI 回复。
+// Cursor 打开 Agent 后立刻关闭会连打 sessionStart + sessionEnd，这类事件不应落成看板卡片。
+func IsVacuousLifecycle(p EventPayload) bool {
+	if strings.TrimSpace(p.Prompt) != "" {
+		return false
+	}
+	if IsRealTitle(p.Title) {
+		return false
+	}
+	if strings.TrimSpace(p.AIResponse) != "" {
+		return false
+	}
+	return IsLifecycleShellEvent(p.Event)
+}
+
+// HasUserWork 判断会话是否产生过真实工作（Prompt、工具、AI 回复或人工中断）。
+func (t *Task) HasUserWork() bool {
+	if t == nil {
+		return false
+	}
+	if strings.TrimSpace(t.Prompt) != "" || strings.TrimSpace(t.AbortReason) != "" || t.ControlState != "" {
+		return true
+	}
+	if IsRealTitle(t.Title) {
+		return true
+	}
+	for _, run := range t.Runs {
+		if strings.TrimSpace(run.Prompt) != "" || strings.TrimSpace(run.AIResponse) != "" {
+			return true
+		}
+		if IsRealTitle(run.Title) {
+			return true
+		}
+		for _, item := range run.Timeline {
+			if !IsLifecycleShellEvent(item.Event) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ShouldStartNewTurn 判断是否应该为当前 Task 开启新的一轮（Run）。

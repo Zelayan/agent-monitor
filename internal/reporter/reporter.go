@@ -341,6 +341,20 @@ func shouldDropEvent(eventName string) bool {
 	}
 }
 
+// shouldSkipUnstartedLifecycle 跳过无 Prompt 的会话启动。Cursor 打开 Agent 面板即会触发
+// sessionStart；用户什么都不做就关闭时不应向 Monitor 落一条空卡片。
+func shouldSkipUnstartedLifecycle(eventName, currentPrompt, firstPrompt string) bool {
+	if strings.TrimSpace(currentPrompt) != "" || strings.TrimSpace(firstPrompt) != "" {
+		return false
+	}
+	switch eventName {
+	case "sessionStart", "SessionStart":
+		return true
+	default:
+		return false
+	}
+}
+
 func isPreOrPostToolUse(eventName string) bool {
 	switch eventName {
 	case "PreToolUse", "PostToolUse", "preToolUse", "postToolUse":
@@ -538,6 +552,12 @@ func Run(cfg Config, inputReader io.Reader) {
 		title := ShortTitle(currentPrompt)
 		if title == "" {
 			title = ShortTitle(firstPrompt)
+		}
+
+		// 5.0 空开会话：Cursor 打开 Agent 后立刻关闭会打 sessionStart，无 Prompt 则不上报。
+		if shouldSkipUnstartedLifecycle(eventName, currentPrompt, firstPrompt) {
+			RespondAndExit(eventName)
+			return
 		}
 
 		// 5.1 标签规则过滤 (如 require_tag: "#task")
