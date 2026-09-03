@@ -711,6 +711,10 @@
         waterfallTotal: '总生命周期',
         waterfallHint: '点击任意泳道条，直接高亮过滤下方该智能体的具体工具轨迹',
         pipelineTitle: '智能体协同流',
+        steerSubagentTitle: '向子智能体 [{role}] 发送指引',
+        steerSubagentPlaceholder: '例如：聚焦特定模块，忽略无关测试... (针对 {role} 定向生效)',
+        btnSteerSubagent: '发给 {role}',
+        steerSubagentQueued: '已排队，将在子智能体 [{role}] 动作时注入上下文！',
       },
       en: {
         htmlLang: 'en',
@@ -812,6 +816,10 @@
         waterfallTotal: 'TOTAL LIFETIME',
         waterfallHint: 'Click any waterfall track to highlight & filter its specific execution trace',
         pipelineTitle: 'AGENT PIPELINE',
+        steerSubagentTitle: 'STEER SUBAGENT [{role}]',
+        steerSubagentPlaceholder: 'e.g. Focus on specific module, skip irrelevant tests... (targets {role})',
+        btnSteerSubagent: 'Send to {role}',
+        steerSubagentQueued: 'Queued! Will inject context on subagent [{role}] next hook.',
       },
     };
 
@@ -1922,7 +1930,21 @@
           const lblSteerHint = document.getElementById('lbl-drawer-steer-hint');
           const inputSteerEl = document.getElementById('drawer-steer-input');
           const btnSteerEl = document.getElementById('btn-drawer-steer');
-          if (task.status === 'running') {
+          
+          const isTargetingSubagent = Boolean(activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT');
+          const targetRole = isTargetingSubagent ? activeTraceSubagentFilter.toUpperCase() : '';
+
+          if (isTargetingSubagent && task.status === 'running') {
+            if (lblSteer) lblSteer.textContent = t('steerSubagentTitle').replace('{role}', targetRole);
+            if (lblSteerHint) lblSteerHint.textContent = `定向生效 (${targetRole})`;
+            if (inputSteerEl && !inputSteerEl.value) {
+              inputSteerEl.placeholder = t('steerSubagentPlaceholder').replace(/{role}/g, targetRole);
+            }
+            if (btnSteerEl) {
+              btnSteerEl.textContent = t('btnSteerSubagent').replace('{role}', targetRole);
+              btnSteerEl.className = 'h-6 px-2.5 rounded bg-purple-600 hover:bg-purple-500 text-white font-mono text-[10px] font-medium transition-colors shrink-0 shadow-sm';
+            }
+          } else if (task.status === 'running') {
             if (lblSteer) lblSteer.textContent = t('drawerSteer');
             if (lblSteerHint) lblSteerHint.textContent = t('drawerSteerHint');
             if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = t('drawerSteerPlaceholder');
@@ -2358,22 +2380,35 @@
       } catch (_) { /* local fallback */ }
     }
 
-    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer)
-    async function steerSession(id, message) {
+    // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer，支持定向子智能体)
+    async function steerSession(id, message, targetInfo = {}) {
       if (!id || !message) return;
       try {
+        const bodyPayload = { message: message };
+        if (targetInfo.target_subagent_type) {
+          bodyPayload.target_subagent_type = targetInfo.target_subagent_type;
+        }
+        if (targetInfo.target_subagent_id) {
+          bodyPayload.target_subagent_id = targetInfo.target_subagent_id;
+        }
+        if (targetInfo.target_child_id) {
+          bodyPayload.target_child_id = targetInfo.target_child_id;
+        }
+
         const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/steer`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: message })
+          body: JSON.stringify(bodyPayload)
         });
         if (resp && resp.ok) {
           const inputEl = document.getElementById('drawer-steer-input');
           if (inputEl) {
             inputEl.value = '';
-            inputEl.placeholder = t('drawerSteerQueued');
+            const role = targetInfo.target_subagent_type ? targetInfo.target_subagent_type.toUpperCase() : '';
+            const queuedMsg = role ? t('steerSubagentQueued').replace('{role}', role) : t('drawerSteerQueued');
+            inputEl.placeholder = queuedMsg;
             setTimeout(() => {
-              inputEl.placeholder = t('drawerSteerPlaceholder');
+              if (selectedId) refreshDrawer();
             }, 3000);
           }
         }
@@ -2783,7 +2818,17 @@
       if (!text) return;
       const tObj = tasksMap.get(selectedId);
       if (tObj && tObj.status === 'running') {
-        steerSession(selectedId, text);
+        const targetInfo = {};
+        if (activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT') {
+          if (tasksMap.has(activeTraceSubagentFilter)) {
+            targetInfo.target_child_id = activeTraceSubagentFilter;
+            const c = tasksMap.get(activeTraceSubagentFilter);
+            if (c && c.subagentType) targetInfo.target_subagent_type = c.subagentType;
+          } else {
+            targetInfo.target_subagent_type = activeTraceSubagentFilter;
+          }
+        }
+        steerSession(selectedId, text, targetInfo);
       } else {
         followUpSession(selectedId, text);
       }

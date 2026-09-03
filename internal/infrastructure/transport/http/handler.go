@@ -21,12 +21,12 @@ type AuthContext struct {
 
 // Handler 提供 Monitor 的 HTTP API 与前端页面路由处理。
 type Handler struct {
-	svc        *monitor.MonitorService
-	hub        *monitor.Hub
-	staticHTML []byte
-	staticFS   fs.FS
-	apiKey     string            // 单 Key 或默认 Key
-	masterKey  string            // Master 全局管理 Key
+	svc         *monitor.MonitorService
+	hub         *monitor.Hub
+	staticHTML  []byte
+	staticFS    fs.FS
+	apiKey      string            // 单 Key 或默认 Key
+	masterKey   string            // Master 全局管理 Key
 	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
 }
 
@@ -379,11 +379,17 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1.05 POST /api/tasks/{id}/steer 动态向 Agent 注入上下文/指导
+	// 1.05 POST /api/tasks/{id}/steer 动态向 Agent 注入上下文/指导 (支持定向子智能体)
 	if len(parts) == 2 && (parts[1] == "steer" || parts[1] == "inject-context") && r.Method == http.MethodPost {
 		var body struct {
-			Context string `json:"context"`
-			Message string `json:"message"`
+			Context            string `json:"context"`
+			Message            string `json:"message"`
+			TargetChildID      string `json:"target_child_id"`
+			ChildID            string `json:"child_id"`
+			TargetSubagentType string `json:"target_subagent_type"`
+			SubagentType       string `json:"subagent_type"`
+			TargetSubagentID   string `json:"target_subagent_id"`
+			SubagentID         string `json:"subagent_id"`
 		}
 		if r.Body != nil {
 			_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&body)
@@ -392,7 +398,28 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if msg == "" {
 			msg = body.Message
 		}
-		steeredTask, err := h.svc.InjectContextTenant(taskID, msg, authCtx.KeyID, authCtx.IsMaster)
+
+		targetChildID := body.TargetChildID
+		if targetChildID == "" {
+			targetChildID = body.ChildID
+		}
+		targetSubType := body.TargetSubagentType
+		if targetSubType == "" {
+			targetSubType = body.SubagentType
+		}
+		targetSubID := body.TargetSubagentID
+		if targetSubID == "" {
+			targetSubID = body.SubagentID
+		}
+
+		inst := task.SteerInstruction{
+			Message:            msg,
+			TargetChildID:      targetChildID,
+			TargetSubagentType: targetSubType,
+			TargetSubagentID:   targetSubID,
+		}
+
+		steeredTask, err := h.svc.InjectSteerTargetedTenant(taskID, inst, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
 			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
 			return

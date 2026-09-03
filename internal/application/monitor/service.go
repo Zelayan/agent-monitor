@@ -29,8 +29,8 @@ type MonitorService struct {
 	stopChan   chan struct{}
 	ttlDays    int // 自动清理天数（默认 30 天，<=0 则不清理）
 	summarizer *TitleSummarizer
-	titleJobs  sync.Map            // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
-	steerQueue map[string][]string // map[taskID][]contextToInject 动态上下文注入队列
+	titleJobs  sync.Map                           // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
+	steerQueue map[string][]task.SteerInstruction // map[taskID][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
@@ -47,7 +47,7 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 		writeChan:  make(chan taskWriteRequest, 5000), // 削峰缓冲
 		stopChan:   make(chan struct{}),
 		ttlDays:    ttlDays,
-		steerQueue: make(map[string][]string),
+		steerQueue: make(map[string][]task.SteerInstruction),
 	}
 
 	if repo != nil {
@@ -252,11 +252,47 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 		t.ApplyEvent(p, nowMs, nowStr)
 	}
 
-	// 动态上下文注入：检查当前会话是否有排队的提示词需要注入给 Agent
-	if msgs, ok := s.steerQueue[t.ID]; ok && len(msgs) > 0 {
-		additionalCtx = strings.Join(msgs, "\n\n")
-		delete(s.steerQueue, t.ID)
-		t.RecordContextInjected(additionalCtx, nowStr)
+	// 动态上下文注入：检查当前会话是否有排队的提示词需要注入给 Agent（支持精准定向子智能体）
+	if instructions, ok := s.steerQueue[t.ID]; ok && len(instructions) > 0 {
+		var consumedTexts []string
+		var remaining []task.SteerInstruction
+		var targetTypeMatched string
+
+		for _, inst := range instructions {
+			matched := false
+			// 1. 若指定了具体的子智能体类型 (如 Explore / judge)
+			if inst.TargetSubagentType != "" {
+				if strings.EqualFold(p.SubagentType, inst.TargetSubagentType) || (p.Event == "subagentStart" && strings.EqualFold(p.SubagentType, inst.TargetSubagentType)) {
+					matched = true
+					targetTypeMatched = inst.TargetSubagentType
+				}
+			} else if inst.TargetSubagentID != "" {
+				// 2. 若指定了具体的子智能体 ID (如 agent_explore_01)
+				if p.SubagentID == inst.TargetSubagentID {
+					matched = true
+					targetTypeMatched = inst.TargetSubagentType
+				}
+			} else {
+				// 3. 未指定目标（全局广播）：匹配任意当前动作
+				matched = true
+			}
+
+			if matched {
+				consumedTexts = append(consumedTexts, inst.Message)
+			} else {
+				remaining = append(remaining, inst)
+			}
+		}
+
+		if len(consumedTexts) > 0 {
+			additionalCtx = strings.Join(consumedTexts, "\n\n")
+			if len(remaining) > 0 {
+				s.steerQueue[t.ID] = remaining
+			} else {
+				delete(s.steerQueue, t.ID)
+			}
+			t.RecordContextInjected(additionalCtx, targetTypeMatched, nowStr)
+		}
 	}
 
 	taskID := t.ID
@@ -332,8 +368,8 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	return taskCopy, nil
 }
 
-// InjectContextTenant 向指定会话注入动态上下文/提示词，将在下一次 Hook 交互时返回给 Agent。
-func (s *MonitorService) InjectContextTenant(id string, contextText string, keyID string, isMaster bool) (*task.Task, error) {
+// InjectSteerTargetedTenant 向指定会话或其派生的特定子智能体注入结构化指导指令。
+func (s *MonitorService) InjectSteerTargetedTenant(id string, inst task.SteerInstruction, keyID string, isMaster bool) (*task.Task, error) {
 	s.mu.Lock()
 	t, exists := s.tasks[id]
 	if !exists {
@@ -345,17 +381,36 @@ func (s *MonitorService) InjectContextTenant(id string, contextText string, keyI
 		return nil, fmt.Errorf("permission denied for task: %s", id)
 	}
 
-	text := strings.TrimSpace(contextText)
+	text := strings.TrimSpace(inst.Message)
 	if text == "" {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("context text cannot be empty")
 	}
+	inst.Message = text
+	if inst.CreatedAt == 0 {
+		inst.CreatedAt = time.Now().Unix()
+	}
 
-	s.steerQueue[id] = append(s.steerQueue[id], text)
+	// 1. 若明确指定了独立的子任务会话 ID，且该子任务存在且隶属于当前任务
+	targetQueueID := id
+	if inst.TargetChildID != "" && inst.TargetChildID != id {
+		if child, childExists := s.tasks[inst.TargetChildID]; childExists && child.ParentID == id {
+			targetQueueID = inst.TargetChildID
+		}
+	}
+
+	s.steerQueue[targetQueueID] = append(s.steerQueue[targetQueueID], inst)
 
 	taskCopy := t.Clone()
 	s.mu.Unlock()
 	return taskCopy, nil
+}
+
+// InjectContextTenant 向指定会话注入动态上下文/提示词，将在下一次 Hook 交互时返回给 Agent。
+func (s *MonitorService) InjectContextTenant(id string, contextText string, keyID string, isMaster bool) (*task.Task, error) {
+	return s.InjectSteerTargetedTenant(id, task.SteerInstruction{
+		Message: contextText,
+	}, keyID, isMaster)
 }
 
 // InjectContext 向指定会话注入动态上下文。

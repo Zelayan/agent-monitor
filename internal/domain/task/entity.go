@@ -257,15 +257,30 @@ func (t *Task) RecordActionDenial(reason string, nowMs int64, nowStr string) {
 	}
 }
 
+// SteerInstruction 封装向 Agent 注入的动态指导与上下文（支持定向指定子智能体）。
+type SteerInstruction struct {
+	ID                 string `json:"id"`                             // 指令唯一标识
+	Message            string `json:"message"`                        // 指导正文
+	TargetChildID      string `json:"target_child_id,omitempty"`      // 目标独立子任务 ID
+	TargetSubagentType string `json:"target_subagent_type,omitempty"` // 目标子智能体角色类型 (如 Explore / judge)
+	TargetSubagentID   string `json:"target_subagent_id,omitempty"`   // 目标子智能体 ID (如 agent_explore_01)
+	CreatedAt          int64  `json:"created_at"`                     // 创建时间戳 (秒)
+}
+
 // RecordContextInjected 记录一次动态上下文注入，自增聚合根版本号并追加至当前 Run 时间线
-func (t *Task) RecordContextInjected(content string, nowStr string) {
+func (t *Task) RecordContextInjected(content string, targetSubagentType string, nowStr string) {
 	t.Version++
 	if len(t.Runs) > 0 {
 		curRun := &t.Runs[len(t.Runs)-1]
+		desc := fmt.Sprintf("动态注入上下文: %s", content)
+		if targetSubagentType != "" {
+			desc = fmt.Sprintf("向子智能体 [%s] 注入指引: %s", strings.ToUpper(targetSubagentType), content)
+		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
-			Time:  nowStr,
-			Event: "contextInjected",
-			Desc:  fmt.Sprintf("动态注入上下文: %s", content),
+			Time:         nowStr,
+			Event:        "contextInjected",
+			Desc:         desc,
+			SubagentType: targetSubagentType,
 		})
 	}
 }

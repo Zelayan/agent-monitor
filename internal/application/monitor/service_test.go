@@ -226,6 +226,53 @@ func TestMonitorService_Orchestration(t *testing.T) {
 	if tObj := svc.GetTask("sess-expired-old"); tObj != nil {
 		t.Fatalf("expected expired task to be cleaned up by janitor, but still exists")
 	}
+
+	// 8. Test Targeted Subagent Steer Injection
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-steer-swarm",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Title:     "Targeted Steer Test",
+		Timestamp: time.Now().Unix(),
+	})
+
+	// 向特定子智能体类型 Explore 注入指导
+	_, err = svc.InjectSteerTargetedTenant("sess-steer-swarm", task.SteerInstruction{
+		Message:            "不要扫描 vendor 目录",
+		TargetSubagentType: "Explore",
+	}, "", true)
+	if err != nil {
+		t.Fatalf("InjectSteerTargetedTenant failed: %v", err)
+	}
+
+	// 常规 Shell 工具执行，TargetSubagentType 为 Explore 的指令不应该被误消费
+	resRegular, err := svc.HandleHookEvent(task.EventPayload{
+		ID:        "sess-steer-swarm",
+		Event:     "beforeShellExecution",
+		Detail:    "go test ./...",
+		Timestamp: time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("regular hook failed: %v", err)
+	}
+	if resRegular.AdditionalContext != "" {
+		t.Fatalf("regular tool should not consume subagent targeted steer, got %q", resRegular.AdditionalContext)
+	}
+
+	// 派发或者执行 Explore 子任务时，精准匹配并消费该指导
+	resSubagent, err := svc.HandleHookEvent(task.EventPayload{
+		ID:           "sess-steer-swarm",
+		Event:        "subagentStart",
+		SubagentType: "Explore",
+		Detail:       "派发子智能体 [Explore]",
+		Timestamp:    time.Now().Unix(),
+	})
+	if err != nil {
+		t.Fatalf("subagent hook failed: %v", err)
+	}
+	if resSubagent.AdditionalContext != "不要扫描 vendor 目录" {
+		t.Fatalf("expected targeted steer instruction consumed, got %q", resSubagent.AdditionalContext)
+	}
 }
 
 func TestMonitorService_IgnoresEmptyCursorOpenClose(t *testing.T) {
