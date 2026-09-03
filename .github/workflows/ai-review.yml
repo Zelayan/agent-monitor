@@ -17,7 +17,8 @@ jobs:
   review:
     name: AI Review
     runs-on: ubuntu-latest
-    # 仅在非 Dependabot 且配置了 OPENAI_API_KEY 时执行（或没有 key 时优雅跳过）
+    environment: ai-review
+    # 仅在非 Dependabot 时执行
     if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
       - name: Checkout repository
