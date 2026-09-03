@@ -292,8 +292,10 @@ func isTurnSettleEvent(event string) bool {
 }
 
 func isSessionEndEvent(event string) bool {
+	// Reporter maps Cursor/ZCode stop|sessionEnd|Stop|SessionEnd to agentCompletion
+	// (or failed on aborted/error). afterAgentResponse is only turn delivery, not session end.
 	switch event {
-	case "SessionEnd", "sessionEnd", "Stop", "stop":
+	case "SessionEnd", "sessionEnd", "Stop", "stop", "agentCompletion", "onComplete", "complete", "failed", "error":
 		return true
 	default:
 		return false

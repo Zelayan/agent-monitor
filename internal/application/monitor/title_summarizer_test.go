@@ -233,7 +233,13 @@ func TestShouldRefreshGoal(t *testing.T) {
 		t.Fatal("run 2 must not refresh when N=3")
 	}
 	if shouldRefreshGoal(mk(4, "completed", 3), 3, "afterAgentResponse") {
-		t.Fatal("run 4 remainder must wait for sessionEnd")
+		t.Fatal("run 4 remainder must wait for normalized session terminal, not afterAgentResponse")
+	}
+	if !shouldRefreshGoal(mk(4, "completed", 3), 3, "agentCompletion") {
+		t.Fatal("reporter-normalized stop/sessionEnd (agentCompletion) should refresh remainder")
+	}
+	if !shouldRefreshGoal(mk(4, "failed", 3), 3, "failed") {
+		t.Fatal("fatal terminal failed should refresh remainder")
 	}
 	if !shouldRefreshGoal(mk(5, "completed", 3), 3, "sessionEnd") {
 		t.Fatal("sessionEnd remainder should refresh")
@@ -359,7 +365,7 @@ func TestGoalSummarizer_EveryThreeRuns(t *testing.T) {
 
 	if _, err := svc.HandleHookEvent(task.EventPayload{
 		ID:        id,
-		Event:     "sessionEnd",
+		Event:     "agentCompletion",
 		Timestamp: time.Now().Unix(),
 	}); err != nil {
 		t.Fatal(err)
@@ -373,13 +379,13 @@ func TestGoalSummarizer_EveryThreeRuns(t *testing.T) {
 		time.Sleep(15 * time.Millisecond)
 	}
 	if got.GoalSummaryRun != 4 {
-		t.Fatalf("sessionEnd remainder GoalSummaryRun=%d", got.GoalSummaryRun)
+		t.Fatalf("agentCompletion remainder GoalSummaryRun=%d", got.GoalSummaryRun)
 	}
 	if got.RootGoal != root {
-		t.Fatalf("RootGoal rewritten after sessionEnd: %q", got.RootGoal)
+		t.Fatalf("RootGoal rewritten after agentCompletion: %q", got.RootGoal)
 	}
 	if goalHits.Load() != 2 {
-		t.Fatalf("sessionEnd goal hits = %d want 2", goalHits.Load())
+		t.Fatalf("agentCompletion remainder goal hits = %d want 2", goalHits.Load())
 	}
 }
 
