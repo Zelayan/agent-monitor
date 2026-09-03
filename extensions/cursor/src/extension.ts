@@ -64,6 +64,7 @@ export async function activate(context: vscode.ExtensionContext) {
         'agentMonitor.llmBaseUrl',
         'agentMonitor.llmModel',
         'agentMonitor.llmApiKey',
+        'agentMonitor.llmGoalEveryN',
         'agentMonitor.apiKey',
         'agentMonitor.serverUrl',
       ];

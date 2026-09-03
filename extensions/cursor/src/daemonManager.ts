@@ -106,9 +106,14 @@ export class DaemonManager {
       if (llmApiKey) {
         env['AGENT_MONITOR_LLM_API_KEY'] = llmApiKey;
       }
+      let goalEveryN = Number(config.get<number>('llmGoalEveryN', 3));
+      if (!Number.isFinite(goalEveryN)) {
+        goalEveryN = 3;
+      }
+      env['AGENT_MONITOR_LLM_GOAL_EVERY_N'] = String(Math.trunc(goalEveryN));
       if (llmBaseUrl && llmModel) {
         this.outputChannel.appendLine(
-          `[DaemonManager] LLM session titles enabled (model=${llmModel}, base=${llmBaseUrl})`
+          `[DaemonManager] LLM session titles enabled (model=${llmModel}, base=${llmBaseUrl}, goalEveryN=${env['AGENT_MONITOR_LLM_GOAL_EVERY_N']})`
         );
       }
 

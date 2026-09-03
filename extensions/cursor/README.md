@@ -26,6 +26,7 @@ Open **Cursor Settings** and search for `Agent Monitor`.
 | `agentMonitor.llmBaseUrl` | OpenAI-compatible LLM base URL for session card titles (e.g. `http://127.0.0.1:11434/v1`) |
 | `agentMonitor.llmModel` | Model name (e.g. `qwen2.5:7b` or `gpt-4o-mini`) |
 | `agentMonitor.llmApiKey` | Optional API key; leave empty for local Ollama |
+| `agentMonitor.llmGoalEveryN` | Refresh `goalSummary` every N completed runs (default `3`; `0` disables goal summaries) |
 
 Leave `llmBaseUrl` or `llmModel` empty to keep heuristic titles and make **no** model requests.
 
