@@ -14,6 +14,8 @@ When Cursor creates a worktree it reads [`.cursor/worktrees.json`](../.cursor/wo
 - Features use `feat/<topic>`, fixes use `fix/<topic>`, for example `feat/reporter-timeout`, `fix/sse-heartbeat`.
 - Branch from a clean `origin/master`. Do not copy an unclean working tree into a worktree.
 - One Agent, one short-lived branch, one Pull Request. Default merge is Squash merge.
+- **Local AI Review Before PR**: Always run `go test -v -race ./...` and local AI review (`make review` or `make pre-pr`). Resolve all `[BLOCK]` issues before opening a PR.
+- **Never auto-merge PRs**: Agent must stop after `gh pr create` and outputting the PR link. Merging requires explicit user review and confirmation (`gh pr merge` is forbidden without explicit authorization).
 - Every PR must pass `.github/workflows/ci.yml` (`go test -race ./...`). CI is isolated per `github.ref`, so multiple PRs can go green in parallel.
 - Merge conflict-free PRs first. Overlapping PRs rebase onto `master` and re-run CI.
 

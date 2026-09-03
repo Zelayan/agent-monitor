@@ -1,15 +1,16 @@
 ---
-description: Concurrent Cursor Agents must use isolated worktrees or Cloud Agents plus feat/fix GitHub PRs
+description: Parallel development rules for AI Agents (see AGENTS.md for full cross-tool standard)
 alwaysApply: true
 ---
 
 # Parallel Agents (GitHub Flow)
 
-- Do not let multiple Agents write the same checkout. Use a Git worktree (`/worktree`, Agents Window) or a Cloud Agent (`/in-cloud`).
-- Branch from a clean `origin/master`. Use `feat/<topic>` or `fix/<topic>`. Never push `master`.
-- One Agent, one branch, one Pull Request (`git push -u origin HEAD` then `gh pr create`). Default merge is Squash. Rebase onto `master` if files overlap.
-- Split by DDD directory (`internal/domain`, `internal/reporter`, `extensions/cursor`, `docs/`). Do not parallelize the same `static/index.html` or a change that also edits `main.go` (`go:embed`).
-- Run one `agent-monitor` on this machine (default `:8000`). Do not start another daemon from a worktree.
-- Never commit `.cursor/hooks.json` (machine-local absolute paths). Worktree setup copies it from the main checkout via `.cursor/worktrees.json`.
-- Before commit: `go test -v -race ./...`. Run `npm install` / `make extension` only when the task touches `extensions/cursor`.
-- Full workflow: [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md) / [docs/PARALLEL_AGENTS.en.md](docs/PARALLEL_AGENTS.en.md).
+All AI Agents must follow the authoritative multi-agent & GitHub Flow rules in `AGENTS.md`:
+
+- **Isolated worktrees**: Use Git worktree (`/worktree`) or Cloud Agent (`/in-cloud`). Do not share checkouts.
+- **Branch naming**: Branch from clean `origin/master` as `feat/<topic>` or `fix/<topic>`. Never push `master`.
+- **DDD task splitting**: Split by directory (`internal/domain`, `internal/reporter`, `extensions/cursor`, `docs/`).
+- **Single daemon**: Keep only one running `agent-monitor` (`:8000`). Never start duplicate daemons from worktrees.
+- **Quality gate & Local AI review**: Run `go test -v -race ./...` and `make review` / `make pre-pr`. Fix any `[BLOCK]` issues before PR creation.
+- **Never auto-merge**: Stop immediately after `gh pr create` and presenting the link. Merging requires explicit user authorization (`gh pr merge` is strictly forbidden without user approval).
+- Authoritative specification: [AGENTS.md](AGENTS.md) / [docs/PARALLEL_AGENTS.md](docs/PARALLEL_AGENTS.md).
