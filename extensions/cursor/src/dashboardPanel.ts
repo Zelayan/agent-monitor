@@ -105,8 +105,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider {
       enableScripts: true,
     };
 
-    webviewView.webview.onDidReceiveMessage((message) => {
+    const messageDisposable = webviewView.webview.onDidReceiveMessage((message) => {
       CursorBridge.handleMessage(message);
+    });
+    webviewView.onDidDispose(() => {
+      messageDisposable.dispose();
     });
 
     const serverUrl = this.daemonManager.getServerUrl();

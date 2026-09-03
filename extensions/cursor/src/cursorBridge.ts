@@ -64,7 +64,8 @@ export class CursorBridge {
       }
     }
 
-    vscode.window.showInformationMessage('已尝试唤起 Cursor 对话窗口。若未弹出，请按 ⌘I / ⌘L 激活。');
+    const shortcut = process.platform === 'darwin' ? '⌘I / ⌘L' : 'Ctrl+I / Ctrl+L';
+    vscode.window.showInformationMessage(`已尝试唤起 Cursor 对话窗口。若未弹出，请按 ${shortcut} 激活。`);
   }
 
   /**

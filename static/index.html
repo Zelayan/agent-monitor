@@ -673,6 +673,7 @@
         drawerFollowUpSent: '已就绪！已在 Cursor 唤起对话窗口并复制到剪贴板',
         drawerFollowUpCopied: '追问内容已复制到剪贴板，请切回 Cursor 粘贴发送',
         btnFollowUp: '追问',
+        focusBrowserFallback: '已在外部浏览器打开。会话信息已复制到剪贴板，请切回 Cursor 查看。',
       },
       en: {
         htmlLang: 'en',
@@ -762,6 +763,7 @@
         drawerFollowUpSent: 'Ready! Opened conversation in Cursor & copied prompt',
         drawerFollowUpCopied: 'Copied to clipboard! Switch to Cursor and paste.',
         btnFollowUp: 'Follow-up',
+        focusBrowserFallback: 'Opened in browser. Session info copied to clipboard, switch to Cursor to view.',
       },
     };
 
@@ -861,14 +863,16 @@
       if (lblExport) lblExport.textContent = t('btnExport');
       const lblFocusCursor = document.getElementById('lbl-drawer-focus-cursor');
       if (lblFocusCursor) lblFocusCursor.textContent = t('btnFocusCursor');
+      const selectedTask = selectedId ? tasksMap.get(selectedId) : null;
+      const isRunning = !selectedTask || selectedTask.status === 'running';
       const lblSteer = document.getElementById('lbl-drawer-steer');
-      if (lblSteer) lblSteer.textContent = t('drawerSteer');
+      if (lblSteer) lblSteer.textContent = isRunning ? t('drawerSteer') : t('drawerFollowUp');
       const lblSteerHint = document.getElementById('lbl-drawer-steer-hint');
-      if (lblSteerHint) lblSteerHint.textContent = t('drawerSteerHint');
+      if (lblSteerHint) lblSteerHint.textContent = isRunning ? t('drawerSteerHint') : t('drawerFollowUpHint');
       const inputSteerEl = document.getElementById('drawer-steer-input');
-      if (inputSteerEl) inputSteerEl.placeholder = t('drawerSteerPlaceholder');
+      if (inputSteerEl && !inputSteerEl.value) inputSteerEl.placeholder = isRunning ? t('drawerSteerPlaceholder') : t('drawerFollowUpPlaceholder');
       const btnSteerEl = document.getElementById('btn-drawer-steer');
-      if (btnSteerEl) btnSteerEl.textContent = t('btnSteer');
+      if (btnSteerEl) btnSteerEl.textContent = isRunning ? t('btnSteer') : t('btnFollowUp');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -2472,7 +2476,7 @@
           if (tObj && navigator.clipboard && navigator.clipboard.writeText) {
             navigator.clipboard.writeText(tObj.prompt || tObj.title || selectedId).catch(() => {});
           }
-          alert(currentLang === 'zh' ? '已在外部浏览器打开。会话信息已复制到剪贴板，请切回 Cursor 查看。' : 'Opened in browser. Session info copied to clipboard, switch to Cursor to view.');
+          alert(t('focusBrowserFallback'));
         }
       });
     }

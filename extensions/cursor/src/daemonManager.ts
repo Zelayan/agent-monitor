@@ -86,7 +86,7 @@ export class DaemonManager {
     try {
       this.refreshServerUrlFromConfig();
       const port = new URL(this.serverUrl).port || '8000';
-      const env = { ...process.env, PORT: port };
+      const env: NodeJS.ProcessEnv = { ...process.env, PORT: port };
 
       const config = vscode.workspace.getConfiguration('agentMonitor');
       const apiKey = (config.get<string>('apiKey', '') || '').trim();
