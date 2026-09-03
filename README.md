@@ -178,6 +178,18 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ---
 
+## 🤖 自动化 AI Code Review (GitHub Actions)
+
+项目内置了基于 GitHub Actions 的自动化 AI Code Review 机器人，在每次提 PR 或更新代码时自动对 Diff 进行 DDD 架构分层、并发竞态（Data Race）、Fail-Safe 铁律及双语国际化（I18N）的针对性审查。
+
+### 配置方法（仓库管理员）：
+在 GitHub 仓库的 **Settings -> Secrets and variables -> Actions** 中添加：
+- `OPENAI_API_KEY`（必需）：OpenAI API Key 或第三方中转 Key。
+- `OPENAI_BASE_URL`（可选）：默认 `https://api.openai.com/v1`（可填国内镜像或中转代理）。
+- `OPENAI_MODEL`（可选）：默认 `gpt-4o`（亦可配置 `deepseek-chat`、`gpt-4o-mini` 等）。
+
+---
+
 ## 📡 HTTP API 概览
 
 | Method | Endpoint | 用途 | 说明 |

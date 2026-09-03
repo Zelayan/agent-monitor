@@ -178,6 +178,18 @@ Precedence is nearest-wins: **CLI flags > environment variables (`AGENT_MONITOR_
 
 ---
 
+## Automated AI Code Review (GitHub Actions)
+
+The repository includes an automated GitHub Actions AI Code Review workflow. On every Pull Request or push, it automatically reviews diffs against the project's DDD architecture, race-free concurrency rules, fail-safe hook constraints, and I18N standards.
+
+### Configuration (Repository Secrets):
+Navigate to **Settings -> Secrets and variables -> Actions** in your GitHub repository and configure:
+- `OPENAI_API_KEY` (Required): OpenAI API Key or compatible provider token.
+- `OPENAI_BASE_URL` (Optional): Default `https://api.openai.com/v1` (supports custom proxies or reverse proxies).
+- `OPENAI_MODEL` (Optional): Default `gpt-4o` (e.g. `deepseek-chat`, `gpt-4o-mini`).
+
+---
+
 ## HTTP API
 
 | Method | Endpoint | Purpose | Notes |
