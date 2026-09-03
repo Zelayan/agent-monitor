@@ -1,0 +1,11 @@
+{
+  "setup-worktree-unix": [
+    "go mod download",
+    "mkdir -p .cursor",
+    "if [ -f \"$ROOT_WORKTREE_PATH/.cursor/hooks.json\" ]; then cp \"$ROOT_WORKTREE_PATH/.cursor/hooks.json\" .cursor/hooks.json; fi"
+  ],
+  "setup-worktree-windows": [
+    "go mod download",
+    "if exist \"%ROOT_WORKTREE_PATH%\\.cursor\\hooks.json\" (mkdir .cursor 2>nul & copy /Y \"%ROOT_WORKTREE_PATH%\\.cursor\\hooks.json\" .cursor\\hooks.json)"
+  ]
+}

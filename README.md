@@ -16,7 +16,7 @@
   基于 Go 标准库构建，0 外部依赖单二进制，纳秒级 Fail-Safe 拦截，100% 离线内嵌运行，支持 PWA 原生桌面窗口。
 </p>
 
-[⚡️ 快速开始](#️-快速开始-30-秒上手) • [✨ 核心特性](#-核心特性) • [🤖 让 AI 自动接入](#-让-ai-自动为你接入) • [📖 安装指南](docs/INSTALLATION.md) • [🔌 Agent 集成手册](docs/AGENT_INTEGRATION.md)
+[⚡️ 快速开始](#️-快速开始-30-秒上手) • [✨ 核心特性](#-核心特性) • [🤖 让 AI 自动接入](#-让-ai-自动为你接入) • [📖 安装指南](docs/INSTALLATION.md) • [🔌 Agent 集成手册](docs/AGENT_INTEGRATION.md) • [并行 Agent](docs/PARALLEL_AGENTS.md)
 
 </div>
 
