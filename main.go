@@ -85,7 +85,7 @@ func main() {
 	svc := monitor.NewMonitorService(repo, hub)
 	if sum := monitor.NewTitleSummarizerFromEnv(); sum != nil {
 		svc.SetTitleSummarizer(sum)
-		log.Printf("[Application] LLM session titles enabled")
+		log.Printf("[Application] LLM session titles enabled (goalEveryN=%d)", sum.GoalEveryN())
 	}
 
 	// 4. 用户接口层 / HTTP 适配器：注册路由
