@@ -394,9 +394,8 @@ func TestSendEventWithAction_ControlInversion(t *testing.T) {
 
 func TestMultiTurnRequireTagSessionTracking(t *testing.T) {
 	sessionID := "sess-multiturn-tag-test"
-	cleanID := strings.ReplaceAll(sessionID, "/", "_")
-	trackFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
-	promptsFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+	trackFile := sessionTrackedFile(sessionID)
+	promptsFile := sessionPromptsFile(sessionID)
 	_ = os.Remove(trackFile)
 	_ = os.Remove(promptsFile)
 	defer func() {
@@ -624,5 +623,40 @@ func TestDeleteSession_And_DroppedSession(t *testing.T) {
 
 	if callCount != 0 {
 		t.Fatalf("dropped session events should be silenced and not send requests, got %d calls", callCount)
+	}
+}
+
+func TestSafeSessionFilename(t *testing.T) {
+	// 1. 空字符串防御
+	if f := safeSessionFilename("", "prefix", ".json"); f != "" {
+		t.Fatalf("expected empty string for empty sessionID, got %q", f)
+	}
+
+	// 2. 包含非法 Windows/Unix 字符（冒号、斜杠、反斜杠、Unicode、特殊标点）
+	dirtyID := "sess:project/path\\sub:id#123!*?&中文"
+	f1 := safeSessionFilename(dirtyID, "test-file", ".json")
+	if f1 == "" {
+		t.Fatalf("expected non-empty filename for dirtyID")
+	}
+	base1 := filepath.Base(f1)
+	if strings.ContainsAny(base1, `:\/*?<>|"`) {
+		t.Fatalf("filename %q contains forbidden filesystem characters", base1)
+	}
+	if !strings.HasPrefix(base1, "test-file-") || !strings.HasSuffix(base1, ".json") {
+		t.Fatalf("unexpected filename format: %s", base1)
+	}
+
+	// 3. 超长 SessionID 边界截断防御
+	longID := strings.Repeat("very-long-session-identifier-exceeding-standard-filesystem-limit-", 10)
+	f2 := safeSessionFilename(longID, "test-long", "")
+	base2 := filepath.Base(f2)
+	if len(base2) > 100 {
+		t.Fatalf("filename %q exceeds safe length bounds: %d", base2, len(base2))
+	}
+
+	// 4. 幂等性：同一 sessionID 多次生成必须一致
+	f3 := safeSessionFilename(dirtyID, "test-file", ".json")
+	if f1 != f3 {
+		t.Fatalf("safeSessionFilename must be deterministic, got %q vs %q", f1, f3)
 	}
 }
