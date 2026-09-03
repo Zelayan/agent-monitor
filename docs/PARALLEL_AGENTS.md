@@ -14,6 +14,8 @@ Cursor 创建 worktree 时会读取 [`.cursor/worktrees.json`](../.cursor/worktr
 - 功能走 `feat/<topic>`，修复走 `fix/<topic>`，例如 `feat/reporter-timeout`、`fix/sse-heartbeat`。
 - 从干净的 `origin/master` 拉分支，不要把未提交的脏工作区带进 worktree。
 - 每个 Agent 一条短命分支、一个 Pull Request；合入默认 Squash merge。
+- **提 PR 前本地自查自愈**：必须先运行 `go test -v -race ./...` 和本地 AI 审查（`make review` 或 `make pre-pr`），发现 `[BLOCK]` 级别问题必须本地解决后方可提 PR。
+- **严禁自动合并 PR**：Agent 在 `gh pr create` 并输出 PR 链接后必须立刻停止，合并必须由用户审阅确认后执行，禁止未经明确许可调用 `gh pr merge`。
 - PR 必须通过 `.github/workflows/ci.yml` 的 `go test -race ./...`。CI 按 `github.ref` 隔离，多个 PR 可并行跑绿。
 - 先合无冲突的 PR；文件重叠的后合者 rebase `master` 后再过 CI。
 
