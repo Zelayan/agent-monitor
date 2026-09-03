@@ -53,18 +53,33 @@ export class HooksManager {
         } catch (_) {}
       }
 
-      // 智能合并现有配置
+      // 智能合并并强制刷新 agent-reporter 路径至最新可用版本
+      const mergedHooks: Record<string, Array<{ command: string }>> = {
+        ...(existingHooks.hooks || {}),
+      };
+
+      for (const [evt, arr] of Object.entries(hooksConfig.hooks)) {
+        if (!mergedHooks[evt] || mergedHooks[evt].length === 0) {
+          mergedHooks[evt] = arr;
+        } else {
+          // 如果已有钩子指向旧版或相对路径的 agent-reporter，自动更新为当前插件解析出的绝对命令
+          mergedHooks[evt] = mergedHooks[evt].map(item => {
+            if (item.command.includes('agent-reporter')) {
+              return { command: `${reporterCmd} --event ${evt} --agent "Cursor Agent"` };
+            }
+            return item;
+          });
+        }
+      }
+
       const merged = {
         version: 1,
         ...existingHooks,
-        hooks: {
-          ...(existingHooks.hooks || {}),
-          ...hooksConfig.hooks,
-        },
+        hooks: mergedHooks,
       };
 
       fs.writeFileSync(hooksFile, JSON.stringify(merged, null, 2), 'utf-8');
-      vscode.window.showInformationMessage(`✓ Successfully configured Cursor hooks at .cursor/hooks.json!`);
+      vscode.window.showInformationMessage(`✓ Successfully updated Cursor hooks at .cursor/hooks.json!`);
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to configure hooks: ${err}`);
     }
@@ -84,6 +99,39 @@ export class HooksManager {
       if (choice === 'Configure Hooks (.cursor/hooks.json)') {
         await this.configureWorkspaceHooks();
       }
+    } else {
+      // 检查现有 hooks.json 中的 agent-reporter 路径是否与当前环境一致
+      try {
+        const content = fs.readFileSync(hooksFile, 'utf-8');
+        const json = JSON.parse(content);
+        let needsUpdate = false;
+        const currentReporter = this.daemonManager.resolveBinaryPath('agent-reporter') || 'agent-reporter';
+
+        for (const list of Object.values(json.hooks || {})) {
+          if (Array.isArray(list)) {
+            for (const item of list) {
+              if (item.command && item.command.includes('agent-reporter')) {
+                const cmdPart = item.command.split(' ')[0];
+                if (cmdPart !== currentReporter) {
+                  needsUpdate = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        if (needsUpdate) {
+          const choice = await vscode.window.showInformationMessage(
+            'Agent Monitor: Cursor extension was updated. Update workspace .cursor/hooks.json with latest binary paths?',
+            'Update Hooks',
+            'Keep Existing'
+          );
+          if (choice === 'Update Hooks') {
+            await this.configureWorkspaceHooks();
+          }
+        }
+      } catch (_) {}
     }
   }
 }

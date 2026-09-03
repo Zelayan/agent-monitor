@@ -2,7 +2,7 @@
   "name": "agent-monitor",
   "displayName": "Agent Monitor for Cursor",
   "description": "Real-time AI Coding Agent flight dashboard and lifecycle monitor embedded inside Cursor IDE",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "Zelayan",
   "icon": "assets/icon.png",
   "author": {
