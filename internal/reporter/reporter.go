@@ -145,35 +145,35 @@ func DetectAgentName(cfgAgent, payloadAgent string) string {
 	if os.Getenv("CONTINUE_SESSION_ID") != "" || os.Getenv("CONTINUE_GLOBAL_DIR") != "" {
 		return "Continue"
 	}
-		// 7. Cursor
-		if os.Getenv("CURSOR_PROJECT_DIR") != "" || os.Getenv("CURSOR_TRANSCRIPT_PATH") != "" || strings.Contains(execCmd, "cursor") {
-			return "Cursor Agent"
+	// 7. Cursor
+	if os.Getenv("CURSOR_PROJECT_DIR") != "" || os.Getenv("CURSOR_TRANSCRIPT_PATH") != "" || strings.Contains(execCmd, "cursor") {
+		return "Cursor Agent"
+	}
+	// 8. Codex CLI / Codex Desktop
+	if os.Getenv("CODEX_SESSION_ID") != "" || os.Getenv("CODEX_PROJECT_DIR") != "" || os.Getenv("CODEX_WORKSPACE_ROOT") != "" || strings.Contains(execCmd, "codex") {
+		if os.Getenv("CODEX_DESKTOP_VERSION") != "" || os.Getenv("CODEX_APP") != "" || strings.Contains(execCmd, "codex desktop") || strings.Contains(execCmd, "codex.app") {
+			return "Codex Desktop"
 		}
-		// 8. Codex CLI / Codex Desktop
-		if os.Getenv("CODEX_SESSION_ID") != "" || os.Getenv("CODEX_PROJECT_DIR") != "" || os.Getenv("CODEX_WORKSPACE_ROOT") != "" || strings.Contains(execCmd, "codex") {
-			if os.Getenv("CODEX_DESKTOP_VERSION") != "" || os.Getenv("CODEX_APP") != "" || strings.Contains(execCmd, "codex desktop") || strings.Contains(execCmd, "codex.app") {
-				return "Codex Desktop"
-			}
-			return "Codex CLI"
-		}
-
-		return "AI Agent"
+		return "Codex CLI"
 	}
 
-	// ExtractSessionID 提取唯一的会话标识
-	func ExtractSessionID(payload Payload) string {
-		for _, envK := range []string{
-			"CODEX_SESSION_ID",
-			"CODEX_THREAD_ID",
-			"CODEX_RUN_ID",
-			"ZCODE_SESSION_ID",
-			"CLAUDE_SESSION_ID",
-			"CURSOR_SESSION_ID",
-			"AIDER_SESSION_ID",
-			"TRAE_SESSION_ID",
-			"CONTINUE_SESSION_ID",
-			"AGENT_SESSION_ID",
-		} {
+	return "AI Agent"
+}
+
+// ExtractSessionID 提取唯一的会话标识
+func ExtractSessionID(payload Payload) string {
+	for _, envK := range []string{
+		"CODEX_SESSION_ID",
+		"CODEX_THREAD_ID",
+		"CODEX_RUN_ID",
+		"ZCODE_SESSION_ID",
+		"CLAUDE_SESSION_ID",
+		"CURSOR_SESSION_ID",
+		"AIDER_SESSION_ID",
+		"TRAE_SESSION_ID",
+		"CONTINUE_SESSION_ID",
+		"AGENT_SESSION_ID",
+	} {
 		if v := os.Getenv(envK); v != "" {
 			return v
 		}
@@ -214,7 +214,7 @@ type EventReport struct {
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
 type ServerControlResponse struct {
-	Status            string `json:"status"` // "ok"
+	Status            string `json:"status"`           // "ok"
 	Action            string `json:"action,omitempty"` // "allow" | "deny" | "abort"
 	Reason            string `json:"reason,omitempty"`
 	AdditionalContext string `json:"additional_context,omitempty"` // 动态注入上下文
@@ -407,13 +407,30 @@ func RespondAndExit(event string) {
 	exitFunc(0)
 }
 
-func sessionTrackedFile(sessionID string) string {
+func safeSessionFilename(sessionID, prefix, ext string) string {
 	if sessionID == "" {
 		return ""
 	}
-	cleanID := strings.ReplaceAll(sessionID, "/", "_")
-	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
-	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
+	h := sha256.Sum256([]byte(sessionID))
+	hashKey := hex.EncodeToString(h[:8]) // 16 字符安全唯一哈希
+	// 移除非数字字母下划线字符，保留可读前缀
+	var sb strings.Builder
+	for _, r := range sessionID {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			sb.WriteRune(r)
+		} else {
+			sb.WriteByte('_')
+		}
+	}
+	cleanID := sb.String()
+	if len(cleanID) > 32 {
+		cleanID = cleanID[:32]
+	}
+	return filepath.Join(os.TempDir(), fmt.Sprintf("%s-%s-%s%s", prefix, cleanID, hashKey, ext))
+}
+
+func sessionTrackedFile(sessionID string) string {
+	return safeSessionFilename(sessionID, "agent-monitor-tracked", "")
 }
 
 func isSessionTracked(sessionID string) bool {
@@ -452,12 +469,7 @@ func unmarkSessionTracked(sessionID string) {
 }
 
 func sessionDroppedFile(sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	cleanID := strings.ReplaceAll(sessionID, "/", "_")
-	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
-	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-dropped-%s", cleanID))
+	return safeSessionFilename(sessionID, "agent-monitor-dropped", "")
 }
 
 func isSessionDropped(sessionID string) bool {
@@ -484,12 +496,7 @@ func unmarkSessionDropped(sessionID string) {
 }
 
 func sessionAbortingFile(sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	cleanID := strings.ReplaceAll(sessionID, "/", "_")
-	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
-	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-aborting-%s", cleanID))
+	return safeSessionFilename(sessionID, "agent-monitor-aborting", "")
 }
 
 func isSessionAborting(sessionID string) bool {
@@ -516,12 +523,7 @@ func unmarkSessionAborting(sessionID string) {
 }
 
 func sessionPromptsFile(sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	cleanID := strings.ReplaceAll(sessionID, "/", "_")
-	cleanID = strings.ReplaceAll(cleanID, "\\", "_")
-	return filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+	return safeSessionFilename(sessionID, "agent-monitor-prompts", ".json")
 }
 
 func readSessionPrompts(sessionID string) []string {
@@ -570,148 +572,145 @@ func Run(cfg Config, inputReader io.Reader) {
 		return
 	}
 
-		if cfg.ServerURL == "" {
-			if effectiveCfg.ServerURL != "" {
-				cfg.ServerURL = effectiveCfg.ServerURL
-			} else {
-				cfg.ServerURL = "http://127.0.0.1:8000/api/event"
+	if cfg.ServerURL == "" {
+		if effectiveCfg.ServerURL != "" {
+			cfg.ServerURL = effectiveCfg.ServerURL
+		} else {
+			cfg.ServerURL = "http://127.0.0.1:8000/api/event"
+		}
+	}
+
+	if cfg.APIKey == "" && effectiveCfg.APIKey != "" {
+		cfg.APIKey = effectiveCfg.APIKey
+	}
+
+	// 命令行显式传入的参数具有最高优先级
+	if cfg.RequireTag != "" {
+		if cfg.RequireTag == "none" || cfg.RequireTag == "all" || cfg.RequireTag == "*" || cfg.RequireTag == `""` {
+			effectiveCfg.RequireTag = ""
+		} else {
+			effectiveCfg.RequireTag = cfg.RequireTag
+		}
+	}
+	if cfg.DeleteTag != "" {
+		effectiveCfg.DeleteTag = cfg.DeleteTag
+	}
+
+	// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
+	agentName := DetectAgentName(cfg.Agent, payload.Agent)
+
+	// 2. 确定 Hook 事件名
+	eventName := cfg.Event
+	if eventName == "" {
+		eventName = payload.HookEventName
+	}
+	if eventName == "" {
+		eventName = payload.HookName
+	}
+	if eventName == "" {
+		eventName = payload.Event
+	}
+	if eventName == "" {
+		eventName = "unknown"
+	}
+
+	// 3. 获取 Session ID
+	sessionID := ExtractSessionID(payload)
+
+	// 若当前会话已被标记为 dropped，任何后续事件（包括 toolUse、stop、afterAgentResponse 等）直接静默放行
+	if isSessionDropped(sessionID) {
+		RespondAndExit(eventName)
+		return
+	}
+
+	// 4. 事件过滤
+	toolName := payload.ToolName
+	if toolName == "" {
+		toolName = payload.Tool
+	}
+
+	isFailure := IsFailureEvent(eventName)
+
+	if shouldDropEvent(eventName) {
+		flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+		RespondAndExit(eventName)
+		return
+	}
+
+	if isPreOrPostToolUse(eventName) {
+		if !isFailure {
+			// 如果该会话已被标记为中断中 (aborting)，绝不能被 IgnoredTools 静默放行，必须穿透至后端拦截！
+			if isSessionAborting(sessionID) {
+				// 处于中断中，继续向下交付并阻断
+			} else if IgnoredTools[toolName] {
+				flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
+				RespondAndExit(eventName)
+				return
 			}
-		}
-
-		if cfg.APIKey == "" && effectiveCfg.APIKey != "" {
-			cfg.APIKey = effectiveCfg.APIKey
-		}
-
-		// 命令行显式传入的参数具有最高优先级
-		if cfg.RequireTag != "" {
-			if cfg.RequireTag == "none" || cfg.RequireTag == "all" || cfg.RequireTag == "*" || cfg.RequireTag == `""` {
-				effectiveCfg.RequireTag = ""
-			} else {
-				effectiveCfg.RequireTag = cfg.RequireTag
+			// 对于 PostToolUse，必须上报给服务端以换取可能的动态上下文注入指令（Live Steer）
+			// 如果服务端没有待注入内容，会在 DeliverEventWithAction 中得到空的 additional_context 并正常放行退出
+			if eventName == "PostToolUse" || eventName == "postToolUse" {
+				// 不在此处提前丢弃，继续向下交由服务端处理控制与上下文返回
 			}
-		}
-		if cfg.DeleteTag != "" {
-			effectiveCfg.DeleteTag = cfg.DeleteTag
-		}
-
-		// 1. 确定 Agent 名称（支持全主流 Agent 环境推导）
-		agentName := DetectAgentName(cfg.Agent, payload.Agent)
-
-		// 2. 确定 Hook 事件名
-		eventName := cfg.Event
-		if eventName == "" {
-			eventName = payload.HookEventName
-		}
-		if eventName == "" {
-			eventName = payload.HookName
-		}
-		if eventName == "" {
-			eventName = payload.Event
-		}
-		if eventName == "" {
-			eventName = "unknown"
-		}
-
-		// 3. 获取 Session ID
-		sessionID := ExtractSessionID(payload)
-
-		// 若当前会话已被标记为 dropped，任何后续事件（包括 toolUse、stop、afterAgentResponse 等）直接静默放行
-		if isSessionDropped(sessionID) {
-			RespondAndExit(eventName)
-			return
-		}
-
-		// 4. 事件过滤
-		toolName := payload.ToolName
-		if toolName == "" {
-			toolName = payload.Tool
-		}
-
-		isFailure := IsFailureEvent(eventName)
-
-		if shouldDropEvent(eventName) {
-			flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
-			RespondAndExit(eventName)
-			return
-		}
-
-		if isPreOrPostToolUse(eventName) {
-			if !isFailure {
-				// 如果该会话已被标记为中断中 (aborting)，绝不能被 IgnoredTools 静默放行，必须穿透至后端拦截！
-				if isSessionAborting(sessionID) {
-					// 处于中断中，继续向下交付并阻断
-				} else if IgnoredTools[toolName] {
-					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
-					RespondAndExit(eventName)
-					return
-				}
-				if eventName == "PostToolUse" || eventName == "postToolUse" {
-					// PostToolUse 若没有被标记中断且无需等待注入，可根据情况放行或上报
-					if !isSessionAborting(sessionID) {
-						flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
-						RespondAndExit(eventName)
-						return
-					}
-				}
-				// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
-				// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
-				if !isSessionAborting(sessionID) && eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
-					flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
-					RespondAndExit(eventName)
-					return
-				}
-			}
-		}
-
-		// 5. 提取多轮 Prompt 与标题
-		turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
-		title := ShortTitle(currentPrompt)
-		if title == "" {
-			title = ShortTitle(firstPrompt)
-		}
-
-		// 5.-1 会话删除/取消跟踪关键字检测 (如 delete_tag: "#drop,#untrack")
-		if strings.TrimSpace(effectiveCfg.DeleteTag) != "" {
-			hasDeleteTag := effectiveCfg.MatchesDeleteTag(currentPrompt, title)
-			if hasDeleteTag {
-				// 用户明确要求丢弃/删除当前会话：
-				// 1. 本地标记已丢弃，并清除已追踪标记与历史记录
-				markSessionDropped(sessionID)
-				unmarkSessionTracked(sessionID)
-				// 2. 向 Monitor 发起 DELETE /api/tasks/{sessionID} 回调
-				DeleteSession(cfg.ServerURL, cfg.APIKey, sessionID)
-				// 3. 静默放行退出
+			// Cursor 的 Shell/MCP 另有 beforeShellExecution / beforeMCPExecution，避免预工具钩子重复上报。
+			// Claude Code 使用 PascalCase PreToolUse，不受此分支影响。
+			if !isSessionAborting(sessionID) && eventName == "preToolUse" && (isBashTool(toolName) || payload.MCPServerName != "" || strings.HasPrefix(toolName, "MCP:")) {
+				flushSpoolWithKey(cfg.ServerURL, cfg.APIKey, spoolFlushLimit)
 				RespondAndExit(eventName)
 				return
 			}
 		}
+	}
 
-		// 检查当前会话是否处于已丢弃黑名单中
-		if isSessionDropped(sessionID) {
+	// 5. 提取多轮 Prompt 与标题
+	turnCount, currentPrompt, firstPrompt := ExtractTurnInfo(payload, sessionID, cfg.Turn)
+	title := ShortTitle(currentPrompt)
+	if title == "" {
+		title = ShortTitle(firstPrompt)
+	}
+
+	// 5.-1 会话删除/取消跟踪关键字检测 (如 delete_tag: "#drop,#untrack")
+	if strings.TrimSpace(effectiveCfg.DeleteTag) != "" {
+		hasDeleteTag := effectiveCfg.MatchesDeleteTag(currentPrompt, title)
+		if hasDeleteTag {
+			// 用户明确要求丢弃/删除当前会话：
+			// 1. 本地标记已丢弃，并清除已追踪标记与历史记录
+			markSessionDropped(sessionID)
+			unmarkSessionTracked(sessionID)
+			// 2. 向 Monitor 发起 DELETE /api/tasks/{sessionID} 回调
+			DeleteSession(cfg.ServerURL, cfg.APIKey, sessionID)
+			// 3. 静默放行退出
 			RespondAndExit(eventName)
 			return
 		}
+	}
 
-		// 5.0 空开会话：Cursor 打开 Agent 后立刻关闭会打 sessionStart，无 Prompt 则不上报。
-		if shouldSkipUnstartedLifecycle(eventName, currentPrompt, firstPrompt) {
-			RespondAndExit(eventName)
-			return
-		}
+	// 检查当前会话是否处于已丢弃黑名单中
+	if isSessionDropped(sessionID) {
+		RespondAndExit(eventName)
+		return
+	}
 
-		// 5.1 标签规则过滤 (如 require_tag: "#task")
-		if strings.TrimSpace(effectiveCfg.RequireTag) != "" {
-			hasTag := effectiveCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
-			if hasTag {
-				markSessionTracked(sessionID, firstPrompt)
-			} else {
-				// 未命中标签，检查此前是否已被激活（多轮历史）
-				if !isSessionTracked(sessionID) {
-					// 未激活且未命中指定标签（包括刚启动无 prompt 阶段）：静默放行，不打扰监控台
-					RespondAndExit(eventName)
-					return
-				}
+	// 5.0 空开会话：Cursor 打开 Agent 后立刻关闭会打 sessionStart，无 Prompt 则不上报。
+	if shouldSkipUnstartedLifecycle(eventName, currentPrompt, firstPrompt) {
+		RespondAndExit(eventName)
+		return
+	}
+
+	// 5.1 标签规则过滤 (如 require_tag: "#task")
+	if strings.TrimSpace(effectiveCfg.RequireTag) != "" {
+		hasTag := effectiveCfg.MatchesRequireTag(currentPrompt, firstPrompt, title)
+		if hasTag {
+			markSessionTracked(sessionID, firstPrompt)
+		} else {
+			// 未命中标签，检查此前是否已被激活（多轮历史）
+			if !isSessionTracked(sessionID) {
+				// 未激活且未命中指定标签（包括刚启动无 prompt 阶段）：静默放行，不打扰监控台
+				RespondAndExit(eventName)
+				return
 			}
 		}
+	}
 
 	// 6. 动态提取操作细节
 	detail := ExtractDetail(payload, eventName, toolName, isFailure)
@@ -742,45 +741,45 @@ func Run(cfg Config, inputReader io.Reader) {
 		detail = detail[:160]
 	}
 
-		// 获取真实的常驻宿主 PID（若是 CLI/Bash 执行，优先使用 PPID）
-		reportedPID := os.Getpid()
-		if ppid := os.Getppid(); ppid > 1 {
-			reportedPID = ppid
-		}
+	// 获取真实的常驻宿主 PID（若是 CLI/Bash 执行，优先使用 PPID）
+	reportedPID := os.Getpid()
+	if ppid := os.Getppid(); ppid > 1 {
+		reportedPID = ppid
+	}
 
-		data := EventReport{
-			ID:        sessionID,
-			Agent:     agentName,
-			Repo:      fmt.Sprintf("%s:%s", repo, branch),
-			Event:     mappedEvent,
-			Timestamp: time.Now().Unix(),
-			Detail:    detail,
-			TurnIndex: turnCount,
-			Title:     title,
-			PID:       reportedPID,
-			PGID:      os.Getppid(),
-		}
-		if len(currentPrompt) > 4000 {
-			data.Prompt = currentPrompt[:4000]
-		} else {
-			data.Prompt = currentPrompt
-		}
-		if aiResponseText != "" {
-			data.AIResponse = aiResponseText
-		}
+	data := EventReport{
+		ID:        sessionID,
+		Agent:     agentName,
+		Repo:      fmt.Sprintf("%s:%s", repo, branch),
+		Event:     mappedEvent,
+		Timestamp: time.Now().Unix(),
+		Detail:    detail,
+		TurnIndex: turnCount,
+		Title:     title,
+		PID:       reportedPID,
+		PGID:      os.Getppid(),
+	}
+	if len(currentPrompt) > 4000 {
+		data.Prompt = currentPrompt[:4000]
+	} else {
+		data.Prompt = currentPrompt
+	}
+	if aiResponseText != "" {
+		data.AIResponse = aiResponseText
+	}
 
-		// 10. 先补报失败队列，再发当前事件；接收服务端返回的控制决策
-		_, ctrl := DeliverEventWithAction(cfg.ServerURL, cfg.APIKey, data)
+	// 10. 先补报失败队列，再发当前事件；接收服务端返回的控制决策
+	_, ctrl := DeliverEventWithAction(cfg.ServerURL, cfg.APIKey, data)
 
-		// 若服务端要求中断，在本地标记 sessionAborting，使得后续即便是 IgnoredTools 也被穿透拦截
-		if ctrl.Action == "deny" || ctrl.Action == "abort" {
-			markSessionAborting(sessionID)
-		} else if mappedEvent == "agentCompletion" || mappedEvent == "failed" {
-			unmarkSessionAborting(sessionID)
-		}
+	// 若服务端要求中断，在本地标记 sessionAborting，使得后续即便是 IgnoredTools 也被穿透拦截
+	if ctrl.Action == "deny" || ctrl.Action == "abort" {
+		markSessionAborting(sessionID)
+	} else if mappedEvent == "agentCompletion" || mappedEvent == "failed" {
+		unmarkSessionAborting(sessionID)
+	}
 
-		// 11. 根据控制决策输出响应协议（支持从 Web 看板反向中断/拒绝）
-		RespondWithAction(eventName, agentName, ctrl)
+	// 11. 根据控制决策输出响应协议（支持从 Web 看板反向中断/拒绝）
+	RespondWithAction(eventName, agentName, ctrl)
 }
 
 func parsePayload(r io.Reader) Payload {
@@ -1070,7 +1069,7 @@ func containsPrompt(prompts []string, prompt string) bool {
 }
 
 // isCountableUserPrompt 过滤 transcript 里不当作「用户新一轮」的注入消息
-//（附件、工作区快照等），避免 turn_index 虚高把仍在 running 的一轮顶掉。
+// （附件、工作区快照等），避免 turn_index 虚高把仍在 running 的一轮顶掉。
 func isCountableUserPrompt(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -1131,42 +1130,42 @@ func TranscriptCandidates(payload Payload, sessionID string) []string {
 		paths = append(paths, envP)
 	}
 
-		var roots []string
-		for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CODEX_PROJECT_DIR", "CODEX_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
-			if p := os.Getenv(envK); p != "" {
-				roots = append(roots, p)
-			}
+	var roots []string
+	for _, envK := range []string{"CURSOR_PROJECT_DIR", "ZCODE_PROJECT_DIR", "CODEX_PROJECT_DIR", "CODEX_WORKSPACE_ROOT", "CLAUDE_PROJECT_DIR", "TRAE_PROJECT_DIR", "WINDSURF_PROJECT_DIR"} {
+		if p := os.Getenv(envK); p != "" {
+			roots = append(roots, p)
 		}
-		roots = append(roots, payload.WorkspaceRoots...)
+	}
+	roots = append(roots, payload.WorkspaceRoots...)
 
-		home, err := os.UserHomeDir()
-		if err == nil {
-			// 全局通用 Codex 会话路径
-			baseCodex := filepath.Join(home, ".codex", "sessions", sessionID)
-			paths = append(paths, filepath.Join(baseCodex, "transcript.jsonl"))
-			paths = append(paths, filepath.Join(home, ".codex", "sessions", sessionID+".jsonl"))
-			paths = append(paths, filepath.Join(home, ".codex", "history.jsonl"))
+	home, err := os.UserHomeDir()
+	if err == nil {
+		// 全局通用 Codex 会话路径
+		baseCodex := filepath.Join(home, ".codex", "sessions", sessionID)
+		paths = append(paths, filepath.Join(baseCodex, "transcript.jsonl"))
+		paths = append(paths, filepath.Join(home, ".codex", "sessions", sessionID+".jsonl"))
+		paths = append(paths, filepath.Join(home, ".codex", "history.jsonl"))
 
-			for _, root := range roots {
-				if root == "" {
-					continue
-				}
-				slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
-				// Cursor transcripts
-				baseCursor := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
-				paths = append(paths, filepath.Join(baseCursor, sessionID+".jsonl"))
-				paths = append(paths, filepath.Join(baseCursor, sessionID+".txt"))
-
-				// Claude Code transcripts
-				baseClaude := filepath.Join(home, ".claude", "projects", slug, "transcripts", sessionID)
-				paths = append(paths, filepath.Join(baseClaude, sessionID+".jsonl"))
-				paths = append(paths, filepath.Join(root, ".claude", "transcripts", sessionID+".jsonl"))
-
-				// Codex project transcripts
-				paths = append(paths, filepath.Join(home, ".codex", "projects", slug, "transcripts", sessionID+".jsonl"))
-				paths = append(paths, filepath.Join(root, ".codex", "sessions", sessionID+".jsonl"))
+		for _, root := range roots {
+			if root == "" {
+				continue
 			}
+			slug := strings.ReplaceAll(strings.Trim(root, "/"), "/", "-")
+			// Cursor transcripts
+			baseCursor := filepath.Join(home, ".cursor", "projects", slug, "agent-transcripts", sessionID)
+			paths = append(paths, filepath.Join(baseCursor, sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(baseCursor, sessionID+".txt"))
+
+			// Claude Code transcripts
+			baseClaude := filepath.Join(home, ".claude", "projects", slug, "transcripts", sessionID)
+			paths = append(paths, filepath.Join(baseClaude, sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(root, ".claude", "transcripts", sessionID+".jsonl"))
+
+			// Codex project transcripts
+			paths = append(paths, filepath.Join(home, ".codex", "projects", slug, "transcripts", sessionID+".jsonl"))
+			paths = append(paths, filepath.Join(root, ".codex", "sessions", sessionID+".jsonl"))
 		}
+	}
 
 	seen := make(map[string]bool)
 	var out []string

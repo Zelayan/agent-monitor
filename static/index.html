@@ -658,6 +658,7 @@
         drawerSteer: '向 AGENT 注入指引 / 上下文 (LIVE STEER)',
         drawerSteerHint: '在下个Hook生效',
         drawerSteerPlaceholder: '例如：注意不要修改 main.go，并严格保持测试全绿...',
+        drawerSteerQueued: '已排队，将在下个动作时注入 Agent 上下文！',
         btnSteer: '注入',
       },
       en: {
@@ -739,6 +740,7 @@
         drawerSteer: 'INJECT CONTEXT / GUIDANCE (LIVE STEER)',
         drawerSteerHint: 'Active on next Hook',
         drawerSteerPlaceholder: 'e.g. Ensure all tests stay green, do not touch main.go...',
+        drawerSteerQueued: 'Queued! Will inject context on next hook.',
         btnSteer: 'Inject',
       },
     };
@@ -1075,7 +1077,7 @@
           class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
           title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
-          ${isAborting ? '⏳ ' + t('statusAborting') : '🛑 ' + t('btnAbort')}
+          ${isAborting ? t('statusAborting') : t('btnAbort')}
         </button>
       ` : '';
 
@@ -1973,9 +1975,9 @@
           const inputEl = document.getElementById('drawer-steer-input');
           if (inputEl) {
             inputEl.value = '';
-            inputEl.placeholder = '已排队，将在下个动作时注入 Agent 上下文！';
+            inputEl.placeholder = t('drawerSteerQueued');
             setTimeout(() => {
-              inputEl.placeholder = '例如：注意不要修改 main.go，并严格保持测试全绿...';
+              inputEl.placeholder = t('drawerSteerPlaceholder');
             }, 3000);
           }
         }

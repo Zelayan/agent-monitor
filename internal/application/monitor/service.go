@@ -29,7 +29,7 @@ type MonitorService struct {
 	stopChan   chan struct{}
 	ttlDays    int // 自动清理天数（默认 30 天，<=0 则不清理）
 	summarizer *TitleSummarizer
-	titleJobs  sync.Map // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
+	titleJobs  sync.Map            // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
 	steerQueue map[string][]string // map[taskID][]contextToInject 动态上下文注入队列
 }
 
@@ -162,6 +162,7 @@ func (s *MonitorService) cleanExpiredTasks() {
 			}
 			if endTime > 0 && endTime < cutoffMs {
 				delete(s.tasks, id)
+				delete(s.steerQueue, id)
 				toDelete = append(toDelete, id)
 			}
 		}
@@ -255,15 +256,7 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 	if msgs, ok := s.steerQueue[t.ID]; ok && len(msgs) > 0 {
 		additionalCtx = strings.Join(msgs, "\n\n")
 		delete(s.steerQueue, t.ID)
-		// 记入时间线
-		if len(t.Runs) > 0 {
-			curRun := &t.Runs[len(t.Runs)-1]
-			curRun.Timeline = append(curRun.Timeline, task.TimelineItem{
-				Time:  nowStr,
-				Event: "contextInjected",
-				Desc:  fmt.Sprintf("动态注入上下文: %s", additionalCtx),
-			})
-		}
+		t.RecordContextInjected(additionalCtx, nowStr)
 	}
 
 	taskID := t.ID
@@ -476,6 +469,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 		for id, t := range s.tasks {
 			if t != nil && t.BelongsTo(keyID, isMaster) {
 				delete(s.tasks, id)
+				delete(s.steerQueue, id)
 				toDelete = append(toDelete, id)
 			}
 		}
@@ -484,6 +478,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 		for _, targetID := range req.IDs {
 			if t, exists := s.tasks[targetID]; exists && t.BelongsTo(keyID, isMaster) {
 				delete(s.tasks, targetID)
+				delete(s.steerQueue, targetID)
 				toDelete = append(toDelete, targetID)
 			}
 		}
@@ -493,6 +488,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			if t != nil && t.BelongsTo(keyID, isMaster) {
 				if t.Status == "completed" || t.Status == "failed" {
 					delete(s.tasks, id)
+					delete(s.steerQueue, id)
 					toDelete = append(toDelete, id)
 				}
 			}
@@ -530,6 +526,7 @@ func (s *MonitorService) forgetTask(id, keyID string) {
 	if id == "" {
 		return
 	}
+	delete(s.steerQueue, id)
 	if s.repo != nil {
 		if err := s.repo.Delete(id); err != nil {
 			log.Printf("[Application] Error discarding idle task %s: %v", id, err)

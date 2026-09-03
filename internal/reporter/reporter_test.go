@@ -359,142 +359,142 @@ func TestDeliverEvent_SpoolsWhenMonitorDownThenReplays(t *testing.T) {
 	if got[0].Event != "afterAgentResponse" || got[1].Event != "sessionStart" {
 		t.Fatalf("order = %s then %s", got[0].Event, got[1].Event)
 	}
-		if _, err := os.Stat(spool); !os.IsNotExist(err) {
-			t.Fatalf("spool should be drained, stat err=%v", err)
-		}
+	if _, err := os.Stat(spool); !os.IsNotExist(err) {
+		t.Fatalf("spool should be drained, stat err=%v", err)
+	}
+}
+
+func TestSendEventWithAction_ControlInversion(t *testing.T) {
+	// 模拟 Monitor 返回 deny 指令
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok","action":"deny","reason":"Manually aborted from dashboard"}`))
+	}))
+	defer server.Close()
+
+	report := EventReport{
+		ID:        "sess-control-test",
+		Agent:     "Cursor Agent",
+		Event:     "preToolUse",
+		Timestamp: time.Now().Unix(),
 	}
 
-	func TestSendEventWithAction_ControlInversion(t *testing.T) {
-		// 模拟 Monitor 返回 deny 指令
-		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"status":"ok","action":"deny","reason":"Manually aborted from dashboard"}`))
-		}))
-		defer server.Close()
-
-		report := EventReport{
-			ID:        "sess-control-test",
-			Agent:     "Cursor Agent",
-			Event:     "preToolUse",
-			Timestamp: time.Now().Unix(),
-		}
-
-		ok, ctrl := SendEventWithAction(server.URL, "", report)
-		if !ok {
-			t.Fatalf("expected send to succeed")
-		}
-		if ctrl.Action != "deny" {
-			t.Fatalf("expected ctrl.Action 'deny', got %q", ctrl.Action)
-		}
-		if ctrl.Reason != "Manually aborted from dashboard" {
-			t.Fatalf("expected ctrl.Reason 'Manually aborted from dashboard', got %q", ctrl.Reason)
-		}
+	ok, ctrl := SendEventWithAction(server.URL, "", report)
+	if !ok {
+		t.Fatalf("expected send to succeed")
 	}
+	if ctrl.Action != "deny" {
+		t.Fatalf("expected ctrl.Action 'deny', got %q", ctrl.Action)
+	}
+	if ctrl.Reason != "Manually aborted from dashboard" {
+		t.Fatalf("expected ctrl.Reason 'Manually aborted from dashboard', got %q", ctrl.Reason)
+	}
+}
 
-	func TestMultiTurnRequireTagSessionTracking(t *testing.T) {
-		sessionID := "sess-multiturn-tag-test"
-		cleanID := strings.ReplaceAll(sessionID, "/", "_")
-		trackFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
-		promptsFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+func TestMultiTurnRequireTagSessionTracking(t *testing.T) {
+	sessionID := "sess-multiturn-tag-test"
+	cleanID := strings.ReplaceAll(sessionID, "/", "_")
+	trackFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-tracked-%s", cleanID))
+	promptsFile := filepath.Join(os.TempDir(), fmt.Sprintf("agent-monitor-prompts-%s.json", cleanID))
+	_ = os.Remove(trackFile)
+	_ = os.Remove(promptsFile)
+	defer func() {
 		_ = os.Remove(trackFile)
 		_ = os.Remove(promptsFile)
-		defer func() {
-			_ = os.Remove(trackFile)
-			_ = os.Remove(promptsFile)
-		}()
+	}()
 
-		// 1. Turn 1 携带 #task
-		p1 := Payload{
-			Prompt: "#task 帮我重构代码",
-		}
-		turn1, curr1, first1 := ExtractTurnInfo(p1, sessionID, 0)
-		if turn1 != 1 || curr1 != "#task 帮我重构代码" || first1 != "#task 帮我重构代码" {
-			t.Fatalf("unexpected turn 1: turn=%d curr=%q first=%q", turn1, curr1, first1)
-		}
-
-		cfg := GlobalConfig{RequireTag: "#task"}
-		if !cfg.MatchesRequireTag(curr1, first1, ShortTitle(curr1)) {
-			t.Fatalf("turn 1 should match require_tag #task")
-		}
-		markSessionTracked(sessionID, first1)
-
-		// 验证已经标记
-		if !isSessionTracked(sessionID) {
-			t.Fatalf("session should be tracked after turn 1")
-		}
-
-		// 2. Turn 2 不携带 #task（普通追问）
-		p2 := Payload{
-			Prompt: "再帮我写一个测试用例",
-		}
-		turn2, curr2, first2 := ExtractTurnInfo(p2, sessionID, 0)
-		if turn2 != 2 {
-			t.Fatalf("expected turn 2 count = 2, got %d", turn2)
-		}
-		if curr2 != "再帮我写一个测试用例" {
-			t.Fatalf("expected curr2 to be turn 2 prompt, got %q", curr2)
-		}
-		if first2 != "#task 帮我重构代码" {
-			t.Fatalf("expected first2 to remember first prompt '#task 帮我重构代码', got %q", first2)
-		}
-
-		// 验证即使当前轮 Prompt 没有 #task，因为 firstPrompt 有 #task，依然命中标签规则
-		if !cfg.MatchesRequireTag(curr2, first2, ShortTitle(curr2)) {
-			t.Fatalf("turn 2 should match require_tag because firstPrompt has #task")
-		}
-		if !isSessionTracked(sessionID) {
-			t.Fatalf("session should still be tracked in turn 2")
-		}
+	// 1. Turn 1 携带 #task
+	p1 := Payload{
+		Prompt: "#task 帮我重构代码",
+	}
+	turn1, curr1, first1 := ExtractTurnInfo(p1, sessionID, 0)
+	if turn1 != 1 || curr1 != "#task 帮我重构代码" || first1 != "#task 帮我重构代码" {
+		t.Fatalf("unexpected turn 1: turn=%d curr=%q first=%q", turn1, curr1, first1)
 	}
 
-	func TestPureGoFindGitRoot(t *testing.T) {
-		tempDir := t.TempDir()
-		gitDir := filepath.Join(tempDir, ".git")
-		_ = os.MkdirAll(gitDir, 0755)
-		_ = os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feature-pure-go\n"), 0644)
+	cfg := GlobalConfig{RequireTag: "#task"}
+	if !cfg.MatchesRequireTag(curr1, first1, ShortTitle(curr1)) {
+		t.Fatalf("turn 1 should match require_tag #task")
+	}
+	markSessionTracked(sessionID, first1)
 
-		subDir := filepath.Join(tempDir, "sub", "pkg", "deep")
-		_ = os.MkdirAll(subDir, 0755)
-
-		// 在子目录下探测仓库与分支
-		payload := Payload{
-			Cwd: subDir,
-		}
-		repo, branch := GetGitInfo(payload)
-		if repo != filepath.Base(tempDir) {
-			t.Fatalf("expected repo %q, got %q", filepath.Base(tempDir), repo)
-		}
-		if branch != "feature-pure-go" {
-			t.Fatalf("expected branch feature-pure-go, got %q", branch)
-		}
+	// 验证已经标记
+	if !isSessionTracked(sessionID) {
+		t.Fatalf("session should be tracked after turn 1")
 	}
 
-	func TestCircuitBreakerAndSpoolTruncation(t *testing.T) {
-		fakeServer := "http://127.0.0.1:54321/api/event"
-		resetCircuitBreaker(fakeServer)
-		defer resetCircuitBreaker(fakeServer)
-
-		if isCircuitBreakerOpen(fakeServer) {
-			t.Fatalf("circuit breaker should be closed initially")
-		}
-
-		tripCircuitBreaker(fakeServer)
-		if !isCircuitBreakerOpen(fakeServer) {
-			t.Fatalf("circuit breaker should be open after trip")
-		}
-
-		// 测试 Spool 截断
-		spool := filepath.Join(t.TempDir(), "spool_trunc.jsonl")
-		largeData := bytes.Repeat([]byte("{\"id\":\"test\",\"data\":\"1234567890\"}\n"), 100)
-		_ = os.WriteFile(spool, largeData, 0644)
-
-		truncateSpoolKeepTail(spool, int64(len(largeData)/2))
-		reloaded, _ := os.ReadFile(spool)
-		if len(reloaded) >= len(largeData) {
-			t.Fatalf("expected truncated file to be smaller than original")
-		}
+	// 2. Turn 2 不携带 #task（普通追问）
+	p2 := Payload{
+		Prompt: "再帮我写一个测试用例",
 	}
+	turn2, curr2, first2 := ExtractTurnInfo(p2, sessionID, 0)
+	if turn2 != 2 {
+		t.Fatalf("expected turn 2 count = 2, got %d", turn2)
+	}
+	if curr2 != "再帮我写一个测试用例" {
+		t.Fatalf("expected curr2 to be turn 2 prompt, got %q", curr2)
+	}
+	if first2 != "#task 帮我重构代码" {
+		t.Fatalf("expected first2 to remember first prompt '#task 帮我重构代码', got %q", first2)
+	}
+
+	// 验证即使当前轮 Prompt 没有 #task，因为 firstPrompt 有 #task，依然命中标签规则
+	if !cfg.MatchesRequireTag(curr2, first2, ShortTitle(curr2)) {
+		t.Fatalf("turn 2 should match require_tag because firstPrompt has #task")
+	}
+	if !isSessionTracked(sessionID) {
+		t.Fatalf("session should still be tracked in turn 2")
+	}
+}
+
+func TestPureGoFindGitRoot(t *testing.T) {
+	tempDir := t.TempDir()
+	gitDir := filepath.Join(tempDir, ".git")
+	_ = os.MkdirAll(gitDir, 0755)
+	_ = os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/feature-pure-go\n"), 0644)
+
+	subDir := filepath.Join(tempDir, "sub", "pkg", "deep")
+	_ = os.MkdirAll(subDir, 0755)
+
+	// 在子目录下探测仓库与分支
+	payload := Payload{
+		Cwd: subDir,
+	}
+	repo, branch := GetGitInfo(payload)
+	if repo != filepath.Base(tempDir) {
+		t.Fatalf("expected repo %q, got %q", filepath.Base(tempDir), repo)
+	}
+	if branch != "feature-pure-go" {
+		t.Fatalf("expected branch feature-pure-go, got %q", branch)
+	}
+}
+
+func TestCircuitBreakerAndSpoolTruncation(t *testing.T) {
+	fakeServer := "http://127.0.0.1:54321/api/event"
+	resetCircuitBreaker(fakeServer)
+	defer resetCircuitBreaker(fakeServer)
+
+	if isCircuitBreakerOpen(fakeServer) {
+		t.Fatalf("circuit breaker should be closed initially")
+	}
+
+	tripCircuitBreaker(fakeServer)
+	if !isCircuitBreakerOpen(fakeServer) {
+		t.Fatalf("circuit breaker should be open after trip")
+	}
+
+	// 测试 Spool 截断
+	spool := filepath.Join(t.TempDir(), "spool_trunc.jsonl")
+	largeData := bytes.Repeat([]byte("{\"id\":\"test\",\"data\":\"1234567890\"}\n"), 100)
+	_ = os.WriteFile(spool, largeData, 0644)
+
+	truncateSpoolKeepTail(spool, int64(len(largeData)/2))
+	reloaded, _ := os.ReadFile(spool)
+	if len(reloaded) >= len(largeData) {
+		t.Fatalf("expected truncated file to be smaller than original")
+	}
+}
 
 func TestShouldSkipUnstartedLifecycle(t *testing.T) {
 	if !shouldSkipUnstartedLifecycle("sessionStart", "", "") {
@@ -626,4 +626,3 @@ func TestDeleteSession_And_DroppedSession(t *testing.T) {
 		t.Fatalf("dropped session events should be silenced and not send requests, got %d calls", callCount)
 	}
 }
-

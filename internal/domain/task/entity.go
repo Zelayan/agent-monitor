@@ -243,6 +243,19 @@ func (t *Task) RecordActionDenial(reason string, nowMs int64, nowStr string) {
 	}
 }
 
+// RecordContextInjected 记录一次动态上下文注入，自增聚合根版本号并追加至当前 Run 时间线
+func (t *Task) RecordContextInjected(content string, nowStr string) {
+	t.Version++
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.Timeline = append(curRun.Timeline, TimelineItem{
+			Time:  nowStr,
+			Event: "contextInjected",
+			Desc:  fmt.Sprintf("动态注入上下文: %s", content),
+		})
+	}
+}
+
 // IsStartHook 判断事件是否为一轮对话的开端（新 Prompt / 会话启动）。
 func IsStartHook(event string) bool {
 	switch event {
