@@ -174,6 +174,8 @@ Out of the box the system **only records prompts that contain `#task`**, and ign
 
 Precedence is nearest-wins: **CLI flags > environment variables (`AGENT_MONITOR_REQUIRE_TAG`, and so on) > project config (`.agent-monitor.json`) > global config (`~/.agent-monitor/config.json`)**. Details: **[Agent Integration Manual](docs/AGENT_INTEGRATION.md)**.
 
+> **💡 Keyword Untracking & Deletion**: To stop tracking and remove a session from the board, include `#drop` or `#untrack` in your prompt. The reporter will automatically issue a delete request to Monitor and silence further events.
+
 ---
 
 ## HTTP API

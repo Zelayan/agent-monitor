@@ -241,9 +241,6 @@ Users can drop or untrack any ongoing session on Monitor by including delete key
 - When detected in a prompt, `agent-reporter` invokes `DELETE /api/tasks/{session_id}` on Monitor, broadcasting card removal in real-time.
 - Local tracking flags for the session are removed, and subsequent events of the session are automatically silenced.
 
-}
-```
-
 ### Priority Hierarchy:
 1. **CLI Flag**: `--require-tag` / `--server` / `--api-key`
 2. **Environment Variables**: `AGENT_MONITOR_REQUIRE_TAG` / `AGENT_MONITOR_URL` / `AGENT_MONITOR_API_KEY`
@@ -255,6 +252,8 @@ Users can drop or untrack any ongoing session on Monitor by including delete key
   - Out of the box, only prompts containing `#task` are reported to Agent Monitor.
   - Once a session's first turn matches `#task`, all subsequent multi-turn follow-ups are automatically tracked without repeating the tag.
   - Set to `""` in project-level `.agent-monitor.json` or `export AGENT_MONITOR_REQUIRE_TAG=""` to force monitoring all sessions without any tags in that specific workspace.
+- **`delete_tag`**: Default: `"#drop,#untrack"` (or comma-separated tags, `"none"` to disable).
+  - If a user prompt contains a delete keyword (matched with token boundaries to avoid accidental hits like variable names), the reporter triggers a `DELETE` call to Monitor to remove the task and untracks local session history.
 - **`server_url`**: Set a local or remote monitor server URL (e.g. `"http://192.168.1.100:8000/api/event"`).
 - **`api_key`**: Secret token for authenticating events sent to protected monitor servers.
 - **`disabled`**: Temporarily pause monitoring without removing any hooks (`true` / `false`).

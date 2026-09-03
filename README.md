@@ -174,6 +174,8 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 配置优先级遵循就近原则：**命令行参数 > 环境变量 (`AGENT_MONITOR_REQUIRE_TAG` 等) > 项目配置 (`.agent-monitor.json`) > 全局配置 (`~/.agent-monitor/config.json`)**。详细说明见 **[🔌 Agent 集成与配置手册](docs/AGENT_INTEGRATION.md)**。
 
+> **💡 关键字快速取关与删除**：如果不想继续追踪某个会话，可在提问中包含 `#drop` 或 `#untrack`，系统将自动触发 Monitor 移除该记录并清理本地状态。
+
 ---
 
 ## 📡 HTTP API 概览
