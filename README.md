@@ -1,5 +1,7 @@
 <div align="center">
 
+[English](README.en.md) | [简体中文](README.md)
+
 # AGENT MONITOR
 
 **面向 AI Coding Agent 的专业级实时飞行仪表盘**
@@ -190,6 +192,7 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 - **[📖 安装与部署指南 (INSTALLATION.md)](docs/INSTALLATION.md)**：包含 systemd 守护管理、内网离线包、Docker 镜像与编译构建全指南。
 - **[🔌 Agent 集成手册 (AGENT_INTEGRATION.md)](docs/AGENT_INTEGRATION.md)**：各 Agent 嗅探规则、Hook 协议定义与参数说明。
+- **[并行 Agent (PARALLEL_AGENTS.md)](docs/PARALLEL_AGENTS.md)**：同一 GitHub 仓库上多 Cursor Agent 用 worktree / Cloud 分分支并发开发。
 - **[🤖 LLM 索引接口 (llms.txt)](llms.txt)**：专为大模型与 Coding Agent 设计的高密度上下文接入入口。
 - **[📐 架构与协作规范 (AGENTS.md)](AGENTS.md)**：DDD 分层规范、并发安全读写锁机制与 Git 铁律。
 
