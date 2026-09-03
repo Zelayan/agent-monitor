@@ -17,7 +17,7 @@ jobs:
   review:
     name: AI Review
     runs-on: ubuntu-latest
-    environment: DOCKERHUB_USERNAME
+    environment: ai-review
     # 仅在非 Dependabot 时执行
     if: ${{ github.actor != 'dependabot[bot]' }}
     steps:
