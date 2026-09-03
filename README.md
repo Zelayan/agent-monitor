@@ -178,11 +178,29 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ---
 
-## 🤖 自动化 AI Code Review (GitHub Actions)
+## 🤖 自动化与本地 AI Code Review
 
-项目内置了基于 GitHub Actions 的自动化 AI Code Review 机器人，在每次提 PR 或更新代码时自动对 Diff 进行 DDD 架构分层、并发竞态（Data Race）、Fail-Safe 铁律及双语国际化（I18N）的针对性审查。
+项目内置了代码审查机器人，支持**本地终端即时审查**与 **GitHub Actions 云端自动化审查**，自动对 Diff 进行 DDD 架构分层、并发竞态（Data Race）、Fail-Safe 铁律及双语国际化（I18N）的针对性审查。
 
-### 配置方法（仓库管理员）：
+### 1. 本地一键审查（提交 MR / push 前使用）：
+无需推送即可在本地终端提前发现潜在问题：
+```bash
+# 配置环境变量（支持官方 OpenAI 或任何兼容中转反代）
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.deepseek.com/v1"  # 可选：自定义中转
+export OPENAI_MODEL="deepseek-chat"                  # 可选：模型名称
+
+# 对比当前分支与 master 分支变更进行审查
+make review
+
+# 或者仅审查暂存区 (staged) 代码
+python3 scripts/ai_reviewer.py --local --staged
+
+# 可选：一键安装 git pre-push 钩子（在 git push 自动触发前置审查）
+make install-hooks
+```
+
+### 2. GitHub Actions 云端审查配置（仓库管理员）：
 在 GitHub 仓库中创建名为 `ai-review` 的 Environment，并在其 **Environment secrets**（或仓库全局 **Repository secrets**）中添加：
 - `OPENAI_API_KEY`（必需）：OpenAI API Key 或第三方中转 Key。
 - `OPENAI_BASE_URL`（可选）：默认 `https://api.openai.com/v1`（可填国内镜像或中转代理）。

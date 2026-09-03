@@ -178,11 +178,29 @@ Precedence is nearest-wins: **CLI flags > environment variables (`AGENT_MONITOR_
 
 ---
 
-## Automated AI Code Review (GitHub Actions)
+## Automated & Local AI Code Review
 
-The repository includes an automated GitHub Actions AI Code Review workflow. On every Pull Request or push, it automatically reviews diffs against the project's DDD architecture, race-free concurrency rules, fail-safe hook constraints, and I18N standards.
+The project includes an AI code review robot supporting both **Local Terminal Review** and **GitHub Actions Cloud Review**. It automatically audits diffs against DDD layering rules, data race concurrency safety, fail-safe hook guarantees, and bilingual I18N standards.
 
-### Configuration:
+### 1. Local One-Click Review (Before creating PR or pushing):
+Catch issues early in your local terminal without pushing:
+```bash
+# Configure environment variables (supports OpenAI or any compatible proxy)
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.deepseek.com/v1"  # Optional: custom base URL
+export OPENAI_MODEL="deepseek-chat"                  # Optional: model name
+
+# Review branch changes against master
+make review
+
+# Or review staged changes only
+python3 scripts/ai_reviewer.py --local --staged
+
+# Optional: install pre-push hook to automatically review before git push
+make install-hooks
+```
+
+### 2. GitHub Actions Configuration (Repository Admins):
 Create an Environment named `ai-review` in your GitHub repository, and configure under its **Environment secrets** (or repository-wide **Repository secrets**):
 - `OPENAI_API_KEY` (Required): OpenAI API Key or compatible provider token.
 - `OPENAI_BASE_URL` (Optional): Default `https://api.openai.com/v1` (supports custom proxies or reverse proxies).
