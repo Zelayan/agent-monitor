@@ -218,3 +218,44 @@ func TestLoadConfigForWorkspace_ProjectOverride(t *testing.T) {
 			t.Fatalf("expected empty RequireTag when AGENT_MONITOR_REQUIRE_TAG='', got %q", cfgEnv.RequireTag)
 		}
 	}
+
+func TestGlobalConfig_MatchesDeleteTag(t *testing.T) {
+	cfg := GlobalConfig{
+		DeleteTag: "#drop,#untrack",
+	}
+
+	// 1. 正常匹配
+	if !cfg.MatchesDeleteTag("#drop") {
+		t.Fatalf("expected #drop to match")
+	}
+	if !cfg.MatchesDeleteTag("请帮我完成这个任务，算了 #drop") {
+		t.Fatalf("expected #drop in prompt to match")
+	}
+	if !cfg.MatchesDeleteTag("#untrack 这个会话") {
+		t.Fatalf("expected #untrack to match")
+	}
+	// 大小写不敏感
+	if !cfg.MatchesDeleteTag("#DROP") {
+		t.Fatalf("expected #DROP uppercase to match")
+	}
+
+	// 2. 防误触：单词/标识符的一部分不应匹配
+	if cfg.MatchesDeleteTag("var dropTable = true") {
+		t.Fatalf("expected dropTable not to match #drop")
+	}
+	if cfg.MatchesDeleteTag("http://example.com/#drop_anchor") {
+		// drop_anchor 不是独立 token
+		t.Fatalf("expected #drop_anchor not to match #drop")
+	}
+
+	// 3. 空或 none 关闭匹配
+	emptyCfg := GlobalConfig{DeleteTag: ""}
+	if emptyCfg.MatchesDeleteTag("#drop") {
+		t.Fatalf("expected empty DeleteTag not to match")
+	}
+	noneCfg := GlobalConfig{DeleteTag: "none"}
+	if noneCfg.MatchesDeleteTag("#drop") {
+		t.Fatalf("expected none DeleteTag not to match")
+	}
+}
+
