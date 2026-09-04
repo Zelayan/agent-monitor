@@ -203,6 +203,13 @@
             class="w-full h-7 pl-7 pr-3 sm:pr-11 rounded bg-card border border-line text-[12px] text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-zinc-500">
           <kbd class="hidden sm:inline-block pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
         </label>
+        <!-- 状态维度筛选 (Status Filter) -->
+        <select id="status-filter" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 outline-none transition-colors cursor-pointer">
+          <option value="all">状态: 全部</option>
+          <option value="running">运行中</option>
+          <option value="completed">已完成</option>
+          <option value="failed">已失败</option>
+        </select>
         <div id="agent-filters" class="flex items-center gap-1 flex-wrap" role="group" aria-label="Agent filter"></div>
         <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
           EN
@@ -718,6 +725,11 @@
         operationFailed: '操作失败: {err}',
         taskNotFound: '会话不存在或已在服务端被移除',
         permissionDenied: '403 权限不足: 无法操作其他项目的会话',
+        filterStatusAll: '状态: 全部',
+        filterStatusRunning: '运行中',
+        filterStatusCompleted: '已完成',
+        filterStatusFailed: '已失败',
+        filterClearAll: '清空筛选',
       },
       en: {
         htmlLang: 'en',
@@ -826,6 +838,11 @@
         operationFailed: 'Operation failed: {err}',
         taskNotFound: 'Session not found or removed on server',
         permissionDenied: '403 Forbidden: Cannot modify other projects',
+        filterStatusAll: 'Status: All',
+        filterStatusRunning: 'Running',
+        filterStatusCompleted: 'Completed',
+        filterStatusFailed: 'Failed',
+        filterClearAll: 'Clear Filters',
       },
     };
 
@@ -837,8 +854,10 @@
     let activeTraceSubagentFilter = null;
 
     const tasksMap = new Map();
+    const searchIndexCache = new Map(); // map[taskId] -> { version, text }
     let query = '';
     let agentFilter = 'all';
+    let statusFilter = 'all';
     let selectedId = null;
     let selectedRunId = null;
     let eventSource = null;
@@ -943,6 +962,13 @@
       if (lblWaterfallReset) lblWaterfallReset.textContent = t('resetFilter');
       const lblWaterfallHint = document.getElementById('lbl-drawer-waterfall-hint');
       if (lblWaterfallHint) lblWaterfallHint.textContent = t('waterfallHint');
+      const statusFilterEl = document.getElementById('status-filter');
+      if (statusFilterEl) {
+        statusFilterEl.options[0].textContent = t('filterStatusAll');
+        statusFilterEl.options[1].textContent = t('filterStatusRunning');
+        statusFilterEl.options[2].textContent = t('filterStatusCompleted');
+        statusFilterEl.options[3].textContent = t('filterStatusFailed');
+      }
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1111,11 +1137,67 @@
       document.getElementById('agent-filters').innerHTML = allBtn + agentBtns;
     }
 
+    function getTaskSearchText(tObj) {
+      if (!tObj) return '';
+      const cached = searchIndexCache.get(tObj.id);
+      const curVersion = tObj.version || tObj.generation || 0;
+      if (cached && cached.version === curVersion) {
+        return cached.text;
+      }
+
+      const parts = [
+        tObj.title || '',
+        tObj.goalSummary || '',
+        tObj.rootGoal || '',
+        tObj.prompt || '',
+        tObj.repo || '',
+        tObj.branch || '',
+        tObj.id || '',
+        tObj.detail || '',
+        tObj.agent || '',
+        tObj.keyId || '',
+      ];
+
+      // 索引所有 Run 的 Prompt、AI 回复与 Timeline 轨迹详情
+      const runs = tObj.runs || tObj.turns || [];
+      for (const r of runs) {
+        if (r.prompt) parts.push(r.prompt);
+        if (r.title) parts.push(r.title);
+        if (r.aiResponse) parts.push(r.aiResponse);
+        if (r.detail) parts.push(r.detail);
+        if (Array.isArray(r.timeline)) {
+          for (const item of r.timeline) {
+            if (item.desc) parts.push(item.desc);
+            if (item.subagentType) parts.push(item.subagentType);
+            if (item.subagentId) parts.push(item.subagentId);
+          }
+        }
+      }
+
+      const text = parts.join(' ').toLowerCase();
+      searchIndexCache.set(tObj.id, { version: curVersion, text });
+      return text;
+    }
+
     function matchesFilter(tObj) {
+      if (!tObj) return false;
+      // 1. 状态筛选
+      if (statusFilter !== 'all') {
+        const isRunning = tObj.status === 'running';
+        const isCompleted = tObj.status === 'completed';
+        const isFailed = tObj.status === 'failed';
+        if (statusFilter === 'running' && !isRunning) return false;
+        if (statusFilter === 'completed' && !isCompleted) return false;
+        if (statusFilter === 'failed' && !isFailed) return false;
+      }
+
+      // 2. Agent 类型筛选
       if (agentFilter !== 'all' && agentName(tObj) !== agentFilter) return false;
+
+      // 3. 深度搜索词匹配（缓存索引加速）
       if (!query) return true;
-      const hay = [tObj.title, tObj.goalSummary, tObj.rootGoal, tObj.prompt, tObj.repo, tObj.branch, tObj.id, tObj.detail, tObj.agent].join(' ').toLowerCase();
-      return hay.includes(query);
+      const haystack = getTaskSearchText(tObj);
+      return haystack.includes(query);
     }
 
     function emptyState(text) {
@@ -2254,6 +2336,7 @@
               if (isRelevant) {
                 if (!validIds.has(id) && !validKeys.has(taskKeyStr) && !snapshotSeenTaskIds.has(id)) {
                   tasksMap.delete(id);
+                  searchIndexCache.delete(id);
                   selectedTaskIds.delete(id);
                   purged++;
                 }
@@ -2277,6 +2360,7 @@
             }
             data.deletedIds.forEach(id => {
               tasksMap.delete(id);
+              searchIndexCache.delete(id);
               selectedTaskIds.delete(id);
             });
             if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
@@ -2855,6 +2939,13 @@
       lastFilterSignature = '';
       render();
     });
+    const statusSelect = document.getElementById('status-filter');
+    if (statusSelect) {
+      statusSelect.addEventListener('change', (e) => {
+        statusFilter = e.target.value || 'all';
+        render();
+      });
+    }
     document.getElementById('btn-lang').addEventListener('click', toggleLanguage);
     document.getElementById('btn-toggle-widescreen').addEventListener('click', toggleWidescreen);
     document.getElementById('drawer-close').addEventListener('click', closeDrawer);
