@@ -591,6 +591,73 @@ func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
 	}
 }
 
+func TestHandler_StrictHTTPMethodAndErrorDTO(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok"))
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. GET /api/event 应该返回 405 Method Not Allowed 并带有 Allow 头
+	reqGetEvent := httptest.NewRequest(http.MethodGet, "/api/event", nil)
+	wGetEvent := httptest.NewRecorder()
+	mux.ServeHTTP(wGetEvent, reqGetEvent)
+
+	if wGetEvent.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for GET /api/event, got %d", wGetEvent.Code)
+	}
+	allowHeader := wGetEvent.Header().Get("Allow")
+	if !strings.Contains(allowHeader, "POST") {
+		t.Fatalf("expected Allow header to contain POST, got: %s", allowHeader)
+	}
+	var errResp APIErrorResponse
+	if err := json.NewDecoder(wGetEvent.Body).Decode(&errResp); err != nil {
+		t.Fatalf("failed to decode error DTO: %v", err)
+	}
+	if errResp.Error.Code != "METHOD_NOT_ALLOWED" {
+		t.Fatalf("expected error code METHOD_NOT_ALLOWED, got %s", errResp.Error.Code)
+	}
+
+	// 2. PUT /api/tasks 应该返回 405 并带有 Allow: GET, DELETE, OPTIONS
+	reqPutTasks := httptest.NewRequest(http.MethodPut, "/api/tasks", nil)
+	wPutTasks := httptest.NewRecorder()
+	mux.ServeHTTP(wPutTasks, reqPutTasks)
+
+	if wPutTasks.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for PUT /api/tasks, got %d", wPutTasks.Code)
+	}
+	allowTasks := wPutTasks.Header().Get("Allow")
+	if !strings.Contains(allowTasks, "GET") || !strings.Contains(allowTasks, "DELETE") {
+		t.Fatalf("expected Allow to contain GET, DELETE, got %s", allowTasks)
+	}
+
+	// 3. GET /api/tasks/{id}/abort 应该返回 405
+	reqGetAbort := httptest.NewRequest(http.MethodGet, "/api/tasks/sess-123/abort", nil)
+	wGetAbort := httptest.NewRecorder()
+	mux.ServeHTTP(wGetAbort, reqGetAbort)
+
+	if wGetAbort.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for GET /api/tasks/{id}/abort, got %d", wGetAbort.Code)
+	}
+
+	// 4. POST 畸形 JSON 应该返回 400 INVALID_JSON
+	reqBadJSON := httptest.NewRequest(http.MethodPost, "/api/event", strings.NewReader("{bad json"))
+	wBadJSON := httptest.NewRecorder()
+	mux.ServeHTTP(wBadJSON, reqBadJSON)
+
+	if wBadJSON.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d", wBadJSON.Code)
+	}
+	var badJSONResp APIErrorResponse
+	if err := json.NewDecoder(wBadJSON.Body).Decode(&badJSONResp); err != nil || badJSONResp.Error.Code != "INVALID_JSON" {
+		t.Fatalf("expected INVALID_JSON error code, got %+v", badJSONResp)
+	}
+}
+
 type flushRecorder struct {
 	*httptest.ResponseRecorder
 	flushed chan struct{}

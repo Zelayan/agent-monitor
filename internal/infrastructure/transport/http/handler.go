@@ -29,6 +29,7 @@ type Handler struct {
 	apiKey      string            // 单 Key 或默认 Key
 	masterKey   string            // Master 全局管理 Key
 	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
+	allowedCORS []string          // 可配置 CORS 白名单域名（为空则允许全部 "*"）
 }
 
 // NewHandler 创建 HTTP 处理器实例。
@@ -39,6 +40,12 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 		staticHTML:  staticHTML,
 		projectKeys: make(map[string]string),
 	}
+}
+
+// WithAllowedCORS 设置允许的 CORS Origin 白名单域名。
+func (h *Handler) WithAllowedCORS(origins []string) *Handler {
+	h.allowedCORS = origins
+	return h
 }
 
 // WithAPIKey 设置访问 API Key，非空时对 /api/* 接口启用鉴权。
@@ -98,10 +105,26 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/", h.HandleIndex)
 }
 
-func enableCORS(w http.ResponseWriter, r *http.Request) bool {
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+func (h *Handler) enableCORS(w http.ResponseWriter, r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	allowOrigin := "*"
+	if len(h.allowedCORS) > 0 {
+		allowOrigin = ""
+		for _, allowed := range h.allowedCORS {
+			if allowed == "*" || allowed == origin {
+				allowOrigin = origin
+				break
+			}
+		}
+	}
+	if allowOrigin != "" {
+		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		if allowOrigin != "*" {
+			w.Header().Add("Vary", "Origin")
+		}
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
+	}
 
 	if r.Method == http.MethodOptions {
 		w.WriteHeader(http.StatusNoContent)
@@ -178,14 +201,17 @@ func (h *Handler) checkAuth(r *http.Request) (bool, AuthContext) {
 }
 
 func (h *Handler) writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"error":"Unauthorized: valid API key required"}`))
+	WriteJSONError(w, http.StatusUnauthorized, "UNAUTHORIZED", "Valid API key required")
 }
 
 // HandleEvent 处理 Hook POST 上报。
 func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
-	if enableCORS(w, r) {
+	if h.enableCORS(w, r) {
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		MethodNotAllowed(w, "POST, OPTIONS")
 		return
 	}
 
@@ -195,17 +221,13 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	// 限制请求体上限为 2MB，防止恶意/异常数据打崩内存
 	r.Body = http.MaxBytesReader(w, r.Body, 2<<20)
 
 	var p task.EventPayload
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
-		http.Error(w, "Invalid JSON: "+err.Error(), http.StatusBadRequest)
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&p); err != nil {
+		WriteJSONError(w, http.StatusBadRequest, "INVALID_JSON", "Invalid JSON: "+err.Error())
 		return
 	}
 
@@ -219,14 +241,10 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 	res, err := h.svc.HandleHookEventTenant(p, authCtx.KeyID, authCtx.IsMaster)
 	if err != nil {
 		if errors.Is(err, monitor.ErrPermissionDenied) || strings.Contains(err.Error(), "permission denied") {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusForbidden)
-			_ = json.NewEncoder(w).Encode(map[string]string{
-				"error": "Forbidden: " + err.Error(),
-			})
+			WriteJSONError(w, http.StatusForbidden, "FORBIDDEN", "Forbidden: "+err.Error())
 			return
 		}
-		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error: "+err.Error())
 		return
 	}
 
@@ -250,7 +268,12 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 // HandleStream 提供 SSE 长连接流。
 func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
-	if enableCORS(w, r) {
+	if h.enableCORS(w, r) {
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		MethodNotAllowed(w, "GET, OPTIONS")
 		return
 	}
 
@@ -262,7 +285,7 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 	flusher, okFlusher := w.(http.Flusher)
 	if !okFlusher {
-		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
+		WriteJSONError(w, http.StatusInternalServerError, "STREAMING_UNSUPPORTED", "Streaming unsupported")
 		return
 	}
 
@@ -337,7 +360,12 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 
 // HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
-	if enableCORS(w, r) {
+	if h.enableCORS(w, r) {
+		return
+	}
+
+	if r.Method != http.MethodGet && r.Method != http.MethodDelete {
+		MethodNotAllowed(w, "GET, DELETE, OPTIONS")
 		return
 	}
 
@@ -380,7 +408,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 // HandleTaskDetail 处理单个任务的具体操作（如 /api/tasks/{id}/abort, /api/tasks/{id}）。
 func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
-	if enableCORS(w, r) {
+	if h.enableCORS(w, r) {
 		return
 	}
 
@@ -395,14 +423,18 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 	subPath := strings.TrimPrefix(r.URL.Path, "/api/tasks/")
 	parts := strings.Split(strings.Trim(subPath, "/"), "/")
 	if len(parts) == 0 || parts[0] == "" {
-		http.NotFound(w, r)
+		WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint not found")
 		return
 	}
 
 	taskID := parts[0]
 
-	// 1. POST /api/tasks/{id}/abort 软中断会话
-	if len(parts) == 2 && parts[1] == "abort" && r.Method == http.MethodPost {
+	// 1. /api/tasks/{id}/abort 软中断会话
+	if len(parts) == 2 && parts[1] == "abort" {
+		if r.Method != http.MethodPost {
+			MethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
 		var body struct {
 			Reason string `json:"reason"`
 		}
@@ -411,7 +443,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		}
 		abortedTask, err := h.svc.AbortTaskTenant(taskID, body.Reason, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+			WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -422,8 +454,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1.05 POST /api/tasks/{id}/steer 动态向 Agent 注入上下文/指导 (支持定向子智能体)
-	if len(parts) == 2 && (parts[1] == "steer" || parts[1] == "inject-context") && r.Method == http.MethodPost {
+	// 1.05 /api/tasks/{id}/steer 动态向 Agent 注入上下文/指导 (支持定向子智能体)
+	if len(parts) == 2 && (parts[1] == "steer" || parts[1] == "inject-context") {
+		if r.Method != http.MethodPost {
+			MethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
 		var body struct {
 			Context            string `json:"context"`
 			Message            string `json:"message"`
@@ -464,7 +500,7 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 
 		steeredTask, err := h.svc.InjectSteerTargetedTenant(taskID, inst, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusBadRequest)
+			WriteJSONError(w, http.StatusBadRequest, "INVALID_REQUEST", err.Error())
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -474,19 +510,19 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1.1 POST /api/tasks/{id}/kill 进程级强杀
-	if len(parts) == 2 && parts[1] == "kill" && r.Method == http.MethodPost {
+	// 1.1 /api/tasks/{id}/kill 进程级强杀
+	if len(parts) == 2 && parts[1] == "kill" {
+		if r.Method != http.MethodPost {
+			MethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
 		killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
 		if err != nil {
 			if errors.Is(err, monitor.ErrHostMismatch) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusBadRequest)
-				_ = json.NewEncoder(w).Encode(map[string]string{
-					"error": err.Error(),
-				})
+				WriteJSONError(w, http.StatusBadRequest, "HOST_MISMATCH", err.Error())
 				return
 			}
-			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+			WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
@@ -497,28 +533,31 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. GET /api/tasks/{id} 单任务查询
-	if len(parts) == 1 && r.Method == http.MethodGet {
-		t := h.svc.GetTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
-		if t == nil {
-			http.NotFound(w, r)
+	// 2. /api/tasks/{id} 单任务查询与删除
+	if len(parts) == 1 {
+		switch r.Method {
+		case http.MethodGet:
+			t := h.svc.GetTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+			if t == nil {
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", "Task not found: "+taskID)
+				return
+			}
+			json.NewEncoder(w).Encode(t)
+			return
+		case http.MethodDelete:
+			deleted := h.svc.DeleteTasksTenant(monitor.DeleteTasksRequest{IDs: []string{taskID}}, authCtx.KeyID, authCtx.IsMaster)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"deleted": len(deleted) > 0,
+				"id":      taskID,
+			})
+			return
+		default:
+			MethodNotAllowed(w, "GET, DELETE, OPTIONS")
 			return
 		}
-		json.NewEncoder(w).Encode(t)
-		return
 	}
 
-	// 3. DELETE /api/tasks/{id} 单任务删除
-	if len(parts) == 1 && r.Method == http.MethodDelete {
-		deleted := h.svc.DeleteTasksTenant(monitor.DeleteTasksRequest{IDs: []string{taskID}}, authCtx.KeyID, authCtx.IsMaster)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"deleted": len(deleted) > 0,
-			"id":      taskID,
-		})
-		return
-	}
-
-	http.Error(w, "Method not allowed or endpoint not found", http.StatusNotFound)
+	WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", "Endpoint not found")
 }
 
 func splitAndTrim(s, sep string) []string {
