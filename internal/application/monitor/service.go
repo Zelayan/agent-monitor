@@ -424,7 +424,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	}
 
 	s.generation++
-	gen := s.generation
+	t.Generation = s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -438,9 +438,9 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	// 异步持久化：写入串行管道
 	s.enqueuePersist(targetKey, taskVersion, taskJSON)
 
-	// 广播事件（向该租户空间及 Master 广播，携带 generation）
+	// 广播事件（向该租户空间及 Master 广播）
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
 
 	if shouldSummarizeSessionTitle(p.Event, action, taskCopy) {
@@ -531,7 +531,7 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	t.RequestAbort(reason, nowMs, nowStr)
 
 	s.generation++
-	gen := s.generation
+	t.Generation = s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -541,7 +541,7 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	if err == nil {
 		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
+			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
 	}
 
@@ -641,7 +641,7 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	t.MarkKilled(reason, nowMs, nowStr)
 
 	s.generation++
-	gen := s.generation
+	t.Generation = s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -651,7 +651,7 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	if err == nil {
 		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
+			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
 	}
 
@@ -762,7 +762,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(keyID, string(msgJSON), gen)
+			s.hub.BroadcastTenant(keyID, string(msgJSON))
 		}
 	}
 
@@ -788,7 +788,7 @@ func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(key.TenantID, string(msgJSON), gen)
+			s.hub.BroadcastTenant(key.TenantID, string(msgJSON))
 		}
 	}
 }
@@ -896,7 +896,7 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 		return
 	}
 	s.generation++
-	gen := s.generation
+	t.Generation = s.generation
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
 	taskCopy := t.Clone()
@@ -908,7 +908,7 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 	}
 	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
 }
 
@@ -924,7 +924,7 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 		return
 	}
 	s.generation++
-	gen := s.generation
+	t.Generation = s.generation
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
 	taskCopy := t.Clone()
@@ -936,6 +936,6 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 	}
 	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
 }

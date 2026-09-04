@@ -2172,6 +2172,11 @@
         err.status = 403;
         throw err;
       }
+      if (resp.status === 404) {
+        const err = new Error(t('taskNotFound'));
+        err.status = 404;
+        throw err;
+      }
       if (!resp.ok) {
         let msg = `HTTP ${resp.status}`;
         try {
@@ -2235,7 +2240,7 @@
             for (const [id, tObj] of tasksMap.entries()) {
               const taskKeyStr = (tObj.keyId || 'default') + ':' + tObj.id;
               // 若为 Master 视图，按全量对账；若普通租户，仅对账属于该租户的卡片
-              const isRelevant = !data.tenant || data.tenant === '*' || (tObj.keyId || 'default') === (data.tenant || 'default');
+              const isRelevant = data.isMaster || !data.tenant || data.tenant === '*' || (tObj.keyId || 'default') === (data.tenant || 'default');
               if (isRelevant) {
                 if (!validIds.has(id) && !validKeys.has(taskKeyStr) && !snapshotSeenTaskIds.has(id)) {
                   tasksMap.delete(id);
@@ -2254,6 +2259,12 @@
 
           // 3. 处理后端 SSE 广播的删除事件 (delete_tasks)
           if (data && data.type === 'delete_tasks' && Array.isArray(data.deletedIds)) {
+            if (data.generation && currentSseGeneration && data.generation < currentSseGeneration) {
+              return; // 丢弃网络乱序延迟到达的旧世代删除事件
+            }
+            if (data.generation && data.generation > currentSseGeneration) {
+              currentSseGeneration = data.generation;
+            }
             data.deletedIds.forEach(id => {
               tasksMap.delete(id);
               selectedTaskIds.delete(id);
@@ -2269,6 +2280,11 @@
             if (isSnapshotReconciling) {
               snapshotSeenTaskIds.add(data.id);
               if (data.keyId) snapshotSeenTaskKeys.add((data.keyId || 'default') + ':' + data.id);
+            } else if (data.generation && currentSseGeneration && data.generation < currentSseGeneration) {
+              return; // 丢弃过期事件，杜绝乱序快照倒流
+            }
+            if (data.generation && data.generation > currentSseGeneration) {
+              currentSseGeneration = data.generation;
             }
             const oldTask = tasksMap.get(data.id);
             tasksMap.set(data.id, data);

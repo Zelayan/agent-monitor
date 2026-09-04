@@ -523,11 +523,11 @@ func TestTenantPayloadKeyIDCannotOverrideAuthContext(t *testing.T) {
 	if wMaster.Code != http.StatusOK {
 		t.Fatalf("expected 200 for master event, got %d", wMaster.Code)
 	}
-		delegated := svc.GetTask("task-master-delegated-1")
-		if delegated == nil || delegated.KeyID != "team-beta" {
-			t.Fatalf("expected master to be able to designate 'team-beta', got %+v", delegated)
-		}
+	delegated := svc.GetTask("task-master-delegated-1")
+	if delegated == nil || delegated.KeyID != "team-beta" {
+		t.Fatalf("expected master to be able to designate 'team-beta', got %+v", delegated)
 	}
+}
 
 func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
 	repo := &mockRepo{tasks: make(map[string]*task.Task)}
@@ -560,7 +560,10 @@ func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/stream", nil).WithContext(ctx)
 	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 10)}
 
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
 		handler.HandleStream(w, req)
 	}()
 
@@ -570,7 +573,8 @@ func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for initial SSE flush")
 	}
-	cancel() // 关闭流
+	cancel()  // 关闭流
+	wg.Wait() // 确保后台 HandleStream 完全退出，杜绝并发读写 Body 数据竞争
 
 	body := w.Body.String()
 	if !strings.Contains(body, `"type":"snapshot_start"`) {

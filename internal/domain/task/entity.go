@@ -64,6 +64,7 @@ type Task struct {
 	ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
 	SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
 	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
+	Generation     uint64         `json:"generation,omitempty"`     // 全局/租户状态世代，供前端权威对账
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
