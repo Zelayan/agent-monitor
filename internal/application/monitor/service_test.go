@@ -1,13 +1,17 @@
 package monitor
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
 )
 
 type memoryRepo struct {
@@ -40,6 +44,10 @@ func (m *memoryRepo) SaveRawKey(key task.TaskKey, data []byte) error {
 	return nil
 }
 
+func (m *memoryRepo) SaveRawKeyVersioned(key task.TaskKey, version uint64, data []byte) error {
+	return nil
+}
+
 func (m *memoryRepo) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -53,6 +61,10 @@ func (m *memoryRepo) DeleteKey(key task.TaskKey) error {
 	delete(m.tasks, key.TaskID)
 	delete(m.tasks, key.String())
 	return nil
+}
+
+func (m *memoryRepo) DeleteKeyVersioned(key task.TaskKey, version uint64) error {
+	return m.DeleteKey(key)
 }
 
 func (m *memoryRepo) Close() error {
@@ -627,7 +639,57 @@ func TestMonitorService_MasterDisambiguationPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("master abort failed: %v", err)
 	}
-	if aborted.KeyID != "tenant-active" || aborted.ControlState != "abort_requested" {
-		t.Fatalf("master abort hit wrong task: %+v", aborted)
+		if aborted.KeyID != "tenant-active" || aborted.ControlState != "abort_requested" {
+			t.Fatalf("master abort hit wrong task: %+v", aborted)
+		}
+	}
+
+func TestMonitorService_GracefulCloseDrainsPersistence(t *testing.T) {
+	// 使用真实的文件 Repository 测试排空
+	tmpDir, err := os.MkdirTemp("", "svc-drain-test-*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := persistence.NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to init repo: %v", err)
+	}
+	defer repo.Close()
+
+	svc := NewMonitorService(repo, nil)
+
+	// 快速提交 100 个事件
+	for i := 0; i < 100; i++ {
+		taskID := fmt.Sprintf("sess-drain-%d", i)
+		_, err := svc.HandleHookEventTenant(task.EventPayload{
+			ID:        taskID,
+			Agent:     "Cursor",
+			Event:     "sessionStart",
+			Title:     fmt.Sprintf("Drain Task %d", i),
+			Prompt:    "Verify all records are flushed on shutdown",
+			Timestamp: time.Now().Unix(),
+		}, "tenant-drain", false)
+		if err != nil {
+			t.Fatalf("event %d failed: %v", i, err)
+		}
+	}
+
+	// 立即发起优雅停机，验证 CloseWithContext 在超时内顺利排空所有管道命令
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := svc.CloseWithContext(ctx); err != nil {
+		t.Fatalf("CloseWithContext failed: %v", err)
+	}
+
+	// 验证磁盘上完整落盘了 100 个文件，无一遗漏
+	all, err := repo.FindAll()
+	if err != nil {
+		t.Fatalf("FindAll failed: %v", err)
+	}
+	if len(all) != 100 {
+		t.Fatalf("expected all 100 tasks to be persisted, but got %d", len(all))
 	}
 }

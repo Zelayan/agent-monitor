@@ -44,6 +44,10 @@ func (m *mockRepo) SaveRawKey(key task.TaskKey, data []byte) error {
 	return nil
 }
 
+func (m *mockRepo) SaveRawKeyVersioned(key task.TaskKey, version uint64, data []byte) error {
+	return nil
+}
+
 func (m *mockRepo) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -57,6 +61,10 @@ func (m *mockRepo) DeleteKey(key task.TaskKey) error {
 	delete(m.tasks, key.TaskID)
 	delete(m.tasks, key.String())
 	return nil
+}
+
+func (m *mockRepo) DeleteKeyVersioned(key task.TaskKey, version uint64) error {
+	return m.DeleteKey(key)
 }
 
 func (m *mockRepo) Close() error {
