@@ -90,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 - **🔒 多项目 Key 命名空间隔离与鉴权**：支持配置多项目独立 Key (`AGENT_MONITOR_API_KEYS`) 与全局管理员 `Master Key`，实现项目间数据流与操作权限的严格物理隔离。
 - **⏱️ 多轮 Run 会话矩阵（Multi-Turn Timeline）**：自动聚合单会话内的多轮交互，按轮次隔离耗时，清晰还原工具调用（Bash、Edit、Read 等）的完整树状轨迹。
 - **🧾 会话短标题（可选 LLM 总结）**：卡片默认展示清洗后的短标题；配置 OpenAI 兼容接口后，每轮收口会异步总结多轮内容并刷新容器标题。会话总目标 `goalSummary` 按可配置间隔（默认每 3 轮，`AGENT_MONITOR_LLM_GOAL_EVERY_N`）刷新，**首轮原文 `rootGoal` 不变**；未配置时零网络。
-- **🎯 Cursor 深度原生联动（Focus & Follow-up Bridge）**：Cursor 插件与内嵌 Webview 之间通过 `postMessage` 搭建双向通信网桥。抽屉顶部支持 **「聚焦 (Focus)」** 一键唤起并定位 Cursor Agent / Composer 面板；底部协同输入区支持运行态实时指引（Live Steer）与完结态一键追问（Follow-up / Next Run），外部独立浏览器环境自动优雅降级为剪贴板。
+- **🎯 Cursor 深度原生联动（Live Steer & Follow-up Bridge）**：Cursor 插件与内嵌 Webview 之间通过 `postMessage` 搭建双向通信网桥；底部协同输入区支持运行态实时指引（Live Steer）与完结态追问（Follow-up / Next Run），外部独立浏览器环境自动优雅降级为剪贴板。
 - **📊 轮次刻度条（Tick Sparkline Matrix）**：任务卡片内嵌高密度微型刻度条，实时映射多轮交互（Run Matrix）的运行中、成功或中断分布，单卡清晰掌控数十轮执行全貌。
 - **🔍 智能多 Agent 动态嗅探**：首发深度适配 **Cursor**、**ZCode** 与 **Codex (CLI / Desktop)** 全生命周期 Hook，自动推断运行环境；其他 Agent（Claude Code、Aider 等）持续待适配中。
 
