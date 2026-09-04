@@ -759,6 +759,7 @@
         btnFollowLatest: '跟踪最新',
         followingLatest: '已跟随最新 Run',
         followPaused: '已暂停跟随',
+        promptCopyUrl: '请复制当前视图链接:',
       },
       en: {
         htmlLang: 'en',
@@ -883,6 +884,7 @@
         btnFollowLatest: 'Follow Latest',
         followingLatest: 'Following Latest Run',
         followPaused: 'Follow Paused',
+        promptCopyUrl: 'Copy View URL:',
       },
     };
 
@@ -1033,6 +1035,12 @@
       if (copyViewBtn) copyViewBtn.title = t('btnCopyLink');
       const lblCopyView = document.getElementById('lbl-copy-view');
       if (lblCopyView) lblCopyView.textContent = t('lblCopyLink');
+      const btnFollowLatest = document.getElementById('btn-follow-latest');
+      const lblFollowLatest = document.getElementById('lbl-follow-latest');
+      if (btnFollowLatest && lblFollowLatest) {
+        lblFollowLatest.textContent = isFollowLatest ? t('btnFollowLatest') : t('followPaused');
+        btnFollowLatest.title = isFollowLatest ? t('followingLatest') : t('followPaused');
+      }
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1543,6 +1551,12 @@
       }
 
       // 根据 sortOrder 执行多维排序
+      function getLiveDuration(t) {
+        if (!t || t.status !== 'running' || !t.activeRunStart) return 0;
+        const startMs = t.activeRunStart < 1e11 ? t.activeRunStart * 1000 : t.activeRunStart;
+        return Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+      }
+
       rootNodes.sort((a, b) => {
         const tA = a.task;
         const tB = b.task;
@@ -1550,8 +1564,8 @@
           case 'created':
             return (b.task.startTime || 0) - (a.task.startTime || 0);
           case 'duration': {
-            const durA = (tA.totalLifetime || 0) + (tA.status === 'running' && tA.activeRunStart ? Math.max(0, Math.floor((Date.now() - tA.activeRunStart) / 1000)) : 0);
-            const durB = (tB.totalLifetime || 0) + (tB.status === 'running' && tB.activeRunStart ? Math.max(0, Math.floor((Date.now() - tB.activeRunStart) / 1000)) : 0);
+            const durA = (tA.totalLifetime || 0) + getLiveDuration(tA);
+            const durB = (tB.totalLifetime || 0) + getLiveDuration(tB);
             return durB - durA;
           }
           case 'runs':
@@ -2518,6 +2532,7 @@
               const runs = getTaskRuns(data);
               selectedRunId = runs[runs.length - 1].index || runs.length;
               if (selectedId) refreshDrawer();
+              syncURLState(false);
             }
             if (!isInitialLoad && oldTask && oldTask.status === 'running') {
               if (data.status === 'completed') {
@@ -3104,10 +3119,10 @@
           navigator.clipboard.writeText(fullUrl).then(() => {
             showToast(t('linkCopied'), false);
           }).catch(() => {
-            prompt('Copy URL:', fullUrl);
+            prompt(t('promptCopyUrl') || 'Copy URL:', fullUrl);
           });
         } else {
-          prompt('Copy URL:', fullUrl);
+          prompt(t('promptCopyUrl') || 'Copy URL:', fullUrl);
         }
       });
     }
@@ -3428,25 +3443,27 @@
         const taskParam = params.get('task');
         const runParam = params.get('run');
 
-        if (qParam !== null) {
-          query = qParam.trim().toLowerCase();
-          const sInput = document.getElementById('search-input');
-          if (sInput) sInput.value = qParam;
-        }
-        if (statusParam && ['all', 'running', 'completed', 'failed'].includes(statusParam)) {
-          statusFilter = statusParam;
-          const sSelect = document.getElementById('status-filter');
-          if (sSelect) sSelect.value = statusParam;
-        }
-        if (agentParam) {
-          agentFilter = agentParam;
-        }
-        if (sortParam && ['recent', 'created', 'duration', 'runs', 'failed'].includes(sortParam)) {
-          sortOrder = sortParam;
-          const sortSel = document.getElementById('sort-selector');
-          if (sortSel) sortSel.value = sortParam;
-        }
+        // 搜索词重置或赋值
+        query = qParam !== null ? qParam.trim().toLowerCase() : '';
+        const sInput = document.getElementById('search-input');
+        if (sInput) sInput.value = query;
 
+        // 状态重置或赋值
+        statusFilter = (statusParam && ['all', 'running', 'completed', 'failed'].includes(statusParam)) ? statusParam : 'all';
+        const sSelect = document.getElementById('status-filter');
+        if (sSelect) sSelect.value = statusFilter;
+
+        // Agent 筛选重置或赋值
+        agentFilter = agentParam || 'all';
+
+        // 排序维度重置或赋值
+        sortOrder = (sortParam && ['recent', 'created', 'duration', 'runs', 'failed'].includes(sortParam))
+          ? sortParam
+          : (localStorage.getItem('agent_monitor_sort') || 'recent');
+        const sortSel = document.getElementById('sort-selector');
+        if (sortSel) sortSel.value = sortOrder;
+
+        lastFilterSignature = '';
         render();
 
         if (taskParam && tasksMap.has(taskParam)) {
