@@ -715,6 +715,9 @@
         steerSubagentPlaceholder: '例如：聚焦特定模块，忽略无关测试... (针对 {role} 定向生效)',
         btnSteerSubagent: '发给 {role}',
         steerSubagentQueued: '已排队，将在子智能体 [{role}] 动作时注入上下文！',
+        operationFailed: '操作失败: {err}',
+        taskNotFound: '会话不存在或已在服务端被移除',
+        permissionDenied: '403 权限不足: 无法操作其他项目的会话',
       },
       en: {
         htmlLang: 'en',
@@ -820,6 +823,9 @@
         steerSubagentPlaceholder: 'e.g. Focus on specific module, skip irrelevant tests... (targets {role})',
         btnSteerSubagent: 'Send to {role}',
         steerSubagentQueued: 'Queued! Will inject context on subagent [{role}] next hook.',
+        operationFailed: 'Operation failed: {err}',
+        taskNotFound: 'Session not found or removed on server',
+        permissionDenied: '403 Forbidden: Cannot modify other projects',
       },
     };
 
@@ -2119,7 +2125,32 @@
       connect();
     }
 
-    // 封装统一的 API 请求，自动注入 Bearer Token 鉴权头
+    // 弱提示 Toast 通知
+    let toastTimer = null;
+    function showToast(message, isError = false) {
+      let toastEl = document.getElementById('global-toast');
+      if (!toastEl) {
+        toastEl = document.createElement('div');
+        toastEl.id = 'global-toast';
+        toastEl.className = 'fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded text-xs font-mono border shadow-lg transition-all duration-200 pointer-events-none flex items-center gap-2 max-w-md';
+        document.body.appendChild(toastEl);
+      }
+      toastEl.textContent = message;
+      if (isError) {
+        toastEl.className = 'fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded text-xs font-mono border border-rose-500/30 bg-rose-950/90 text-rose-200 shadow-xl transition-all duration-200 flex items-center gap-2 max-w-md';
+      } else {
+        toastEl.className = 'fixed bottom-5 right-5 z-50 px-3.5 py-2 rounded text-xs font-mono border border-indigo-500/30 bg-zinc-900/95 text-indigo-300 shadow-xl transition-all duration-200 flex items-center gap-2 max-w-md';
+      }
+      toastEl.style.opacity = '1';
+      toastEl.style.transform = 'translateY(0)';
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastEl.style.opacity = '0';
+        toastEl.style.transform = 'translateY(8px)';
+      }, 4000);
+    }
+
+    // 封装统一的 API 请求，自动注入 Bearer Token 鉴权头，对非 2xx 响应严格解析并抛出类型化错误
     async function apiFetch(url, options = {}) {
       options.headers = options.headers || {};
       if (apiKey) {
@@ -2129,18 +2160,36 @@
           options.headers['Authorization'] = 'Bearer ' + apiKey;
         }
       }
-      try {
-        const resp = await fetch(url, options);
-        if (resp.status === 401) {
-          showAuthModal(true);
-        }
-        return resp;
-      } catch (err) {
+      const resp = await fetch(url, options);
+      if (resp.status === 401) {
+        showAuthModal(true);
+        const err = new Error(t('authRequired'));
+        err.status = 401;
         throw err;
       }
+      if (resp.status === 403) {
+        const err = new Error(t('permissionDenied'));
+        err.status = 403;
+        throw err;
+      }
+      if (!resp.ok) {
+        let msg = `HTTP ${resp.status}`;
+        try {
+          const body = await resp.json();
+          if (body && body.error) msg = typeof body.error === 'string' ? body.error : (body.error.message || msg);
+        } catch (_) {}
+        const err = new Error(msg);
+        err.status = resp.status;
+        throw err;
+      }
+      return resp;
     }
 
     let isInitialLoad = true;
+    let currentSseGeneration = 0;
+    let isSnapshotReconciling = false;
+    let snapshotSeenTaskKeys = new Set();
+    let snapshotSeenTaskIds = new Set();
 
     function connect() {
       if (eventSource) {
@@ -2148,6 +2197,10 @@
         eventSource.close();
       }
       isInitialLoad = true;
+      isSnapshotReconciling = false;
+      snapshotSeenTaskKeys.clear();
+      snapshotSeenTaskIds.clear();
+
       let sseUrl = '/api/stream';
       if (apiKey) {
         sseUrl += '?token=' + encodeURIComponent(apiKey);
@@ -2155,13 +2208,51 @@
       eventSource = new EventSource(sseUrl);
       eventSource.onopen = () => {
         setDaemon(true);
-        // 避开首帧全量历史数据快照的弹窗触发
         setTimeout(() => { isInitialLoad = false; }, 1200);
       };
       eventSource.onmessage = (e) => {
         try {
           const data = JSON.parse(e.data);
-          // 处理后端 SSE 广播的删除事件
+
+          // 1. 处理快照起始帧 (snapshot_start)
+          if (data && data.type === 'snapshot_start') {
+            isSnapshotReconciling = true;
+            currentSseGeneration = data.generation || 0;
+            snapshotSeenTaskKeys.clear();
+            snapshotSeenTaskIds.clear();
+            return;
+          }
+
+          // 2. 处理快照收口对账帧 (snapshot_end)
+          if (data && data.type === 'snapshot_end') {
+            isSnapshotReconciling = false;
+            currentSseGeneration = data.generation || currentSseGeneration;
+            const validIds = new Set(data.taskIds || []);
+            const validKeys = new Set(data.taskKeys || []);
+            let purged = 0;
+
+            // 权威对账：在当前租户空间下，清除服务端已不存在的孤儿幽灵卡片
+            for (const [id, tObj] of tasksMap.entries()) {
+              const taskKeyStr = (tObj.keyId || 'default') + ':' + tObj.id;
+              // 若为 Master 视图，按全量对账；若普通租户，仅对账属于该租户的卡片
+              const isRelevant = !data.tenant || data.tenant === '*' || (tObj.keyId || 'default') === (data.tenant || 'default');
+              if (isRelevant) {
+                if (!validIds.has(id) && !validKeys.has(taskKeyStr) && !snapshotSeenTaskIds.has(id)) {
+                  tasksMap.delete(id);
+                  selectedTaskIds.delete(id);
+                  purged++;
+                }
+              }
+            }
+            if (purged > 0) {
+              if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+              updateBatchUI();
+              scheduleRender();
+            }
+            return;
+          }
+
+          // 3. 处理后端 SSE 广播的删除事件 (delete_tasks)
           if (data && data.type === 'delete_tasks' && Array.isArray(data.deletedIds)) {
             data.deletedIds.forEach(id => {
               tasksMap.delete(id);
@@ -2172,8 +2263,13 @@
             scheduleRender();
             return;
           }
-          // 普通任务增量更新或全量快照
+
+          // 4. 普通任务增量更新或全量快照帧
           if (data && data.id) {
+            if (isSnapshotReconciling) {
+              snapshotSeenTaskIds.add(data.id);
+              if (data.keyId) snapshotSeenTaskKeys.add((data.keyId || 'default') + ':' + data.id);
+            }
             const oldTask = tasksMap.get(data.id);
             tasksMap.set(data.id, data);
             if (data.keyId && !currentTenant) {
@@ -2268,13 +2364,20 @@
     async function clearFinishedTasks() {
       toggleClearDropdown(false);
       try {
-        await apiFetch('/api/tasks', { method: 'DELETE' });
-      } catch (_) { /* local fallback */ }
-      for (const [id, tObj] of tasksMap) {
-        if (tObj.status !== 'running') tasksMap.delete(id);
+        const resp = await apiFetch('/api/tasks', { method: 'DELETE' });
+        const result = await resp.json();
+        const deletedIds = Array.isArray(result && result.deletedIds) ? result.deletedIds : [];
+        if (deletedIds.length > 0) {
+          deletedIds.forEach(id => {
+            tasksMap.delete(id);
+            selectedTaskIds.delete(id);
+          });
+          if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+          render();
+        }
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
       }
-      if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
-      render();
     }
 
     // 2. 清空全部任务（包括正在运行的会话）
@@ -2290,12 +2393,14 @@
       if (!confirmed) return;
       try {
         await apiFetch('/api/tasks?all=true', { method: 'DELETE' });
-      } catch (_) { /* local fallback */ }
-      tasksMap.clear();
-      selectedTaskIds.clear();
-      closeDrawer();
-      updateBatchUI();
-      render();
+        tasksMap.clear();
+        selectedTaskIds.clear();
+        closeDrawer();
+        updateBatchUI();
+        render();
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      }
     }
 
     // 3. 删除单个特定会话（抽屉内触发）
@@ -2315,12 +2420,14 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: [id] })
         });
-      } catch (_) { /* local fallback */ }
-      tasksMap.delete(id);
-      selectedTaskIds.delete(id);
-      if (selectedId === id) closeDrawer();
-      updateBatchUI();
-      render();
+        tasksMap.delete(id);
+        selectedTaskIds.delete(id);
+        if (selectedId === id) closeDrawer();
+        updateBatchUI();
+        render();
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      }
     }
 
     // 3.1 中断正在执行中的 Agent 会话
@@ -2338,6 +2445,9 @@
       });
       if (!confirmed) return;
 
+      const btnAbort = document.getElementById('btn-drawer-abort');
+      if (btnAbort) btnAbort.disabled = true;
+
       try {
         const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/abort`, {
           method: 'POST',
@@ -2349,7 +2459,11 @@
           tObj.detail = t('statusAborting');
           render();
         }
-      } catch (_) { /* local fallback */ }
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      } finally {
+        if (btnAbort) btnAbort.disabled = false;
+      }
     }
 
     // 3.2 强杀会话进程 (Hard Kill)
@@ -2367,6 +2481,9 @@
       });
       if (!confirmed) return;
 
+      const btnKill = document.getElementById('btn-drawer-kill');
+      if (btnKill) btnKill.disabled = true;
+
       try {
         const resp = await apiFetch(`/api/tasks/${encodeURIComponent(id)}/kill`, {
           method: 'POST'
@@ -2377,12 +2494,19 @@
           tObj.detail = t('statusKilled');
           render();
         }
-      } catch (_) { /* local fallback */ }
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      } finally {
+        if (btnKill) btnKill.disabled = false;
+      }
     }
 
     // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer，支持定向子智能体)
     async function steerSession(id, message, targetInfo = {}) {
       if (!id || !message) return;
+      const btnSteerEl = document.getElementById('btn-drawer-steer');
+      if (btnSteerEl) btnSteerEl.disabled = true;
+
       try {
         const bodyPayload = { message: message };
         if (targetInfo.target_subagent_type) {
@@ -2412,7 +2536,11 @@
             }, 3000);
           }
         }
-      } catch (_) { /* local fallback */ }
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      } finally {
+        if (btnSteerEl) btnSteerEl.disabled = false;
+      }
     }
 
     // 3.4 任务完结后追问与继续下一轮 (Follow-up)
@@ -2531,16 +2659,23 @@
       });
       if (!confirmed) return;
       try {
-        await apiFetch('/api/tasks', {
+        const resp = await apiFetch('/api/tasks', {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ids: ids })
         });
-      } catch (_) { /* local fallback */ }
-      ids.forEach(id => tasksMap.delete(id));
-      selectedTaskIds.clear();
-      if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
-      toggleSelectMode(false);
+        const result = await resp.json();
+        const deletedIds = Array.isArray(result && result.deletedIds) ? result.deletedIds : ids;
+        deletedIds.forEach(id => {
+          tasksMap.delete(id);
+          selectedTaskIds.delete(id);
+        });
+        if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
+        toggleSelectMode(false);
+        render();
+      } catch (err) {
+        showToast(t('operationFailed').replace('{err}', err.message || err), true);
+      }
     }
 
     // 5. 会话导出功能 (Markdown 报告 & 原始 JSON)

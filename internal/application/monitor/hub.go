@@ -1,6 +1,9 @@
 package monitor
 
-import "sync"
+import (
+	"encoding/json"
+	"sync"
+)
 
 // ClientSubscription 记录客户端订阅的租户空间与权限模式。
 type ClientSubscription struct {
@@ -93,9 +96,20 @@ func (h *Hub) Broadcast(msg string) {
 }
 
 // BroadcastTenant 向指定租户/Key空间客户端广播消息（同时抄送 Master 客户端）。
-func (h *Hub) BroadcastTenant(keyID string, msg string) {
+// generation 可选传入，若大于 0 则自动注入 JSON 消息体内，支持客户端对账。
+func (h *Hub) BroadcastTenant(keyID string, msg string, generation ...uint64) {
+	data := msg
+	if len(generation) > 0 && generation[0] > 0 {
+		var raw map[string]interface{}
+		if err := json.Unmarshal([]byte(msg), &raw); err == nil {
+			raw["generation"] = generation[0]
+			if updated, err := json.Marshal(raw); err == nil {
+				data = string(updated)
+			}
+		}
+	}
 	select {
-	case h.broadcast <- HubMessage{KeyID: keyID, Data: msg}:
+	case h.broadcast <- HubMessage{KeyID: keyID, Data: data}:
 	default:
 	}
 }

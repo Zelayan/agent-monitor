@@ -40,6 +40,7 @@ type MonitorService struct {
 	tasks       map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
 	repo        task.TaskRepository
 	hub         *Hub
+	generation  uint64                      // 全局/租户状态变更 generation，单调递增
 	persistChan chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
 	stopChan    chan struct{}
 	stoppedChan chan struct{} // persistenceWorker 完成排空后关闭
@@ -422,6 +423,8 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		}
 	}
 
+	s.generation++
+	gen := s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -435,9 +438,9 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	// 异步持久化：写入串行管道
 	s.enqueuePersist(targetKey, taskVersion, taskJSON)
 
-	// 广播事件（向该租户空间及 Master 广播）
+	// 广播事件（向该租户空间及 Master 广播，携带 generation）
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
 	}
 
 	if shouldSummarizeSessionTitle(p.Event, action, taskCopy) {
@@ -527,6 +530,8 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	}
 	t.RequestAbort(reason, nowMs, nowStr)
 
+	s.generation++
+	gen := s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -536,7 +541,7 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	if err == nil {
 		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+			s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
 		}
 	}
 
@@ -635,6 +640,8 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
 	t.MarkKilled(reason, nowMs, nowStr)
 
+	s.generation++
+	gen := s.generation
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
@@ -644,7 +651,7 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	if err == nil {
 		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
-			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+			s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
 		}
 	}
 
@@ -658,6 +665,12 @@ func (s *MonitorService) GetAllTasks() []*task.Task {
 
 // GetAllTasksTenant 返回属于指定 KeyID/租户空间任务的独立只读深拷贝副本。
 func (s *MonitorService) GetAllTasksTenant(keyID string, isMaster bool) []*task.Task {
+	tasks, _ := s.GetSnapshotWithGeneration(keyID, isMaster)
+	return tasks
+}
+
+// GetSnapshotWithGeneration 返回快照与对应的单调递增 generation。
+func (s *MonitorService) GetSnapshotWithGeneration(keyID string, isMaster bool) ([]*task.Task, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -667,7 +680,7 @@ func (s *MonitorService) GetAllTasksTenant(keyID string, isMaster bool) []*task.
 			list = append(list, t.Clone())
 		}
 	}
-	return list
+	return list, s.generation
 }
 
 // DeleteTasksRequest 定义删除任务的参数载荷。
@@ -725,6 +738,8 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			}
 		}
 	}
+	s.generation++
+	gen := s.generation
 	s.mu.Unlock()
 
 	// 统一写入有序持久化命令流，写入墓碑压制旧 Save，杜绝删除后复活
@@ -734,7 +749,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 		}
 	}
 
-	// 广播 SSE 删除消息给该空间客户端（同时携带 deletedIds 和 deletedKeys）
+	// 广播 SSE 删除消息给该空间客户端（同时携带 deletedIds、deletedKeys 和 generation）
 	if s.hub != nil && len(toDeleteIDs) > 0 {
 		var toDeleteKeyStrs []string
 		for _, item := range toDelete {
@@ -744,9 +759,10 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			"type":        "delete_tasks",
 			"deletedIds":  toDeleteIDs,
 			"deletedKeys": toDeleteKeyStrs,
+			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(keyID, string(msgJSON))
+			s.hub.BroadcastTenant(keyID, string(msgJSON), gen)
 		}
 	}
 
@@ -762,14 +778,17 @@ func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 	if s.repo != nil {
 		s.enqueueDelete(key, version)
 	}
+	s.generation++
+	gen := s.generation
 	if s.hub != nil {
 		delEvent := map[string]interface{}{
 			"type":        "delete_tasks",
 			"deletedIds":  []string{key.TaskID},
 			"deletedKeys": []string{key.String()},
+			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(key.TenantID, string(msgJSON))
+			s.hub.BroadcastTenant(key.TenantID, string(msgJSON), gen)
 		}
 	}
 }
@@ -876,6 +895,8 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 		s.mu.Unlock()
 		return
 	}
+	s.generation++
+	gen := s.generation
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
 	taskCopy := t.Clone()
@@ -887,7 +908,7 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 	}
 	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
 	}
 }
 
@@ -902,6 +923,8 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 		s.mu.Unlock()
 		return
 	}
+	s.generation++
+	gen := s.generation
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
 	taskCopy := t.Clone()
@@ -913,6 +936,6 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 	}
 	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
-		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
+		s.hub.BroadcastTenant(taskKeyID, string(taskJSON), gen)
 	}
 }
