@@ -617,7 +617,7 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 	if p.PGID > 0 {
 		t.PGID = p.PGID
 	}
-	if p.KeyID != "" {
+	if t.KeyID == "" && p.KeyID != "" {
 		t.KeyID = p.KeyID
 	}
 	t.Version++

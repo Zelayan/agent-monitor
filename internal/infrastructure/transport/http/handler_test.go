@@ -428,4 +428,81 @@ func TestHandler_StaticFS(t *testing.T) {
 		if len(listMaster) != 2 {
 			t.Fatalf("master should see both tasks, got %d", len(listMaster))
 		}
+}
+
+func TestTenantPayloadKeyIDCannotOverrideAuthContext(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+	svc := monitor.NewMonitorService(repo, hub)
+	staticHTML := []byte("<html><body>Dashboard</body></html>")
+
+	handler := NewHandler(svc, hub, staticHTML).
+		WithMasterKey("master-token").
+		WithProjectKeys("team-alpha=token-alpha,team-beta=token-beta")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. Team Alpha 发送请求，但 payload 内部恶意指定 key_id: "team-beta"
+	body, _ := json.Marshal(task.EventPayload{
+		ID:    "task-spoof-1",
+		KeyID: "team-beta",
+		Agent: "Cursor Agent",
+		Event: "sessionStart",
+		Title: "Spoof Attempt",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer token-alpha")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", w.Code)
 	}
+
+	created := svc.GetTask("task-spoof-1")
+	if created == nil {
+		t.Fatal("expected task to be created")
+	}
+	// 验证 KeyID 必须被强制绑定为 team-alpha，不能被恶意客户端篡改为 team-beta
+	if created.KeyID != "team-alpha" {
+		t.Fatalf("security vulnerability: KeyID was overridden by payload! expected 'team-alpha', got %q", created.KeyID)
+	}
+
+	// 2. Team Beta 发送跨租户事件篡改 task-spoof-1
+	badBody, _ := json.Marshal(task.EventPayload{
+		ID:     "task-spoof-1",
+		Agent:  "Cursor Agent",
+		Event:  "toolUse",
+		Detail: "unauthorized tool execution",
+	})
+	reqBeta := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(badBody))
+	reqBeta.Header.Set("Authorization", "Bearer token-beta")
+	wBeta := httptest.NewRecorder()
+	mux.ServeHTTP(wBeta, reqBeta)
+
+	if wBeta.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden when team-beta attempts to mutate team-alpha's task, got %d", wBeta.Code)
+	}
+
+	// 3. Master 能够合法指定 key_id 发送事件
+	masterBody, _ := json.Marshal(task.EventPayload{
+		ID:    "task-master-delegated-1",
+		KeyID: "team-beta",
+		Agent: "Codex CLI",
+		Event: "sessionStart",
+		Title: "Master Delegated Task",
+	})
+	reqMaster := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(masterBody))
+	reqMaster.Header.Set("Authorization", "Bearer master-token")
+	wMaster := httptest.NewRecorder()
+	mux.ServeHTTP(wMaster, reqMaster)
+
+	if wMaster.Code != http.StatusOK {
+		t.Fatalf("expected 200 for master event, got %d", wMaster.Code)
+	}
+	delegated := svc.GetTask("task-master-delegated-1")
+	if delegated == nil || delegated.KeyID != "team-beta" {
+		t.Fatalf("expected master to be able to designate 'team-beta', got %+v", delegated)
+	}
+}

@@ -208,13 +208,21 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 将鉴权解析出的 KeyID 绑定到 EventPayload
-	if p.KeyID == "" && authCtx.KeyID != "" && authCtx.KeyID != "master" {
+	// 强绑定：非 Master 请求无条件使用已鉴权的租户身份，禁止通过 JSON 载荷篡改 key_id
+	if !authCtx.IsMaster {
+		p.KeyID = authCtx.KeyID
+	} else if p.KeyID == "" && authCtx.KeyID != "" && authCtx.KeyID != "master" {
 		p.KeyID = authCtx.KeyID
 	}
 
-	res, err := h.svc.HandleHookEvent(p)
+	res, err := h.svc.HandleHookEventTenant(p, authCtx.KeyID, authCtx.IsMaster)
 	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			w.Write([]byte(fmt.Sprintf(`{"error":"Forbidden: %s"}`, err.Error())))
+			return
+		}
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}

@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -395,5 +396,63 @@ func TestMonitorService_ToolOnlySessionStillRecords(t *testing.T) {
 	got := svc.GetTask("sess-tools")
 	if got == nil || got.Status != "completed" {
 		t.Fatalf("tool-only session should complete, got %+v", got)
+	}
+}
+
+func TestHandleHookEventTenantIsolation(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	svc := NewMonitorService(repo, nil)
+
+	// 1. Project Alpha 启动任务
+	_, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-iso-1",
+		Agent:     "Cursor Agent",
+		Event:     "sessionStart",
+		Title:     "Alpha Task",
+		Timestamp: time.Now().Unix(),
+	}, "project-alpha", false)
+	if err != nil {
+		t.Fatalf("alpha session start failed: %v", err)
+	}
+
+	taskAlpha := svc.GetTask("sess-iso-1")
+	if taskAlpha == nil || taskAlpha.KeyID != "project-alpha" {
+		t.Fatalf("expected task with KeyID 'project-alpha', got %+v", taskAlpha)
+	}
+
+	// 2. Project Beta 企图通过事件篡改/注入 Project Alpha 的任务
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-iso-1",
+		Agent:     "Cursor Agent",
+		Event:     "beforeShellExecution",
+		Detail:    "rm -rf /",
+		Timestamp: time.Now().Unix(),
+	}, "project-beta", false)
+	if err == nil || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("expected permission denied when project-beta mutates project-alpha task, got %v", err)
+	}
+
+	// 3. Project Alpha 自己能够正常更新
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-iso-1",
+		Agent:     "Cursor Agent",
+		Event:     "beforeShellExecution",
+		Detail:    "go test ./...",
+		Timestamp: time.Now().Unix(),
+	}, "project-alpha", false)
+	if err != nil {
+		t.Fatalf("alpha update should succeed, got %v", err)
+	}
+
+	// 4. Master 能够合法更新该任务
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-iso-1",
+		Agent:     "Cursor Agent",
+		Event:     "afterAgentResponse",
+		Detail:    "Done",
+		Timestamp: time.Now().Unix(),
+	}, "project-alpha", true)
+	if err != nil {
+		t.Fatalf("master update should succeed, got %v", err)
 	}
 }

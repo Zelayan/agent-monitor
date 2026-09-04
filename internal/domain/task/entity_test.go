@@ -655,3 +655,28 @@ func TestTask_SubagentHierarchyAndClone(t *testing.T) {
 		t.Fatalf("clone mutated parent SubagentCount")
 	}
 }
+
+func TestTaskKeyIDImmutability(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:    "task-tenant-lock-1",
+		KeyID: "project-alpha",
+		Event: "sessionStart",
+		Title: "Alpha Task",
+	}, 1000000)
+
+	if task.KeyID != "project-alpha" {
+		t.Fatalf("expected initial KeyID 'project-alpha', got %q", task.KeyID)
+	}
+
+	// 尝试通过后续事件篡改 KeyID
+	task.ApplyEvent(EventPayload{
+		ID:     "task-tenant-lock-1",
+		KeyID:  "project-hacker",
+		Event:  "toolUse",
+		Detail: "echo hack",
+	}, 1001000, "10:01:00")
+
+	if task.KeyID != "project-alpha" {
+		t.Fatalf("KeyID was illegally overwritten: expected 'project-alpha', got %q", task.KeyID)
+	}
+}
