@@ -10,6 +10,7 @@ For AI Coding Agents that want to automatically self-configure hooks for the cur
 - [Agent Integration Manual](docs/AGENT_INTEGRATION.md): Step-by-step instructions for AI agents to auto-detect their environment and configure hooks.
 - [Installation Guide](docs/INSTALLATION.md): Complete guide for installing, offline distribution, Docker, and systemd service management.
 - [Parallel Agents](docs/PARALLEL_AGENTS.en.md): Concurrent Cursor Agents on isolated Git worktrees / Cloud Agents and `feat/` `fix/` GitHub PRs. Do not write the same checkout.
+- [Complete Development Roadmap](docs/DEVELOPMENT_ROADMAP.en.md): Capability baseline, known correctness/security gaps, phased work packages, migration strategy, tests, acceptance criteria, and PR sequencing.
 - [GitHub Repository](https://github.com/Zelayan/agent-monitor): Source code, releases, and documentation.
 
 ## Core Components

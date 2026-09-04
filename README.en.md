@@ -216,6 +216,7 @@ Create an Environment named `ai-review` in your GitHub repository, and configure
 - **[Installation (INSTALLATION.md)](docs/INSTALLATION.md)**: systemd, air-gapped packages, Docker, and builds.
 - **[Agent Integration (AGENT_INTEGRATION.md)](docs/AGENT_INTEGRATION.md)**: Agent sniffing, Hook protocol, and parameters.
 - **[Parallel Agents (PARALLEL_AGENTS.en.md)](docs/PARALLEL_AGENTS.en.md)**: concurrent Cursor Agents on isolated GitHub `feat/` / `fix/` branches via worktrees or Cloud Agents.
+- **[Complete Development Roadmap (DEVELOPMENT_ROADMAP.en.md)](docs/DEVELOPMENT_ROADMAP.en.md)**: current capability baseline, correctness and security gaps, phased features, migrations, tests, acceptance criteria, and PR boundaries.
 - **[LLM index (llms.txt)](llms.txt)**: high-density context for models and Coding Agents.
 - **[Architecture and collaboration (AGENTS.md)](AGENTS.md)**: DDD layering, race-free locks, and Git rules.
 
