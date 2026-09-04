@@ -45,7 +45,7 @@ type MonitorService struct {
 	stoppedChan chan struct{} // persistenceWorker 完成排空后关闭
 	ttlDays     int           // 自动清理天数（默认 30 天，<=0 则不清理）
 	summarizer  *TitleSummarizer
-	titleJobs   sync.Map                              // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
+	titleJobs   sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
 	steerQueue  map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
 }
 

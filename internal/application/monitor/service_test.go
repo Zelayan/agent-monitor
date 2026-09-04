@@ -492,11 +492,11 @@ func TestHandleHookEventTenantIsolation(t *testing.T) {
 	if err == nil || !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied when anonymous caller mutates project-alpha task, got %v", err)
 	}
-		// 验证任务并未被非法篡改或销毁
-		if svc.GetTask("sess-iso-1") == nil {
-			t.Fatal("task was illegally deleted by anonymous terminal event")
-		}
+	// 验证任务并未被非法篡改或销毁
+	if svc.GetTask("sess-iso-1") == nil {
+		t.Fatal("task was illegally deleted by anonymous terminal event")
 	}
+}
 
 func TestMonitorService_MultiTenantSameSessionIDIsolation(t *testing.T) {
 	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
@@ -639,10 +639,10 @@ func TestMonitorService_MasterDisambiguationPriority(t *testing.T) {
 	if err != nil {
 		t.Fatalf("master abort failed: %v", err)
 	}
-		if aborted.KeyID != "tenant-active" || aborted.ControlState != "abort_requested" {
-			t.Fatalf("master abort hit wrong task: %+v", aborted)
-		}
+	if aborted.KeyID != "tenant-active" || aborted.ControlState != "abort_requested" {
+		t.Fatalf("master abort hit wrong task: %+v", aborted)
 	}
+}
 
 func TestMonitorService_GracefulCloseDrainsPersistence(t *testing.T) {
 	// 使用真实的文件 Repository 测试排空
