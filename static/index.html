@@ -964,10 +964,15 @@
       if (lblWaterfallHint) lblWaterfallHint.textContent = t('waterfallHint');
       const statusFilterEl = document.getElementById('status-filter');
       if (statusFilterEl) {
-        statusFilterEl.options[0].textContent = t('filterStatusAll');
-        statusFilterEl.options[1].textContent = t('filterStatusRunning');
-        statusFilterEl.options[2].textContent = t('filterStatusCompleted');
-        statusFilterEl.options[3].textContent = t('filterStatusFailed');
+        const statusLabels = {
+          all: t('filterStatusAll'),
+          running: t('filterStatusRunning'),
+          completed: t('filterStatusCompleted'),
+          failed: t('filterStatusFailed'),
+        };
+        for (const opt of statusFilterEl.options) {
+          if (statusLabels[opt.value]) opt.textContent = statusLabels[opt.value];
+        }
       }
       updateNotifyButtonUI();
       updateAuthButtonUI();
@@ -1141,7 +1146,7 @@
       if (!tObj) return '';
       const cached = searchIndexCache.get(tObj.id);
       const runCount = (tObj.runs || tObj.turns || []).length;
-      const curVersion = tObj.version || tObj.generation || `run:${runCount}:${tObj.endTime || tObj.startTime || 0}:${tObj.lastHook || ''}`;
+      const curVersion = (tObj.version ?? tObj.generation) ?? `run:${runCount}:${tObj.endTime || tObj.startTime || 0}:${tObj.lastHook || ''}`;
       if (cached && cached.version === curVersion) {
         return cached.text;
       }
@@ -1187,7 +1192,9 @@
         const rawStatus = String(tObj.status || '').toLowerCase();
         const isRunning = rawStatus === 'running';
         const isCompleted = rawStatus === 'completed';
-        const isFailed = rawStatus === 'failed' || rawStatus === 'error' || rawStatus === 'aborted' || rawStatus === 'killed';
+        const isFailed = rawStatus === 'failed' || rawStatus === 'failure' ||
+                         rawStatus === 'error' || rawStatus === 'aborted' ||
+                         rawStatus === 'killed' || rawStatus === 'canceled' || rawStatus === 'cancelled';
         if (statusFilter === 'running' && !isRunning) return false;
         if (statusFilter === 'completed' && !isCompleted) return false;
         if (statusFilter === 'failed' && !isFailed) return false;
@@ -2506,6 +2513,7 @@
       try {
         await apiFetch('/api/tasks?all=true', { method: 'DELETE' });
         tasksMap.clear();
+        searchIndexCache.clear();
         selectedTaskIds.clear();
         closeDrawer();
         updateBatchUI();
