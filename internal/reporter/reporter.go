@@ -748,6 +748,12 @@ func Run(cfg Config, inputReader io.Reader) {
 	// 7. 获取 Git 仓库与分支
 	repo, branch := GetGitInfo(payload)
 
+	// 7.1 仓库白名单过滤 (filter_repos)：未命中白名单时绝对不发网、不写本地 spool
+	if !effectiveCfg.MatchesFilterRepo(repo) {
+		RespondAndExit(eventName)
+		return
+	}
+
 	// 8. 映射事件名称
 	mappedEvent := MapHookEvent(eventName, toolName, payload)
 

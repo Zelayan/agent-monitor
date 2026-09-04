@@ -115,10 +115,19 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 			if keyVal, ok := globalMap["api_key"].(string); ok && keyVal != "" {
 				cfg.APIKey = keyVal
 			}
+			if reposVal, ok := globalMap["filter_repos"].([]interface{}); ok {
+				var repos []string
+				for _, item := range reposVal {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						repos = append(repos, strings.TrimSpace(s))
+					}
+				}
+				cfg.FilterRepos = repos
+			}
 		}
 	}
 
-	// 2. 查找并合并项目级配置文件（可覆盖全局 require_tag / server_url / disabled / api_key）
+	// 2. 查找并合并项目级配置文件（可覆盖全局 require_tag / server_url / disabled / api_key / filter_repos）
 	projPath := FindProjectConfigFile(workspaceRoot)
 	if projPath != "" {
 		if data, err := os.ReadFile(projPath); err == nil && len(data) > 0 {
@@ -155,11 +164,29 @@ func LoadConfigForWorkspace(workspaceRoot string) GlobalConfig {
 				if keyVal, ok := projCfg["api_key"].(string); ok && keyVal != "" {
 					cfg.APIKey = keyVal
 				}
+				if reposVal, ok := projCfg["filter_repos"].([]interface{}); ok {
+					var repos []string
+					for _, item := range reposVal {
+						if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+							repos = append(repos, strings.TrimSpace(s))
+						}
+					}
+					cfg.FilterRepos = repos
+				}
 			}
 		}
 	}
 
 	// 3. 环境变量最高层级覆盖
+	if envRepos, ok := os.LookupEnv("AGENT_MONITOR_FILTER_REPOS"); ok {
+		var repos []string
+		for _, item := range strings.Split(envRepos, ",") {
+			if s := strings.TrimSpace(item); s != "" {
+				repos = append(repos, s)
+			}
+		}
+		cfg.FilterRepos = repos
+	}
 	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
 		cfg.RequireTag = envTag
 	}
@@ -241,10 +268,28 @@ func LoadGlobalConfig() GlobalConfig {
 			if keyVal, ok := rawMap["api_key"].(string); ok {
 				cfg.APIKey = keyVal
 			}
+			if reposVal, ok := rawMap["filter_repos"].([]interface{}); ok {
+				var repos []string
+				for _, item := range reposVal {
+					if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+						repos = append(repos, strings.TrimSpace(s))
+					}
+				}
+				cfg.FilterRepos = repos
+			}
 		}
 	}
 
 	// 环境变量层级覆盖（优先级高于文件）
+	if envRepos, ok := os.LookupEnv("AGENT_MONITOR_FILTER_REPOS"); ok {
+		var repos []string
+		for _, item := range strings.Split(envRepos, ",") {
+			if s := strings.TrimSpace(item); s != "" {
+				repos = append(repos, s)
+			}
+		}
+		cfg.FilterRepos = repos
+	}
 	if envTag, ok := os.LookupEnv("AGENT_MONITOR_REQUIRE_TAG"); ok {
 		cfg.RequireTag = envTag
 	}
@@ -320,6 +365,38 @@ func (c *GlobalConfig) MatchesDeleteTag(texts ...string) bool {
 			if re.MatchString(text) {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+// MatchesFilterRepo 检查当前仓库是否命中 filter_repos 白名单。
+// 规则：
+// 1. 若 filter_repos 为空，默认放行所有仓库；
+// 2. 若 filter_repos 非空，当前仓库必须与白名单中任一项精确匹配或大小写不敏感匹配；
+// 3. 若 repo 为空/unknown，且白名单非空，则判定未命中。
+func (c *GlobalConfig) MatchesFilterRepo(repo string) bool {
+	if len(c.FilterRepos) == 0 {
+		return true
+	}
+	repo = strings.TrimSpace(repo)
+	if repo == "" || repo == "unknown" {
+		return false
+	}
+	for _, allowed := range c.FilterRepos {
+		allowed = strings.TrimSpace(allowed)
+		if allowed == "" {
+			continue
+		}
+		if allowed == "*" || strings.EqualFold(allowed, repo) {
+			return true
+		}
+		// 兼容带组织名或纯仓库名的匹配 (如 Zelayan/agent-monitor 与 agent-monitor)
+		if strings.HasSuffix(strings.ToLower(repo), "/"+strings.ToLower(allowed)) {
+			return true
+		}
+		if strings.HasSuffix(strings.ToLower(allowed), "/"+strings.ToLower(repo)) {
+			return true
 		}
 	}
 	return false

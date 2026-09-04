@@ -258,3 +258,45 @@ func TestGlobalConfig_MatchesDeleteTag(t *testing.T) {
 		t.Fatalf("expected none DeleteTag not to match")
 	}
 }
+
+func TestGlobalConfig_MatchesFilterRepo(t *testing.T) {
+	// 1. 未配置 filter_repos 时，全量放行
+	emptyCfg := GlobalConfig{}
+	if !emptyCfg.MatchesFilterRepo("my-repo") {
+		t.Fatal("empty filter_repos must allow any repo")
+	}
+	if !emptyCfg.MatchesFilterRepo("unknown") {
+		t.Fatal("empty filter_repos must allow unknown repo")
+	}
+
+	// 2. 配置白名单时，精确或大小写不敏感匹配
+	cfg := GlobalConfig{
+		FilterRepos: []string{"backend-api", "frontend-web"},
+	}
+	if !cfg.MatchesFilterRepo("backend-api") {
+		t.Fatal("exact repo match should pass")
+	}
+	if !cfg.MatchesFilterRepo("Backend-API") {
+		t.Fatal("case-insensitive repo match should pass")
+	}
+	if !cfg.MatchesFilterRepo("my-org/backend-api") {
+		t.Fatal("org-scoped repo match should pass")
+	}
+	if cfg.MatchesFilterRepo("other-repo") {
+		t.Fatal("unlisted repo must be blocked")
+	}
+	if cfg.MatchesFilterRepo("unknown") {
+		t.Fatal("unknown repo must be blocked when filter_repos is configured")
+	}
+	if cfg.MatchesFilterRepo("") {
+		t.Fatal("empty repo must be blocked when filter_repos is configured")
+	}
+
+	// 3. 通配符 * 支持
+	wildcardCfg := GlobalConfig{
+		FilterRepos: []string{"*"},
+	}
+	if !wildcardCfg.MatchesFilterRepo("any-random-repo") {
+		t.Fatal("wildcard must match any repo")
+	}
+}
