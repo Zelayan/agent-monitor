@@ -119,6 +119,9 @@ func (h *Handler) enableCORS(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if allowOrigin != "" {
 		w.Header().Set("Access-Control-Allow-Origin", allowOrigin)
+		if allowOrigin != "*" {
+			w.Header().Add("Vary", "Origin")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key")
 	}
