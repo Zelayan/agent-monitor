@@ -3,6 +3,7 @@ package reporter
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"strings"
 	"sync"
@@ -60,10 +61,12 @@ func detectBootID() string {
 	return "unknown-boot"
 }
 
-// GetProcessStartTime 返回当前进程的启动时间（Unix 毫秒）。
+// GetProcessStartTime 返回指定 PID 对应进程的启动时间基准（Unix 毫秒）。
 func GetProcessStartTime(pid int) int64 {
-	// 尝试通过文件状态获取启动时间基准
-	if info, err := os.Stat("/proc/self"); err == nil {
+	if pid <= 0 {
+		return 0
+	}
+	if info, err := os.Stat(fmt.Sprintf("/proc/%d", pid)); err == nil {
 		return info.ModTime().UnixMilli()
 	}
 	return 0

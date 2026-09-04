@@ -474,28 +474,28 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-		// 1.1 POST /api/tasks/{id}/kill 进程级强杀
-		if len(parts) == 2 && parts[1] == "kill" && r.Method == http.MethodPost {
-			killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
-			if err != nil {
-				if errors.Is(err, monitor.ErrHostMismatch) {
-					w.Header().Set("Content-Type", "application/json")
-					w.WriteHeader(http.StatusBadRequest)
-					_ = json.NewEncoder(w).Encode(map[string]string{
-						"error": err.Error(),
-					})
-					return
-				}
-				http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
+	// 1.1 POST /api/tasks/{id}/kill 进程级强杀
+	if len(parts) == 2 && parts[1] == "kill" && r.Method == http.MethodPost {
+		killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+		if err != nil {
+			if errors.Is(err, monitor.ErrHostMismatch) {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(map[string]string{
+					"error": err.Error(),
+				})
 				return
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"status":        "ok",
-				"control_state": "killed",
-				"task":          killedTask,
-			})
+			http.Error(w, `{"error":"`+err.Error()+`"}`, http.StatusNotFound)
 			return
 		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":        "ok",
+			"control_state": "killed",
+			"task":          killedTask,
+		})
+		return
+	}
 
 	// 2. GET /api/tasks/{id} 单任务查询
 	if len(parts) == 1 && r.Method == http.MethodGet {

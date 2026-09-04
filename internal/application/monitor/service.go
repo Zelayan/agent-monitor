@@ -688,11 +688,23 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 
 	pid := t.PID
 	pgid := t.PGID
+	// 释放全局读写锁后再调用 OS 进程组终止系统调用，避免阻塞并发 HTTP 查询与事件流
+	s.mu.Unlock()
+
+	// 2. 真实进程组级终止：跨平台隔离实现（非持锁阶段）
+	_ = terminateProcessGroup(pid, pgid)
+
+	// 重新加锁更新领域状态
+	s.mu.Lock()
+	// 再次确认任务是否依然存在
+	targetKey, t, exists = s.findTaskLocked(id, keyID, isMaster)
+	if !exists || t == nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task disappeared during kill: %s", id)
+	}
+
 	nowMs := time.Now().UnixMilli()
 	nowStr := time.Now().Format("15:04:05")
-
-	// 2. 真实进程组级终止：跨平台隔离实现
-	_ = terminateProcessGroup(pid, pgid)
 
 	reason := "用户强制终止了会话进程组 (SIGTERM/SIGKILL)"
 	t.MarkKilled(reason, nowMs, nowStr)
