@@ -131,7 +131,7 @@ func (r *JSONRepository) legacyTaskPath(id string) string {
 	return filepath.Join(r.dir, SafeFilename(id))
 }
 
-// CleanOrphanTmpFiles 扫描目录及子目录，清除由于历史非正常关闭遗留的 *.tmp 临时孤儿文件。
+// CleanOrphanTmpFiles 扫描目录及子目录，清除由于历史非正常关闭遗留的 *.tmp 临时孤儿文件，并清理过期墓碑。
 func (r *JSONRepository) CleanOrphanTmpFiles() {
 	now := time.Now()
 	_ = filepath.Walk(r.dir, func(path string, info os.FileInfo, err error) error {
@@ -145,6 +145,19 @@ func (r *JSONRepository) CleanOrphanTmpFiles() {
 		}
 		return nil
 	})
+
+	r.cleanExpiredTombstones(now)
+}
+
+// cleanExpiredTombstones 清理内存中已过期的墓碑记录，防止长时间运行内存线性泄漏。
+func (r *JSONRepository) cleanExpiredTombstones(now time.Time) {
+	r.versionLock.Lock()
+	defer r.versionLock.Unlock()
+	for k, tomb := range r.tombstones {
+		if now.After(tomb.expiresAt) {
+			delete(r.tombstones, k)
+		}
+	}
 }
 
 // migrateLegacyFiles 扫描根目录旧文件并平滑迁移到租户子目录。
@@ -195,6 +208,7 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 	r.mu.Unlock()
 
 	var tasks []*task.Task
+	loadedVersions := make(map[string]uint64)
 	err := filepath.Walk(r.dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -215,13 +229,24 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 		if t.ID != "" {
 			tasks = append(tasks, &t)
 			if t.Version > 0 {
-				r.versionLock.Lock()
-				r.lastVersion[t.TaskKey().String()] = t.Version
-				r.versionLock.Unlock()
+				kStr := t.TaskKey().String()
+				if cur, ok := loadedVersions[kStr]; !ok || t.Version > cur {
+					loadedVersions[kStr] = t.Version
+				}
 			}
 		}
 		return nil
 	})
+
+	if len(loadedVersions) > 0 {
+		r.versionLock.Lock()
+		for k, v := range loadedVersions {
+			if cur, ok := r.lastVersion[k]; !ok || v > cur {
+				r.lastVersion[k] = v
+			}
+		}
+		r.versionLock.Unlock()
+	}
 
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -285,8 +310,9 @@ func (r *JSONRepository) SaveRawKeyVersioned(key task.TaskKey, version uint64, d
 	lock.Lock()
 	defer lock.Unlock()
 
-	// 双重校验版本
+	// 双重校验版本：重新获取当前最新时间，保证极端并发排队后墓碑过期判定新鲜准确
 	if version > 0 {
+		now = time.Now()
 		r.versionLock.RLock()
 		if tomb, hasTomb := r.tombstones[keyStr]; hasTomb && now.Before(tomb.expiresAt) && version <= tomb.version {
 			r.versionLock.RUnlock()
