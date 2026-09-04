@@ -98,6 +98,11 @@ func (t *Task) BelongsTo(targetKey string, isMaster bool) bool {
 	return t.KeyID == targetKey
 }
 
+// TaskKey 返回当前任务对应的租户复合主键。
+func (t *Task) TaskKey() TaskKey {
+	return NewTaskKey(t.KeyID, t.ID)
+}
+
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
 func NewTask(p EventPayload, nowMs int64) *Task {
 	if p.ID == "" {

@@ -17,24 +17,24 @@ import (
 // ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
 var ErrPermissionDenied = errors.New("permission denied")
 
-// taskWriteRequest 封装按 Task 串行持久化的请求。
+// taskWriteRequest 封装按 TaskKey 串行持久化的请求。
 type taskWriteRequest struct {
-	id   string
+	key  task.TaskKey
 	data []byte
 }
 
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
 	mu         sync.RWMutex
-	tasks      map[string]*task.Task
+	tasks      map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
 	repo       task.TaskRepository
 	hub        *Hub
 	writeChan  chan taskWriteRequest // 异步串行持久化管道，消除无节制 goroutine 与磁盘乱序
 	stopChan   chan struct{}
 	ttlDays    int // 自动清理天数（默认 30 天，<=0 则不清理）
 	summarizer *TitleSummarizer
-	titleJobs  sync.Map                           // map[string]*titleJobState，同一会话 LLM 总结串行且可合并
-	steerQueue map[string][]task.SteerInstruction // map[taskID][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+	titleJobs  sync.Map                              // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
+	steerQueue map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
@@ -45,13 +45,13 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 // NewMonitorServiceWithTTL 实例化应用服务并指定会话保留天数。
 func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *MonitorService {
 	s := &MonitorService{
-		tasks:      make(map[string]*task.Task),
+		tasks:      make(map[task.TaskKey]*task.Task),
 		repo:       repo,
 		hub:        hub,
 		writeChan:  make(chan taskWriteRequest, 5000), // 削峰缓冲
 		stopChan:   make(chan struct{}),
 		ttlDays:    ttlDays,
-		steerQueue: make(map[string][]task.SteerInstruction),
+		steerQueue: make(map[task.TaskKey][]task.SteerInstruction),
 	}
 
 	if repo != nil {
@@ -62,21 +62,22 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 			discardedIdle := 0
 			for _, t := range persisted {
 				if t != nil && t.ID != "" {
+					key := t.TaskKey()
 					if !t.HasUserWork() {
-						if err := repo.Delete(t.ID); err != nil {
-							log.Printf("[Application] Warning: failed to discard idle ghost task %s: %v", t.ID, err)
+						if err := repo.DeleteKey(key); err != nil {
+							log.Printf("[Application] Warning: failed to discard idle ghost task %s: %v", key.String(), err)
 						}
 						discardedIdle++
 						continue
 					}
 					if t.CloseOrphanRuns(time.Now().UnixMilli(), time.Now().Format("15:04:05")) {
 						if data, err := json.Marshal(t); err == nil {
-							if err := repo.SaveRaw(t.ID, data); err != nil {
-								log.Printf("[Application] Warning: failed to persist healed task %s: %v", t.ID, err)
+							if err := repo.SaveRawKey(key, data); err != nil {
+								log.Printf("[Application] Warning: failed to persist healed task %s: %v", key.String(), err)
 							}
 						}
 					}
-					s.tasks[t.ID] = t
+					s.tasks[key] = t
 				}
 			}
 			if discardedIdle > 0 {
@@ -104,38 +105,38 @@ func (s *MonitorService) SetTitleSummarizer(sum *TitleSummarizer) {
 	s.summarizer = sum
 }
 
-// persistenceWorker 顺序消费写入管道，彻底消除并发 goroutine 调度乱序导致的磁盘倒流
+// persistenceWorker 顺序消费写入管道，彻底消除并发 goroutine 调度乱序导致的磁盘倒流。
 func (s *MonitorService) persistenceWorker() {
 	for {
 		select {
 		case <-s.stopChan:
 			return
 		case req := <-s.writeChan:
-			if s.repo != nil && req.id != "" && len(req.data) > 0 {
-				if err := s.repo.SaveRaw(req.id, req.data); err != nil {
-					log.Printf("[Application] Error persisting task %s: %v", req.id, err)
+			if s.repo != nil && !req.key.IsZero() && len(req.data) > 0 {
+				if err := s.repo.SaveRawKey(req.key, req.data); err != nil {
+					log.Printf("[Application] Error persisting task %s: %v", req.key.String(), err)
 				}
 			}
 		}
 	}
 }
 
-// enqueuePersist 尝试将序列化数据推入写入队列
-func (s *MonitorService) enqueuePersist(id string, data []byte) {
-	if s.repo == nil || id == "" || len(data) == 0 {
+// enqueuePersist 尝试将序列化数据推入写入队列。
+func (s *MonitorService) enqueuePersist(key task.TaskKey, data []byte) {
+	if s.repo == nil || key.IsZero() || len(data) == 0 {
 		return
 	}
 	select {
-	case s.writeChan <- taskWriteRequest{id: id, data: data}:
+	case s.writeChan <- taskWriteRequest{key: key, data: data}:
 	default:
 		// 若队列暴涨触发极端背压，直接在独立 goroutine 写入
-		go func(taskID string, taskData []byte) {
-			_ = s.repo.SaveRaw(taskID, taskData)
-		}(id, data)
+		go func(k task.TaskKey, taskData []byte) {
+			_ = s.repo.SaveRawKey(k, taskData)
+		}(key, data)
 	}
 }
 
-// janitorWorker 定时巡检清理已完成且超期的任务
+// janitorWorker 定时巡检清理已完成且超期的任务。
 func (s *MonitorService) janitorWorker() {
 	ticker := time.NewTicker(2 * time.Hour)
 	defer ticker.Stop()
@@ -155,33 +156,33 @@ func (s *MonitorService) cleanExpiredTasks() {
 		return
 	}
 	cutoffMs := time.Now().AddDate(0, 0, -s.ttlDays).UnixMilli()
-	var toDelete []string
+	var toDelete []task.TaskKey
 
 	s.mu.Lock()
-	for id, t := range s.tasks {
+	for k, t := range s.tasks {
 		if t != nil && (t.Status == "completed" || t.Status == "failed") {
 			endTime := t.EndTime
 			if endTime == 0 {
 				endTime = t.StartTime
 			}
 			if endTime > 0 && endTime < cutoffMs {
-				delete(s.tasks, id)
-				delete(s.steerQueue, id)
-				toDelete = append(toDelete, id)
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				toDelete = append(toDelete, k)
 			}
 		}
 	}
 	s.mu.Unlock()
 
 	if s.repo != nil && len(toDelete) > 0 {
-		for _, id := range toDelete {
-			_ = s.repo.Delete(id)
+		for _, k := range toDelete {
+			_ = s.repo.DeleteKey(k)
 		}
 		log.Printf("[Application] Janitor cleaned up %d expired tasks (older than %d days)", len(toDelete), s.ttlDays)
 	}
 }
 
-// Close 停止后台 worker
+// Close 停止后台 worker。
 func (s *MonitorService) Close() {
 	select {
 	case <-s.stopChan:
@@ -227,22 +228,33 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	nowMs := p.Timestamp * 1000
 	nowStr := time.Unix(p.Timestamp, 0).Format("15:04:05")
 
+	targetKey := task.NewTaskKey(p.KeyID, p.ID)
+
 	s.mu.Lock()
-	t, exists := s.tasks[p.ID]
+	t, exists := s.tasks[targetKey]
 	if exists && t != nil {
-		// 校验租户访问权限：非 Master 且任务已被其他租户认领时禁止越权修改（即使 tenantKeyID 为空也严禁越权）
+		// 校验租户访问权限：非 Master 且任务已被其他租户认领时禁止越权修改
 		if !isMaster && t.KeyID != "" && t.KeyID != tenantKeyID {
 			s.mu.Unlock()
 			return HookEventResult{Action: "deny"}, fmt.Errorf("%w: task %s belongs to tenant %s, cannot be modified by tenant %s", ErrPermissionDenied, t.ID, t.KeyID, tenantKeyID)
 		}
 
 		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {
-			delete(s.tasks, t.ID)
-			taskID := t.ID
-			taskKeyID := t.KeyID
+			delete(s.tasks, targetKey)
 			s.mu.Unlock()
-			s.forgetTask(taskID, taskKeyID)
+			s.forgetTask(targetKey)
 			return HookEventResult{Action: "allow"}, nil
+		}
+	} else if !exists && !isMaster {
+		// 当前租户下不存在该任务。检查是否有其他租户已拥有同名既有任务：
+		// 若存在且当前请求并非合法开启全新会话的事件（如 sessionStart / UserPromptSubmit），说明企图跨租户篡改既有任务
+		for otherKey, otherTask := range s.tasks {
+			if otherTask != nil && otherTask.ID == p.ID && otherKey.TenantID != targetKey.TenantID {
+				if p.Event != "sessionStart" && p.Event != "UserPromptSubmit" {
+					s.mu.Unlock()
+					return HookEventResult{Action: "deny"}, fmt.Errorf("%w: task %s belongs to tenant %s, cannot be modified by tenant %s", ErrPermissionDenied, p.ID, otherKey.TenantID, tenantKeyID)
+				}
+			}
 		}
 	}
 	if !exists {
@@ -251,7 +263,8 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 			return HookEventResult{Action: "allow"}, nil
 		}
 		t = task.NewTask(p, nowMs)
-		s.tasks[t.ID] = t
+		targetKey = t.TaskKey()
+		s.tasks[targetKey] = t
 	}
 
 	action := "allow"
@@ -266,16 +279,14 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		if reason == "" {
 			reason = "Session aborted from Agent Monitor Dashboard"
 		}
-		// 关键改进：不立即 MarkAborted() 强行转为终态，而是记录动作拒绝并保持 abort_requested
 		t.RecordActionDenial(fmt.Sprintf("拦截动作: %s (%s)", p.Detail, reason), nowMs, nowStr)
-		// 注入系统级强指令
 		agentMsg = "CRITICAL: The user has intentionally aborted this session from the control panel. Do not invoke any more tools. Acknowledge and stop immediately."
 	} else {
 		t.ApplyEvent(p, nowMs, nowStr)
 	}
 
 	// 动态上下文注入：检查当前会话是否有排队的提示词需要注入给 Agent（支持精准定向子智能体）
-	if instructions, ok := s.steerQueue[t.ID]; ok && len(instructions) > 0 {
+	if instructions, ok := s.steerQueue[targetKey]; ok && len(instructions) > 0 {
 		var consumedTexts []string
 		var remaining []task.SteerInstruction
 		var targetTypeMatched string
@@ -309,26 +320,25 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		if len(consumedTexts) > 0 {
 			additionalCtx = strings.Join(consumedTexts, "\n\n")
 			if len(remaining) > 0 {
-				s.steerQueue[t.ID] = remaining
+				s.steerQueue[targetKey] = remaining
 			} else {
-				delete(s.steerQueue, t.ID)
+				delete(s.steerQueue, targetKey)
 			}
 			t.RecordContextInjected(additionalCtx, targetTypeMatched, nowStr)
 		}
 	}
 
-	taskID := t.ID
-	taskKeyID := t.KeyID
 	taskCopy := t.Clone()
-	s.mu.Unlock() // 【锁范围最小化：立即释放锁，杜绝持锁执行 CPU 密集序列化】
+	taskKeyID := t.KeyID
+	s.mu.Unlock() // 锁范围最小化
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err != nil {
 		return HookEventResult{Task: taskCopy, Action: action, Reason: reason, AdditionalContext: additionalCtx, AgentMessage: agentMsg}, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	// 异步持久化：写入串行队列，消除 goroutine 激增与磁盘乱序倒流
-	s.enqueuePersist(taskID, taskJSON)
+	// 异步持久化：写入串行队列
+	s.enqueuePersist(targetKey, taskJSON)
 
 	// 广播事件（向该租户空间及 Master 广播）
 	if s.hub != nil {
@@ -336,7 +346,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	}
 
 	if shouldSummarizeSessionTitle(p.Event, action, taskCopy) {
-		s.scheduleTitleSummary(taskCopy.ID)
+		s.scheduleTitleSummary(targetKey)
 	}
 
 	return HookEventResult{
@@ -348,6 +358,58 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	}, nil
 }
 
+// findTaskLocked 必须在持有 s.mu 时调用，根据 ID 与租户权限查找匹配任务。
+func (s *MonitorService) findTaskLocked(id string, keyID string, isMaster bool) (task.TaskKey, *task.Task, bool) {
+	if !isMaster || (keyID != "" && keyID != "*") {
+		// 租户空间严格按复合键检索
+		targetKey := task.NewTaskKey(keyID, id)
+		if t, ok := s.tasks[targetKey]; ok && t != nil && t.BelongsTo(keyID, isMaster) {
+			return targetKey, t, true
+		}
+		return task.TaskKey{}, nil, false
+	}
+
+	// Master 模式且未指定租户：全局遍历所有同 ID 任务，按生命周期与时间确定性择优
+	// 策略：优先选择正在运行的任务；状态相同时选择最新启动时间；启动时间相同时优先 default 租户或字典序
+	var bestKey task.TaskKey
+	var bestTask *task.Task
+
+	for k, t := range s.tasks {
+		if t != nil && t.ID == id {
+			if bestTask == nil {
+				bestKey = k
+				bestTask = t
+				continue
+			}
+
+			bestIsRunning := bestTask.Status == "running"
+			curIsRunning := t.Status == "running"
+
+			if !bestIsRunning && curIsRunning {
+				bestKey = k
+				bestTask = t
+			} else if bestIsRunning == curIsRunning {
+				if t.StartTime > bestTask.StartTime {
+					bestKey = k
+					bestTask = t
+				} else if t.StartTime == bestTask.StartTime {
+					if k.TenantID == task.DefaultTenantID && bestKey.TenantID != task.DefaultTenantID {
+						bestKey = k
+						bestTask = t
+					} else if bestKey.TenantID != task.DefaultTenantID && k.TenantID < bestKey.TenantID {
+						bestKey = k
+						bestTask = t
+					}
+				}
+			}
+		}
+	}
+	if bestTask != nil {
+		return bestKey, bestTask, true
+	}
+	return task.TaskKey{}, nil, false
+}
+
 // AbortTask 标记指定会话为中断请求状态，并向该租户客户端广播状态变更。
 func (s *MonitorService) AbortTask(id string, reason string) (*task.Task, error) {
 	return s.AbortTaskTenant(id, reason, "", true)
@@ -356,14 +418,10 @@ func (s *MonitorService) AbortTask(id string, reason string) (*task.Task, error)
 // AbortTaskTenant 在指定租户权限下标记会话为中断请求状态。
 func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string, isMaster bool) (*task.Task, error) {
 	s.mu.Lock()
-	t, exists := s.tasks[id]
+	targetKey, t, exists := s.findTaskLocked(id, keyID, isMaster)
 	if !exists {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("task not found: %s", id)
-	}
-	if !t.BelongsTo(keyID, isMaster) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("permission denied for task: %s", id)
 	}
 
 	nowMs := time.Now().UnixMilli()
@@ -374,14 +432,13 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 	}
 	t.RequestAbort(reason, nowMs, nowStr)
 
-	taskID := t.ID
-	taskKeyID := t.KeyID
 	taskCopy := t.Clone()
-	s.mu.Unlock() // 释放锁
+	taskKeyID := t.KeyID
+	s.mu.Unlock()
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err == nil {
-		s.enqueuePersist(taskID, taskJSON)
+		s.enqueuePersist(targetKey, taskJSON)
 		if s.hub != nil {
 			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
@@ -393,14 +450,10 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 // InjectSteerTargetedTenant 向指定会话或其派生的特定子智能体注入结构化指导指令。
 func (s *MonitorService) InjectSteerTargetedTenant(id string, inst task.SteerInstruction, keyID string, isMaster bool) (*task.Task, error) {
 	s.mu.Lock()
-	t, exists := s.tasks[id]
+	targetKey, t, exists := s.findTaskLocked(id, keyID, isMaster)
 	if !exists {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("task not found: %s", id)
-	}
-	if !t.BelongsTo(keyID, isMaster) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("permission denied for task: %s", id)
 	}
 
 	text := strings.TrimSpace(inst.Message)
@@ -413,15 +466,15 @@ func (s *MonitorService) InjectSteerTargetedTenant(id string, inst task.SteerIns
 		inst.CreatedAt = time.Now().Unix()
 	}
 
-	// 1. 若明确指定了独立的子任务会话 ID，且该子任务存在且隶属于当前任务
-	targetQueueID := id
+	queueKey := targetKey
 	if inst.TargetChildID != "" && inst.TargetChildID != id {
-		if child, childExists := s.tasks[inst.TargetChildID]; childExists && child.ParentID == id {
-			targetQueueID = inst.TargetChildID
+		childKey, child, childExists := s.findTaskLocked(inst.TargetChildID, keyID, isMaster)
+		if childExists && child.ParentID == id {
+			queueKey = childKey
 		}
 	}
 
-	s.steerQueue[targetQueueID] = append(s.steerQueue[targetQueueID], inst)
+	s.steerQueue[queueKey] = append(s.steerQueue[queueKey], inst)
 
 	taskCopy := t.Clone()
 	s.mu.Unlock()
@@ -449,7 +502,8 @@ func (s *MonitorService) GetTask(id string) *task.Task {
 func (s *MonitorService) GetTaskTenant(id string, keyID string, isMaster bool) *task.Task {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if t, ok := s.tasks[id]; ok && t != nil && t.BelongsTo(keyID, isMaster) {
+	_, t, exists := s.findTaskLocked(id, keyID, isMaster)
+	if exists && t != nil {
 		return t.Clone()
 	}
 	return nil
@@ -463,21 +517,16 @@ func (s *MonitorService) KillTask(id string) (*task.Task, error) {
 // KillTaskTenant 在指定租户权限下强制杀死会话关联的本地进程组。
 func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) (*task.Task, error) {
 	s.mu.Lock()
-	t, exists := s.tasks[id]
+	targetKey, t, exists := s.findTaskLocked(id, keyID, isMaster)
 	if !exists {
 		s.mu.Unlock()
 		return nil, fmt.Errorf("task not found: %s", id)
-	}
-	if !t.BelongsTo(keyID, isMaster) {
-		s.mu.Unlock()
-		return nil, fmt.Errorf("permission denied for task: %s", id)
 	}
 
 	pid := t.PID
 	nowMs := time.Now().UnixMilli()
 	nowStr := time.Now().Format("15:04:05")
 
-	// 尝试向本地操作系统进程发送中断信号
 	if pid > 0 {
 		proc, err := os.FindProcess(pid)
 		if err == nil && proc != nil {
@@ -490,14 +539,13 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
 	t.MarkKilled(reason, nowMs, nowStr)
 
-	taskID := t.ID
-	taskKeyID := t.KeyID
 	taskCopy := t.Clone()
-	s.mu.Unlock() // 释放锁
+	taskKeyID := t.KeyID
+	s.mu.Unlock()
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err == nil {
-		s.enqueuePersist(taskID, taskJSON)
+		s.enqueuePersist(targetKey, taskJSON)
 		if s.hub != nil {
 			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
@@ -539,34 +587,39 @@ func (s *MonitorService) DeleteTasks(req DeleteTasksRequest) []string {
 // DeleteTasksTenant 在指定租户权限下删除属于该空间的任务。
 func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string, isMaster bool) []string {
 	s.mu.Lock()
-	var toDelete []string
+	var toDeleteKeys []task.TaskKey
+	var toDeleteIDs []string
 
 	if req.All {
 		// 清空当前空间全部任务（包括 running）
-		for id, t := range s.tasks {
+		for k, t := range s.tasks {
 			if t != nil && t.BelongsTo(keyID, isMaster) {
-				delete(s.tasks, id)
-				delete(s.steerQueue, id)
-				toDelete = append(toDelete, id)
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				toDeleteKeys = append(toDeleteKeys, k)
+				toDeleteIDs = append(toDeleteIDs, t.ID)
 			}
 		}
 	} else if len(req.IDs) > 0 {
 		// 精确删除指定 ID 列表
 		for _, targetID := range req.IDs {
-			if t, exists := s.tasks[targetID]; exists && t.BelongsTo(keyID, isMaster) {
-				delete(s.tasks, targetID)
-				delete(s.steerQueue, targetID)
-				toDelete = append(toDelete, targetID)
+			k, t, exists := s.findTaskLocked(targetID, keyID, isMaster)
+			if exists && t != nil {
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				toDeleteKeys = append(toDeleteKeys, k)
+				toDeleteIDs = append(toDeleteIDs, t.ID)
 			}
 		}
 	} else {
 		// 默认行为：只清已完成和失败任务
-		for id, t := range s.tasks {
+		for k, t := range s.tasks {
 			if t != nil && t.BelongsTo(keyID, isMaster) {
 				if t.Status == "completed" || t.Status == "failed" {
-					delete(s.tasks, id)
-					delete(s.steerQueue, id)
-					toDelete = append(toDelete, id)
+					delete(s.tasks, k)
+					delete(s.steerQueue, k)
+					toDeleteKeys = append(toDeleteKeys, k)
+					toDeleteIDs = append(toDeleteIDs, t.ID)
 				}
 			}
 		}
@@ -574,48 +627,54 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 	s.mu.Unlock()
 
 	// 异步持久化清理
-	if s.repo != nil && len(toDelete) > 0 {
-		go func(ids []string) {
-			for _, id := range ids {
-				if err := s.repo.Delete(id); err != nil {
-					log.Printf("[Application] Error deleting task file %s: %v", id, err)
+	if s.repo != nil && len(toDeleteKeys) > 0 {
+		go func(keys []task.TaskKey) {
+			for _, k := range keys {
+				if err := s.repo.DeleteKey(k); err != nil {
+					log.Printf("[Application] Error deleting task file %s: %v", k.String(), err)
 				}
 			}
-		}(toDelete)
+		}(toDeleteKeys)
 	}
 
-	// 广播 SSE 删除消息给该空间客户端
-	if s.hub != nil && len(toDelete) > 0 {
+	// 广播 SSE 删除消息给该空间客户端（同时携带 deletedIds 和 deletedKeys）
+	if s.hub != nil && len(toDeleteIDs) > 0 {
+		var toDeleteKeyStrs []string
+		for _, k := range toDeleteKeys {
+			toDeleteKeyStrs = append(toDeleteKeyStrs, k.String())
+		}
 		delEvent := map[string]interface{}{
-			"type":       "delete_tasks",
-			"deletedIds": toDelete,
+			"type":        "delete_tasks",
+			"deletedIds":  toDeleteIDs,
+			"deletedKeys": toDeleteKeyStrs,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
 			s.hub.BroadcastTenant(keyID, string(msgJSON))
 		}
 	}
 
-	return toDelete
+	return toDeleteIDs
 }
 
 // forgetTask 删除从未产生真实工作的空会话，避免看板留下「打开即关」的占位卡片。
-func (s *MonitorService) forgetTask(id, keyID string) {
-	if id == "" {
+func (s *MonitorService) forgetTask(key task.TaskKey) {
+	if key.IsZero() {
 		return
 	}
-	delete(s.steerQueue, id)
+	delete(s.steerQueue, key)
 	if s.repo != nil {
-		if err := s.repo.Delete(id); err != nil {
-			log.Printf("[Application] Error discarding idle task %s: %v", id, err)
+		if err := s.repo.DeleteKey(key); err != nil {
+			log.Printf("[Application] Error discarding idle task %s: %v", key.String(), err)
 		}
 	}
 	if s.hub != nil {
 		delEvent := map[string]interface{}{
-			"type":       "delete_tasks",
-			"deletedIds": []string{id},
+			"type":        "delete_tasks",
+			"deletedIds":  []string{key.TaskID},
+			"deletedKeys": []string{key.String()},
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(keyID, string(msgJSON))
+			s.hub.BroadcastTenant(key.TenantID, string(msgJSON))
 		}
 	}
 }
@@ -637,11 +696,12 @@ func shouldSummarizeSessionTitle(event, action string, t *task.Task) bool {
 	return isTurnSettleEvent(event) || action == "deny"
 }
 
-func (s *MonitorService) scheduleTitleSummary(id string) {
-	if s == nil || s.summarizer == nil || !s.summarizer.Enabled() || id == "" {
+func (s *MonitorService) scheduleTitleSummary(key task.TaskKey) {
+	if s == nil || s.summarizer == nil || !s.summarizer.Enabled() || key.IsZero() {
 		return
 	}
-	stateI, _ := s.titleJobs.LoadOrStore(id, &titleJobState{})
+	keyStr := key.String()
+	stateI, _ := s.titleJobs.LoadOrStore(keyStr, &titleJobState{})
 	state := stateI.(*titleJobState)
 	state.mu.Lock()
 	if state.running {
@@ -651,10 +711,11 @@ func (s *MonitorService) scheduleTitleSummary(id string) {
 	}
 	state.running = true
 	state.mu.Unlock()
-	go s.runTitleSummary(id)
+	go s.runTitleSummary(key)
 }
 
-func (s *MonitorService) runTitleSummary(id string) {
+func (s *MonitorService) runTitleSummary(key task.TaskKey) {
+	keyStr := key.String()
 	for {
 		select {
 		case <-s.stopChan:
@@ -664,7 +725,7 @@ func (s *MonitorService) runTitleSummary(id string) {
 
 		s.mu.RLock()
 		var snap *task.Task
-		if t, ok := s.tasks[id]; ok && t != nil {
+		if t, ok := s.tasks[key]; ok && t != nil {
 			snap = t.Clone()
 		}
 		s.mu.RUnlock()
@@ -672,27 +733,27 @@ func (s *MonitorService) runTitleSummary(id string) {
 		if snap != nil && s.summarizer != nil && s.summarizer.Enabled() {
 			title, err := s.summarizer.Summarize(snap)
 			if err == nil && strings.TrimSpace(title) != "" {
-				s.applySummarizedTitle(id, title)
+				s.applySummarizedTitle(key, title)
 			} else if err != nil {
-				log.Printf("[Application] Title summary skipped for %s: %v", id, err)
+				log.Printf("[Application] Title summary skipped for %s: %v", keyStr, err)
 			}
 
 			s.mu.RLock()
-			if t, ok := s.tasks[id]; ok && t != nil {
+			if t, ok := s.tasks[key]; ok && t != nil {
 				snap = t.Clone()
 			}
 			s.mu.RUnlock()
 			if snap != nil && shouldRefreshGoal(snap, s.summarizer.GoalEveryN(), snap.LastHook) {
 				goal, err := s.summarizer.SummarizeGoal(snap)
 				if err == nil && strings.TrimSpace(goal) != "" {
-					s.applySummarizedGoal(id, goal, settledRunCount(snap))
+					s.applySummarizedGoal(key, goal, settledRunCount(snap))
 				} else if err != nil {
-					log.Printf("[Application] Goal summary skipped for %s: %v", id, err)
+					log.Printf("[Application] Goal summary skipped for %s: %v", keyStr, err)
 				}
 			}
 		}
 
-		stateI, ok := s.titleJobs.Load(id)
+		stateI, ok := s.titleJobs.Load(keyStr)
 		if !ok {
 			return
 		}
@@ -709,9 +770,9 @@ func (s *MonitorService) runTitleSummary(id string) {
 	}
 }
 
-func (s *MonitorService) applySummarizedTitle(id, title string) {
+func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 	s.mu.Lock()
-	t, ok := s.tasks[id]
+	t, ok := s.tasks[key]
 	if !ok || t == nil {
 		s.mu.Unlock()
 		return
@@ -720,7 +781,6 @@ func (s *MonitorService) applySummarizedTitle(id, title string) {
 		s.mu.Unlock()
 		return
 	}
-	taskID := t.ID
 	taskKeyID := t.KeyID
 	taskCopy := t.Clone()
 	s.mu.Unlock()
@@ -729,15 +789,15 @@ func (s *MonitorService) applySummarizedTitle(id, title string) {
 	if err != nil {
 		return
 	}
-	s.enqueuePersist(taskID, taskJSON)
+	s.enqueuePersist(key, taskJSON)
 	if s.hub != nil {
 		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
 }
 
-func (s *MonitorService) applySummarizedGoal(id, goal string, atRun int) {
+func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRun int) {
 	s.mu.Lock()
-	t, ok := s.tasks[id]
+	t, ok := s.tasks[key]
 	if !ok || t == nil {
 		s.mu.Unlock()
 		return
@@ -746,7 +806,6 @@ func (s *MonitorService) applySummarizedGoal(id, goal string, atRun int) {
 		s.mu.Unlock()
 		return
 	}
-	taskID := t.ID
 	taskKeyID := t.KeyID
 	taskCopy := t.Clone()
 	s.mu.Unlock()
@@ -755,7 +814,7 @@ func (s *MonitorService) applySummarizedGoal(id, goal string, atRun int) {
 	if err != nil {
 		return
 	}
-	s.enqueuePersist(taskID, taskJSON)
+	s.enqueuePersist(key, taskJSON)
 	if s.hub != nil {
 		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
