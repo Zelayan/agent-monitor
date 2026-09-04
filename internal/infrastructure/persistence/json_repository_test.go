@@ -174,3 +174,37 @@ func TestJSONRepository_LegacyMigration(t *testing.T) {
 		t.Fatalf("new migrated file %s not found", newPath)
 	}
 }
+
+func TestJSONRepository_UnicodePathHandling(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-unicode-test-*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("NewJSONRepository failed: %v", err)
+	}
+	defer repo.Close()
+
+	// 使用中英文混合 ID 和租户名称
+	taskObj := &task.Task{
+		ID:       "任务-支付模块-001",
+		KeyID:    "研发组-Alpha",
+		Agent:    "Cursor",
+		RootGoal: "多语言路径与存储测试",
+	}
+
+	if err := repo.Save(taskObj); err != nil {
+		t.Fatalf("Save unicode task failed: %v", err)
+	}
+
+	all, err := repo.FindAll()
+	if err != nil {
+		t.Fatalf("FindAll failed: %v", err)
+	}
+	if len(all) != 1 || all[0].ID != "任务-支付模块-001" || all[0].KeyID != "研发组-Alpha" {
+		t.Fatalf("unexpected task after load: %+v", all)
+	}
+}

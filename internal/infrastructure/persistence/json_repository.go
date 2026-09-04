@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
@@ -61,32 +62,34 @@ func hashPrefix(input string, length int) string {
 	return hexStr[:length]
 }
 
-// SafeDirName 清洗租户目录名称，防止路径穿越和非法字符。
+// SafeDirName 清洗租户目录名称，支持国际化 Unicode 字符，防止路径穿越和非法控制字符。
 func SafeDirName(name string) string {
 	cleaned := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
 			return r
 		}
 		return '_'
 	}, name)
-	if cleaned == "" {
-		cleaned = "tenant"
+	trimmed := strings.Trim(cleaned, "_ ")
+	if trimmed == "" {
+		trimmed = "tenant"
 	}
-	return cleaned
+	return trimmed
 }
 
-// SafeFilenamePrefix 清洗文件名主体，防止非法字符。
+// SafeFilenamePrefix 清洗文件名主体，支持国际化 Unicode 字符，防止路径穿越和非法控制字符。
 func SafeFilenamePrefix(id string) string {
 	cleaned := strings.Map(func(r rune) rune {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' {
 			return r
 		}
 		return '_'
 	}, id)
-	if cleaned == "" {
-		cleaned = "session"
+	trimmed := strings.Trim(cleaned, "_ ")
+	if trimmed == "" {
+		trimmed = "session"
 	}
-	return cleaned
+	return trimmed
 }
 
 // SafeFilename 保留旧格式文件名生成函数以兼容测试与旧路径解析。

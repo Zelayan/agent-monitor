@@ -582,3 +582,52 @@ func TestMonitorService_MultiTenantSameSessionIDIsolation(t *testing.T) {
 		t.Fatalf("tenant B task must still exist and be intact, got %+v", taskBAfter)
 	}
 }
+
+func TestMonitorService_MasterDisambiguationPriority(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	svc := NewMonitorService(repo, nil)
+	defer svc.Close()
+
+	dupID := "sess-ambiguous-01"
+
+	// 1. 创建 default 租户下的已完成旧任务
+	tOld := task.NewTask(task.EventPayload{
+		ID:        dupID,
+		Agent:     "Cursor",
+		Event:     "sessionStart",
+		Title:     "Old Default Task",
+		Timestamp: 1000,
+	}, 1000_000)
+	tOld.Status = "completed"
+	svc.tasks[tOld.TaskKey()] = tOld
+
+	// 2. 创建 tenant-active 下的正在运行新任务
+	tActive := task.NewTask(task.EventPayload{
+		ID:        dupID,
+		KeyID:     "tenant-active",
+		Agent:     "Cursor",
+		Event:     "sessionStart",
+		Title:     "Active Tenant Task",
+		Timestamp: 2000,
+	}, 2000_000)
+	tActive.Status = "running"
+	svc.tasks[tActive.TaskKey()] = tActive
+
+	// 3. Master 未指定租户查询该 ID，必须优先路由到 running 状态的活跃任务，而非陈旧的 default 任务
+	matched := svc.GetTask(dupID)
+	if matched == nil {
+		t.Fatalf("master lookup failed for %s", dupID)
+	}
+	if matched.KeyID != "tenant-active" || matched.Status != "running" {
+		t.Fatalf("expected routing to running task in 'tenant-active', got %+v", matched)
+	}
+
+	// 4. Master 发起 Abort 控制操作，必须精确作用于正在运行的活跃任务
+	aborted, err := svc.AbortTask(dupID, "Master stopping active session")
+	if err != nil {
+		t.Fatalf("master abort failed: %v", err)
+	}
+	if aborted.KeyID != "tenant-active" || aborted.ControlState != "abort_requested" {
+		t.Fatalf("master abort hit wrong task: %+v", aborted)
+	}
+}

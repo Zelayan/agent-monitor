@@ -369,18 +369,38 @@ func (s *MonitorService) findTaskLocked(id string, keyID string, isMaster bool) 
 		return task.TaskKey{}, nil, false
 	}
 
-	// Master 模式且未指定租户：先匹配默认租户，若有跨租户同名任务则确定性选择最新活跃任务
-	defaultKey := task.NewTaskKey(task.DefaultTenantID, id)
-	if t, ok := s.tasks[defaultKey]; ok && t != nil {
-		return defaultKey, t, true
-	}
+	// Master 模式且未指定租户：全局遍历所有同 ID 任务，按生命周期与时间确定性择优
+	// 策略：优先选择正在运行的任务；状态相同时选择最新启动时间；启动时间相同时优先 default 租户或字典序
 	var bestKey task.TaskKey
 	var bestTask *task.Task
+
 	for k, t := range s.tasks {
 		if t != nil && t.ID == id {
-			if bestTask == nil || t.StartTime > bestTask.StartTime {
+			if bestTask == nil {
 				bestKey = k
 				bestTask = t
+				continue
+			}
+
+			bestIsRunning := bestTask.Status == "running"
+			curIsRunning := t.Status == "running"
+
+			if !bestIsRunning && curIsRunning {
+				bestKey = k
+				bestTask = t
+			} else if bestIsRunning == curIsRunning {
+				if t.StartTime > bestTask.StartTime {
+					bestKey = k
+					bestTask = t
+				} else if t.StartTime == bestTask.StartTime {
+					if k.TenantID == task.DefaultTenantID && bestKey.TenantID != task.DefaultTenantID {
+						bestKey = k
+						bestTask = t
+					} else if bestKey.TenantID != task.DefaultTenantID && k.TenantID < bestKey.TenantID {
+						bestKey = k
+						bestTask = t
+					}
+				}
 			}
 		}
 	}
