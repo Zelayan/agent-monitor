@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
+
+// ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
+var ErrPermissionDenied = errors.New("permission denied")
 
 // taskWriteRequest 封装按 Task 串行持久化的请求。
 type taskWriteRequest struct {
@@ -204,8 +208,18 @@ func isPreActionHook(event string) bool {
 	}
 }
 
-// HandleHookEvent 处理来自 Hook 的上报事件，并根据当前控制状态返回决策指令。
+// HandleHookEvent 处理来自 Hook 的上报事件（默认单机或非多租户模式）。
 func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, error) {
+	return s.HandleHookEventTenant(p, p.KeyID, p.KeyID == "" || p.KeyID == "master")
+}
+
+// HandleHookEventTenant 处理带租户身份校验的 Hook 上报事件。
+// 若非 Master 且尝试修改属于其他租户的既有任务，返回 permission denied 错误。
+func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID string, isMaster bool) (HookEventResult, error) {
+	if !isMaster && tenantKeyID != "" {
+		p.KeyID = tenantKeyID
+	}
+
 	if p.Timestamp == 0 {
 		p.Timestamp = time.Now().Unix()
 	}
@@ -215,13 +229,21 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 
 	s.mu.Lock()
 	t, exists := s.tasks[p.ID]
-	if exists && t != nil && !t.HasUserWork() && task.IsTerminalHook(p.Event) {
-		delete(s.tasks, t.ID)
-		taskID := t.ID
-		taskKeyID := t.KeyID
-		s.mu.Unlock()
-		s.forgetTask(taskID, taskKeyID)
-		return HookEventResult{Action: "allow"}, nil
+	if exists && t != nil {
+		// 校验租户访问权限：非 Master 且任务已被其他租户认领时禁止越权修改（即使 tenantKeyID 为空也严禁越权）
+		if !isMaster && t.KeyID != "" && t.KeyID != tenantKeyID {
+			s.mu.Unlock()
+			return HookEventResult{Action: "deny"}, fmt.Errorf("%w: task %s belongs to tenant %s, cannot be modified by tenant %s", ErrPermissionDenied, t.ID, t.KeyID, tenantKeyID)
+		}
+
+		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {
+			delete(s.tasks, t.ID)
+			taskID := t.ID
+			taskKeyID := t.KeyID
+			s.mu.Unlock()
+			s.forgetTask(taskID, taskKeyID)
+			return HookEventResult{Action: "allow"}, nil
+		}
 	}
 	if !exists {
 		if task.IsVacuousLifecycle(p) {
