@@ -204,7 +204,7 @@
           <kbd class="hidden sm:inline-block pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 font-mono text-[10px] text-zinc-600 border border-line rounded px-1 py-px">⌘K</kbd>
         </label>
         <!-- 状态维度筛选 (Status Filter) -->
-        <select id="status-filter" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 outline-none transition-colors cursor-pointer">
+        <select id="status-filter" aria-label="Status filter" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 outline-none transition-colors cursor-pointer">
           <option value="all">状态: 全部</option>
           <option value="running">运行中</option>
           <option value="completed">已完成</option>
@@ -1124,7 +1124,7 @@
       const names = [...new Set([...tasksMap.values()].map(agentName))]
         .sort((a, b) => a.localeCompare(b, 'zh-CN'));
       if (agentFilter !== 'all' && !names.includes(agentFilter)) agentFilter = 'all';
-      const signature = names.join('\0') + '|' + agentFilter + '|' + currentLang;
+      const signature = names.join('\0') + '|' + agentFilter + '|' + statusFilter + '|' + currentLang;
       if (signature === lastFilterSignature) return;
       lastFilterSignature = signature;
 
@@ -1140,7 +1140,8 @@
     function getTaskSearchText(tObj) {
       if (!tObj) return '';
       const cached = searchIndexCache.get(tObj.id);
-      const curVersion = tObj.version || tObj.generation || 0;
+      const runCount = (tObj.runs || tObj.turns || []).length;
+      const curVersion = tObj.version || tObj.generation || `run:${runCount}:${tObj.endTime || tObj.startTime || 0}:${tObj.lastHook || ''}`;
       if (cached && cached.version === curVersion) {
         return cached.text;
       }
@@ -1181,11 +1182,12 @@
 
     function matchesFilter(tObj) {
       if (!tObj) return false;
-      // 1. 状态筛选
+      // 1. 状态筛选（带大小写与别名规范化容错）
       if (statusFilter !== 'all') {
-        const isRunning = tObj.status === 'running';
-        const isCompleted = tObj.status === 'completed';
-        const isFailed = tObj.status === 'failed';
+        const rawStatus = String(tObj.status || '').toLowerCase();
+        const isRunning = rawStatus === 'running';
+        const isCompleted = rawStatus === 'completed';
+        const isFailed = rawStatus === 'failed' || rawStatus === 'error' || rawStatus === 'aborted' || rawStatus === 'killed';
         if (statusFilter === 'running' && !isRunning) return false;
         if (statusFilter === 'completed' && !isCompleted) return false;
         if (statusFilter === 'failed' && !isFailed) return false;
@@ -2943,6 +2945,7 @@
     if (statusSelect) {
       statusSelect.addEventListener('change', (e) => {
         statusFilter = e.target.value || 'all';
+        lastFilterSignature = '';
         render();
       });
     }
