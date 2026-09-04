@@ -62,6 +62,7 @@ func detectBootID() string {
 }
 
 // GetProcessStartTime 返回指定 PID 对应进程的启动时间基准（Unix 毫秒）。
+// 当前基于 Linux procfs 探测；非 Linux 系统（Darwin/Windows）默认返回 0（由 HostID + BootID + PID 联合保护）。
 func GetProcessStartTime(pid int) int64 {
 	if pid <= 0 {
 		return 0

@@ -796,7 +796,6 @@ func Run(cfg Config, inputReader io.Reader) {
 		TurnIndex:        turnCount,
 		Title:            title,
 		PID:              reportedPID,
-		PGID:             os.Getppid(),
 		HostID:           hostID,
 		BootID:           bootID,
 		ProcessStartTime: startTime,
