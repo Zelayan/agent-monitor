@@ -30,14 +30,19 @@ func (sl *StripedLock) getLock(key string) *sync.Mutex {
 	return &sl.locks[hash%32]
 }
 
+type tombstoneItem struct {
+	version   uint64
+	expiresAt time.Time
+}
+
 // JSONRepository 是基于本地 JSON 文件的 TaskRepository 实现，支持租户分目录隔离存储与版本单调递增保护。
 type JSONRepository struct {
 	dir         string
 	mu          sync.Mutex // 全局目录扫描与迁移互斥锁
 	stripe      StripedLock
 	versionLock sync.RWMutex
-	lastVersion map[string]uint64 // map[TaskKey.String()]latestVersion 已提交版本
-	tombstones  map[string]uint64 // map[TaskKey.String()]tombstoneVersion 墓碑版本
+	lastVersion map[string]uint64        // map[TaskKey.String()]latestVersion 已提交版本
+	tombstones  map[string]tombstoneItem // map[TaskKey.String()]tombstoneItem 短生命周期墓碑 (30s TTL)
 }
 
 // NewJSONRepository 初始化并返回 JSONRepository 实例。
@@ -51,7 +56,7 @@ func NewJSONRepository(dir string) (*JSONRepository, error) {
 	repo := &JSONRepository{
 		dir:         dir,
 		lastVersion: make(map[string]uint64),
-		tombstones:  make(map[string]uint64),
+		tombstones:  make(map[string]tombstoneItem),
 	}
 	repo.CleanOrphanTmpFiles()
 	return repo, nil
@@ -209,6 +214,11 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 		}
 		if t.ID != "" {
 			tasks = append(tasks, &t)
+			if t.Version > 0 {
+				r.versionLock.Lock()
+				r.lastVersion[t.TaskKey().String()] = t.Version
+				r.versionLock.Unlock()
+			}
 		}
 		return nil
 	})
@@ -255,13 +265,14 @@ func (r *JSONRepository) SaveRawKeyVersioned(key task.TaskKey, version uint64, d
 	}
 
 	keyStr := key.String()
+	now := time.Now()
 
-	// 1. 版本与墓碑检查：如果版本号大于 0，拒绝低于等于墓碑版本或已落盘版本的旧请求
+	// 1. 版本与墓碑检查：如果版本号大于 0，拒绝低于等于未过期墓碑版本或已落盘版本的旧请求
 	if version > 0 {
 		r.versionLock.RLock()
-		if tombstoneVer, hasTombstone := r.tombstones[keyStr]; hasTombstone && version <= tombstoneVer {
+		if tomb, hasTomb := r.tombstones[keyStr]; hasTomb && now.Before(tomb.expiresAt) && version <= tomb.version {
 			r.versionLock.RUnlock()
-			return nil // 旧版本已被墓碑压制，幂等忽略，杜绝删除后复活
+			return nil // 旧版本已被活跃墓碑压制，幂等忽略，杜绝删除后短时间内被滞后写复活
 		}
 		if lastVer, hasVer := r.lastVersion[keyStr]; hasVer && version <= lastVer {
 			r.versionLock.RUnlock()
@@ -277,7 +288,7 @@ func (r *JSONRepository) SaveRawKeyVersioned(key task.TaskKey, version uint64, d
 	// 双重校验版本
 	if version > 0 {
 		r.versionLock.RLock()
-		if tombstoneVer, hasTombstone := r.tombstones[keyStr]; hasTombstone && version <= tombstoneVer {
+		if tomb, hasTomb := r.tombstones[keyStr]; hasTomb && now.Before(tomb.expiresAt) && version <= tomb.version {
 			r.versionLock.RUnlock()
 			return nil
 		}
@@ -324,15 +335,13 @@ func (r *JSONRepository) SaveRawKeyVersioned(key task.TaskKey, version uint64, d
 
 	success = true
 
-	// 更新落盘记录的版本号并清理旧墓碑（若新版本高于墓碑版本）
+	// 更新落盘记录的版本号并清理墓碑
 	if version > 0 {
 		r.versionLock.Lock()
 		if version > r.lastVersion[keyStr] {
 			r.lastVersion[keyStr] = version
 		}
-		if tombVer, ok := r.tombstones[keyStr]; ok && version > tombVer {
-			delete(r.tombstones, keyStr)
-		}
+		delete(r.tombstones, keyStr)
 		r.versionLock.Unlock()
 	}
 
@@ -350,7 +359,7 @@ func (r *JSONRepository) DeleteKey(key task.TaskKey) error {
 	return r.DeleteKeyVersioned(key, 0)
 }
 
-// DeleteKeyVersioned 根据 TaskKey 写入删除墓碑并删除对应文件，压制版本更低的 Save。
+// DeleteKeyVersioned 根据 TaskKey 写入删除墓碑（TTL 30 秒）并删除对应文件，清除旧版本记录，防滞后旧写复活。
 func (r *JSONRepository) DeleteKeyVersioned(key task.TaskKey, version uint64) error {
 	if key.IsZero() {
 		return nil
@@ -360,10 +369,12 @@ func (r *JSONRepository) DeleteKeyVersioned(key task.TaskKey, version uint64) er
 
 	r.versionLock.Lock()
 	if version > 0 {
-		if curTomb, ok := r.tombstones[keyStr]; !ok || version > curTomb {
-			r.tombstones[keyStr] = version
+		r.tombstones[keyStr] = tombstoneItem{
+			version:   version,
+			expiresAt: time.Now().Add(30 * time.Second),
 		}
 	}
+	delete(r.lastVersion, keyStr)
 	r.versionLock.Unlock()
 
 	lock := r.stripe.getLock(keyStr)

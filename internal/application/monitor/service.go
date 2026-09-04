@@ -159,7 +159,7 @@ func (s *MonitorService) executePersistenceCommand(cmd taskPersistenceCommand) {
 	}
 }
 
-// enqueuePersist 尝试将 Save 命令推入管道。队列满时按 TaskKey 合并旧 Save，只保留更高版本，绝不开旁路并发写。
+// enqueuePersist 尝试将 Save 命令推入管道。若管道满，通过短超时等待缓冲释放，超时后记录告警，严格维持单 Worker 串行有序消费。
 func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data []byte) {
 	if s.repo == nil || key.IsZero() || len(data) == 0 {
 		return
@@ -175,26 +175,18 @@ func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data [
 	case s.persistChan <- cmd:
 		return
 	default:
-		// 管道满：尝试弹出同 TaskKey 且版本更低的旧命令进行合并
-		select {
-		case oldCmd := <-s.persistChan:
-			// 若弹出的不是同一个任务，将较早任务先执行写入，确保不丢失
-			if oldCmd.key != cmd.key || oldCmd.op != OpSave {
-				s.executePersistenceCommand(oldCmd)
-			}
-		default:
-		}
-		// 再次推入最新版本
+		// 管道满：短超时等待缓冲释放，杜绝反模式从 FIFO 管道头部误弹其他任务的命令
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
 		select {
 		case s.persistChan <- cmd:
-		default:
-			// 极端背压下同步执行当前最新命令，保持在调用者时序中，杜绝旁路 goroutine 乱序
-			s.executePersistenceCommand(cmd)
+		case <-ctx.Done():
+			log.Printf("[Application] Warning: persistence queue saturated, dropped save command for %s v%d", key.String(), version)
 		}
 	}
 }
 
-// enqueueDelete 尝试将 Delete 命令推入管道，并以墓碑版本压制滞后 Save。
+// enqueueDelete 尝试将 Delete 命令推入管道。若管道满，通过短超时等待推入。
 func (s *MonitorService) enqueueDelete(key task.TaskKey, version uint64) {
 	if s.repo == nil || key.IsZero() {
 		return
@@ -209,8 +201,13 @@ func (s *MonitorService) enqueueDelete(key task.TaskKey, version uint64) {
 	case s.persistChan <- cmd:
 		return
 	default:
-		// 队列满时同步执行删除并写入墓碑
-		s.executePersistenceCommand(cmd)
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case s.persistChan <- cmd:
+		case <-ctx.Done():
+			log.Printf("[Application] Warning: persistence queue saturated, dropped delete command for %s v%d", key.String(), version)
+		}
 	}
 }
 
@@ -337,8 +334,9 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {
 			delete(s.tasks, targetKey)
+			ver := t.Version
 			s.mu.Unlock()
-			s.forgetTask(targetKey)
+			s.forgetTask(targetKey, ver)
 			return HookEventResult{Action: "allow"}, nil
 		}
 	} else if !exists && !isMaster {
@@ -756,13 +754,13 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 }
 
 // forgetTask 删除从未产生真实工作的空会话，避免看板留下「打开即关」的占位卡片。
-func (s *MonitorService) forgetTask(key task.TaskKey) {
+func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 	if key.IsZero() {
 		return
 	}
 	delete(s.steerQueue, key)
 	if s.repo != nil {
-		s.enqueueDelete(key, 0)
+		s.enqueueDelete(key, version)
 	}
 	if s.hub != nil {
 		delEvent := map[string]interface{}{

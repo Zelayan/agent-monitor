@@ -273,4 +273,26 @@ func TestJSONRepository_VersionedAndTombstoneSuppression(t *testing.T) {
 	if err != nil || len(afterV4) != 1 || afterV4[0].Version != 4 {
 		t.Fatalf("v4 should succeed and clear stale tombstone: got %+v", afterV4)
 	}
+
+	// 6. 重启 Repository 并通过 FindAll 恢复已落盘版本
+	repoRestart, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("NewJSONRepository restart failed: %v", err)
+	}
+	defer repoRestart.Close()
+
+	if _, err := repoRestart.FindAll(); err != nil {
+		t.Fatalf("FindAll on restart failed: %v", err)
+	}
+
+	// 重启后提交旧版本 v3，必须被恢复的 lastVersion 拦截，不得覆盖 v4
+	v3 := &task.Task{ID: "sess-v-01", KeyID: "tenant-order", Version: 3, Detail: "stale v3"}
+	d3, _ := json.Marshal(v3)
+	if err := repoRestart.SaveRawKeyVersioned(key, 3, d3); err != nil {
+		t.Fatalf("SaveRawKeyVersioned failed: %v", err)
+	}
+	reloaded, _ := repoRestart.FindAll()
+	if len(reloaded) != 1 || reloaded[0].Version != 4 {
+		t.Fatalf("stale v3 overwrote v4 after restart: %+v", reloaded)
+	}
 }
