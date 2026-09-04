@@ -211,6 +211,7 @@ type EventReport struct {
 	SubagentType     string `json:"subagent_type,omitempty"`
 	Agent            string `json:"agent"`
 	Repo             string `json:"repo"`
+	Branch           string `json:"branch,omitempty"`
 	Event            string `json:"event"`
 	Timestamp        int64  `json:"timestamp"`
 	Detail           string `json:"detail"`
@@ -795,7 +796,8 @@ func Run(cfg Config, inputReader io.Reader) {
 		SubagentID:       subID,
 		SubagentType:     subType,
 		Agent:            agentName,
-		Repo:             fmt.Sprintf("%s:%s", repo, branch),
+		Repo:             repo,
+		Branch:           branch,
 		Event:            mappedEvent,
 		Timestamp:        time.Now().Unix(),
 		Detail:           detail,

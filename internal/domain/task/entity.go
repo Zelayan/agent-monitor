@@ -110,6 +110,23 @@ func (t *Task) TaskKey() TaskKey {
 	return NewTaskKey(t.KeyID, t.ID)
 }
 
+// NormalizeRepoAndBranch 解析并规范化 Repo 与 Branch，提供旧格式 repo:branch 的平滑向后兼容与分离。
+func NormalizeRepoAndBranch(rawRepo, rawBranch string) (string, string) {
+	repo := strings.TrimSpace(rawRepo)
+	branch := strings.TrimSpace(rawBranch)
+
+	if branch == "" && strings.Contains(repo, ":") {
+		parts := strings.SplitN(repo, ":", 2)
+		// 防御形如 "C:\path" 或 "D:/path" 的 Windows 盘符路径
+		isWindowsDrive := len(parts[0]) == 1 && (parts[1] == "" || parts[1][0] == '\\' || parts[1][0] == '/')
+		if !isWindowsDrive {
+			repo = strings.TrimSpace(parts[0])
+			branch = strings.TrimSpace(parts[1])
+		}
+	}
+	return repo, branch
+}
+
 // NewTask 根据首个上报事件创建全新的 Task 聚合根。
 func NewTask(p EventPayload, nowMs int64) *Task {
 	if p.ID == "" {
@@ -118,6 +135,8 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	if p.Agent == "" {
 		p.Agent = "AI Agent"
 	}
+
+	repo, branch := NormalizeRepoAndBranch(p.Repo, p.Branch)
 
 	title := p.Title
 	if !IsRealTitle(title) {
@@ -154,8 +173,8 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		ParentID:         p.ParentID,
 		SubagentCount:    subCount,
 		Agent:            p.Agent,
-		Repo:             p.Repo,
-		Branch:           p.Branch,
+		Repo:             repo,
+		Branch:           branch,
 		RootGoal:         rootGoal,
 		Title:            title,
 		Prompt:           p.Prompt,
@@ -624,6 +643,15 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 
+	if p.Repo != "" || p.Branch != "" {
+		normRepo, normBranch := NormalizeRepoAndBranch(p.Repo, p.Branch)
+		if normRepo != "" {
+			t.Repo = normRepo
+		}
+		if normBranch != "" {
+			t.Branch = normBranch
+		}
+	}
 	t.LastHook = p.Event
 	t.Detail = p.Detail
 	if p.PID > 0 {
