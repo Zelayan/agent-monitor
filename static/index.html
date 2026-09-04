@@ -753,6 +753,7 @@
         sortLifetime: '累计耗时',
         sortTotalRuns: '轮次最多',
         sortFailedFirst: '失败优先',
+        lblCopyLink: '链接',
         btnCopyLink: '复制视图链接',
         linkCopied: '已复制当前视图链接到剪贴板！',
         btnFollowLatest: '跟踪最新',
@@ -876,6 +877,7 @@
         sortLifetime: 'Total Lifetime',
         sortTotalRuns: 'Most Runs',
         sortFailedFirst: 'Failed First',
+        lblCopyLink: 'Link',
         btnCopyLink: 'Copy View Link',
         linkCopied: 'View link copied to clipboard!',
         btnFollowLatest: 'Follow Latest',
@@ -1029,6 +1031,8 @@
       }
       const copyViewBtn = document.getElementById('btn-copy-view');
       if (copyViewBtn) copyViewBtn.title = t('btnCopyLink');
+      const lblCopyView = document.getElementById('lbl-copy-view');
+      if (lblCopyView) lblCopyView.textContent = t('lblCopyLink');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1659,7 +1663,7 @@
       }
     }
 
-    function openDrawer(id, explicitRunId = null) {
+    function openDrawer(id, explicitRunId = null, shouldPushHistory = true) {
       selectedId = id;
       const task = tasksMap.get(id);
       if (!task) return;
@@ -1679,11 +1683,11 @@
       document.getElementById('drawer-overlay').classList.add('open');
       drawerEl.setAttribute('aria-hidden', 'false');
       
-      syncURLState();
+      syncURLState(shouldPushHistory);
       refreshDrawer();
     }
 
-    function closeDrawer() {
+    function closeDrawer(shouldPushHistory = true) {
       selectedId = null;
       selectedRunId = null;
       isFollowLatest = true;
@@ -1691,7 +1695,7 @@
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'true');
-      syncURLState();
+      syncURLState(shouldPushHistory);
     }
 
     function toggleRunDropdown(force) {
@@ -3392,7 +3396,7 @@
     // 深链接 (Deep Links) 与 URL 状态双向同步
     let isRestoringURL = false;
 
-    function syncURLState() {
+    function syncURLState(push = false) {
       if (isRestoringURL) return;
       const params = new URLSearchParams();
       if (selectedId) params.set('task', selectedId);
@@ -3405,7 +3409,11 @@
       const queryStr = params.toString();
       const newUrl = queryStr ? (window.location.pathname + '?' + queryStr) : window.location.pathname;
       if (window.location.search !== (queryStr ? '?' + queryStr : '')) {
-        window.history.replaceState({ task: selectedId, run: selectedRunId }, '', newUrl);
+        if (push) {
+          window.history.pushState({ task: selectedId, run: selectedRunId }, '', newUrl);
+        } else {
+          window.history.replaceState({ task: selectedId, run: selectedRunId }, '', newUrl);
+        }
       }
     }
 
@@ -3443,7 +3451,9 @@
 
         if (taskParam && tasksMap.has(taskParam)) {
           const runId = runParam ? parseInt(runParam, 10) : null;
-          openDrawer(taskParam, runId);
+          openDrawer(taskParam, runId, false); // URL 回退时不重复 push 历史
+        } else if (selectedId) {
+          closeDrawer(false); // URL 不含 task 参数时，同步关闭抽屉
         }
       } finally {
         isRestoringURL = false;
