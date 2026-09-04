@@ -4,10 +4,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 )
 
 var (
@@ -54,12 +52,9 @@ func detectBootID() string {
 		}
 	}
 
-	// 2. macOS / Darwin: 获取 kern.boottime sysctl 或 fallback
-	if runtime.GOOS == "darwin" {
-		if out, err := syscall.Sysctl("kern.boottime"); err == nil && out != "" {
-			hash := sha256.Sum256([]byte(out))
-			return hex.EncodeToString(hash[:16])
-		}
+	// 2. macOS / Darwin: 获取 kern.boottime
+	if id := darwinBootID(); id != "" {
+		return id
 	}
 
 	return "unknown-boot"

@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
@@ -52,10 +50,9 @@ func detectHostAndBootID() (string, string) {
 				localBootID = id
 			}
 		}
-		if localBootID == "" && runtime.GOOS == "darwin" {
-			if out, err := syscall.Sysctl("kern.boottime"); err == nil && out != "" {
-				hash := sha256.Sum256([]byte(out))
-				localBootID = hex.EncodeToString(hash[:16])
+		if localBootID == "" {
+			if id := darwinBootID(); id != "" {
+				localBootID = id
 			}
 		}
 		if localBootID == "" {
@@ -694,29 +691,8 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	nowMs := time.Now().UnixMilli()
 	nowStr := time.Now().Format("15:04:05")
 
-	// 2. 真实进程组级终止：优先针对负 PGID 发送信号
-	if runtime.GOOS != "windows" {
-		targetGroup := pgid
-		if targetGroup <= 1 {
-			targetGroup = pid
-		}
-		if targetGroup > 1 {
-			// 先发送 SIGTERM，并在必要时升级 SIGKILL
-			if err := syscall.Kill(-targetGroup, syscall.SIGTERM); err != nil {
-				// 若负 PGID 报错，降级单 PID
-				if pid > 1 {
-					_ = syscall.Kill(pid, syscall.SIGTERM)
-				}
-			}
-		}
-	} else {
-		// Windows 平台单进程终止兜底
-		if pid > 0 {
-			if proc, err := os.FindProcess(pid); err == nil && proc != nil {
-				_ = proc.Kill()
-			}
-		}
-	}
+	// 2. 真实进程组级终止：跨平台隔离实现
+	_ = terminateProcessGroup(pid, pgid)
 
 	reason := "用户强制终止了会话进程组 (SIGTERM/SIGKILL)"
 	t.MarkKilled(reason, nowMs, nowStr)
