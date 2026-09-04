@@ -2,6 +2,7 @@ package monitor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -12,6 +13,9 @@ import (
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
+
+// ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
+var ErrPermissionDenied = errors.New("permission denied")
 
 // taskWriteRequest 封装按 Task 串行持久化的请求。
 type taskWriteRequest struct {
@@ -226,10 +230,10 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	s.mu.Lock()
 	t, exists := s.tasks[p.ID]
 	if exists && t != nil {
-		// 校验租户访问权限：非 Master 且任务已被其他租户认领时禁止越权修改
-		if !isMaster && t.KeyID != "" && tenantKeyID != "" && t.KeyID != tenantKeyID {
+		// 校验租户访问权限：非 Master 且任务已被其他租户认领时禁止越权修改（即使 tenantKeyID 为空也严禁越权）
+		if !isMaster && t.KeyID != "" && t.KeyID != tenantKeyID {
 			s.mu.Unlock()
-			return HookEventResult{Action: "deny"}, fmt.Errorf("permission denied: task %s belongs to tenant %s, cannot be modified by tenant %s", t.ID, t.KeyID, tenantKeyID)
+			return HookEventResult{Action: "deny"}, fmt.Errorf("%w: task %s belongs to tenant %s, cannot be modified by tenant %s", ErrPermissionDenied, t.ID, t.KeyID, tenantKeyID)
 		}
 
 		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {

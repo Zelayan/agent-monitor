@@ -3,6 +3,7 @@ package http
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
@@ -217,10 +218,12 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 
 	res, err := h.svc.HandleHookEventTenant(p, authCtx.KeyID, authCtx.IsMaster)
 	if err != nil {
-		if strings.Contains(err.Error(), "permission denied") {
+		if errors.Is(err, monitor.ErrPermissionDenied) || strings.Contains(err.Error(), "permission denied") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusForbidden)
-			w.Write([]byte(fmt.Sprintf(`{"error":"Forbidden: %s"}`, err.Error())))
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "Forbidden: " + err.Error(),
+			})
 			return
 		}
 		http.Error(w, "Internal server error: "+err.Error(), http.StatusInternalServerError)

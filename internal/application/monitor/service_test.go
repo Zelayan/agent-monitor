@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -454,5 +455,21 @@ func TestHandleHookEventTenantIsolation(t *testing.T) {
 	}, "project-alpha", true)
 	if err != nil {
 		t.Fatalf("master update should succeed, got %v", err)
+	}
+
+	// 5. 匿名/空租户身份（非 Master）企图篡改或通过终端 Hook 销毁已属于 project-alpha 的任务，必须坚决拒绝
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-iso-1",
+		Agent:     "Cursor Agent",
+		Event:     "sessionEnd",
+		Detail:    "illegal destroy",
+		Timestamp: time.Now().Unix(),
+	}, "", false)
+	if err == nil || !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when anonymous caller mutates project-alpha task, got %v", err)
+	}
+	// 验证任务并未被非法篡改或销毁
+	if svc.GetTask("sess-iso-1") == nil {
+		t.Fatal("task was illegally deleted by anonymous terminal event")
 	}
 }
