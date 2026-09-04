@@ -211,6 +211,19 @@
           <option value="failed">已失败</option>
         </select>
         <div id="agent-filters" class="flex items-center gap-1 flex-wrap" role="group" aria-label="Agent filter"></div>
+        <!-- 排序维度选择器 (Sort Selector) -->
+        <select id="sort-selector" aria-label="Sort order" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 outline-none transition-colors cursor-pointer">
+          <option value="recent">排序: 最近事件</option>
+          <option value="created">创建时间</option>
+          <option value="duration">累计耗时</option>
+          <option value="runs">轮次最多</option>
+          <option value="failed">失败优先</option>
+        </select>
+        <!-- 复制当前视图链接 (Copy View Link) -->
+        <button id="btn-copy-view" type="button" class="h-7 px-2 rounded border border-line bg-card flex items-center gap-1.5 text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors font-mono text-[11px]" title="复制当前视图链接">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          <span id="lbl-copy-view" class="hidden sm:inline">链接</span>
+        </button>
         <button id="btn-lang" type="button" class="h-7 px-2 rounded border border-line bg-card font-mono text-[11px] text-zinc-400 hover:border-zinc-500 hover:text-zinc-200" title="Switch Language / 切换语言">
           EN
         </button>
@@ -478,6 +491,11 @@
 
       <!-- 自定义暗色 Dropdown 下拉选择器 -->
       <div class="relative flex items-center justify-between sm:justify-end gap-2 w-full sm:w-auto min-w-0" id="run-dropdown-container">
+        <!-- 跟踪最新切换按钮 (Follow Latest Toggle) -->
+        <button id="btn-follow-latest" type="button" class="px-2 py-0.5 rounded border border-line bg-[#18181b] text-zinc-400 font-mono text-[10px] hover:text-zinc-200 transition-colors shrink-0 flex items-center gap-1" title="跟随最新轮次">
+          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" id="dot-follow-latest"></span>
+          <span id="lbl-follow-latest">跟踪最新</span>
+        </button>
         <span class="font-mono text-[10px] text-zinc-500 shrink-0 uppercase select-none tracking-wider">JUMP TO:</span>
         
         <div class="relative flex-1 sm:flex-initial">
@@ -730,6 +748,18 @@
         filterStatusCompleted: '已完成',
         filterStatusFailed: '已失败',
         filterClearAll: '清空筛选',
+        sortLatestEvent: '排序: 最近事件',
+        sortStartTime: '创建时间',
+        sortLifetime: '累计耗时',
+        sortTotalRuns: '轮次最多',
+        sortFailedFirst: '失败优先',
+        lblCopyLink: '链接',
+        btnCopyLink: '复制视图链接',
+        linkCopied: '已复制当前视图链接到剪贴板！',
+        btnFollowLatest: '跟踪最新',
+        followingLatest: '已跟随最新 Run',
+        followPaused: '已暂停跟随',
+        promptCopyUrl: '请复制当前视图链接:',
       },
       en: {
         htmlLang: 'en',
@@ -843,6 +873,18 @@
         filterStatusCompleted: 'Completed',
         filterStatusFailed: 'Failed',
         filterClearAll: 'Clear Filters',
+        sortLatestEvent: 'Sort: Recent Event',
+        sortStartTime: 'Created Time',
+        sortLifetime: 'Total Lifetime',
+        sortTotalRuns: 'Most Runs',
+        sortFailedFirst: 'Failed First',
+        lblCopyLink: 'Link',
+        btnCopyLink: 'Copy View Link',
+        linkCopied: 'View link copied to clipboard!',
+        btnFollowLatest: 'Follow Latest',
+        followingLatest: 'Following Latest Run',
+        followPaused: 'Follow Paused',
+        promptCopyUrl: 'Copy View URL:',
       },
     };
 
@@ -858,6 +900,8 @@
     let query = '';
     let agentFilter = 'all';
     let statusFilter = 'all';
+    let sortOrder = localStorage.getItem('agent_monitor_sort') || 'recent';
+    let isFollowLatest = true;
     let selectedId = null;
     let selectedRunId = null;
     let eventSource = null;
@@ -973,6 +1017,29 @@
         for (const opt of statusFilterEl.options) {
           if (statusLabels[opt.value]) opt.textContent = statusLabels[opt.value];
         }
+      }
+      const sortSelectorEl = document.getElementById('sort-selector');
+      if (sortSelectorEl) {
+        const sortLabels = {
+          recent: t('sortLatestEvent'),
+          created: t('sortStartTime'),
+          duration: t('sortLifetime'),
+          runs: t('sortTotalRuns'),
+          failed: t('sortFailedFirst'),
+        };
+        for (const opt of sortSelectorEl.options) {
+          if (sortLabels[opt.value]) opt.textContent = sortLabels[opt.value];
+        }
+      }
+      const copyViewBtn = document.getElementById('btn-copy-view');
+      if (copyViewBtn) copyViewBtn.title = t('btnCopyLink');
+      const lblCopyView = document.getElementById('lbl-copy-view');
+      if (lblCopyView) lblCopyView.textContent = t('lblCopyLink');
+      const btnFollowLatest = document.getElementById('btn-follow-latest');
+      const lblFollowLatest = document.getElementById('lbl-follow-latest');
+      if (btnFollowLatest && lblFollowLatest) {
+        lblFollowLatest.textContent = isFollowLatest ? t('btnFollowLatest') : t('followPaused');
+        btnFollowLatest.title = isFollowLatest ? t('followingLatest') : t('followPaused');
       }
       updateNotifyButtonUI();
       updateAuthButtonUI();
@@ -1483,7 +1550,37 @@
         }
       }
 
-      rootNodes.sort((a, b) => (b.task.startTime || 0) - (a.task.startTime || 0));
+      // 根据 sortOrder 执行多维排序
+      function getLiveDuration(t) {
+        if (!t || t.status !== 'running' || !t.activeRunStart) return 0;
+        const startMs = t.activeRunStart < 1e11 ? t.activeRunStart * 1000 : t.activeRunStart;
+        return Math.max(0, Math.floor((Date.now() - startMs) / 1000));
+      }
+
+      rootNodes.sort((a, b) => {
+        const tA = a.task;
+        const tB = b.task;
+        switch (sortOrder) {
+          case 'created':
+            return (b.task.startTime || 0) - (a.task.startTime || 0);
+          case 'duration': {
+            const durA = (tA.totalLifetime || 0) + getLiveDuration(tA);
+            const durB = (tB.totalLifetime || 0) + getLiveDuration(tB);
+            return durB - durA;
+          }
+          case 'runs':
+            return (b.task.totalRuns || (b.task.runs || []).length || 0) - (a.task.totalRuns || (a.task.runs || []).length || 0);
+          case 'failed': {
+            const aFail = tA.status === 'failed' ? 1 : 0;
+            const bFail = tB.status === 'failed' ? 1 : 0;
+            if (bFail !== aFail) return bFail - aFail;
+            return (b.task.endTime || b.task.startTime || 0) - (a.task.endTime || a.task.startTime || 0);
+          }
+          case 'recent':
+          default:
+            return (b.task.endTime || b.task.startTime || 0) - (a.task.endTime || a.task.startTime || 0);
+        }
+      });
 
       const buckets = { running: [], completed: [], failed: [] };
       rootNodes.forEach(node => {
@@ -1580,13 +1677,19 @@
       }
     }
 
-    function openDrawer(id) {
+    function openDrawer(id, explicitRunId = null, shouldPushHistory = true) {
       selectedId = id;
       const task = tasksMap.get(id);
       if (!task) return;
 
       const runs = getTaskRuns(task);
-      selectedRunId = runs[runs.length - 1].index || runs.length; // 默认选中最新一轮
+      if (explicitRunId && explicitRunId >= 1 && explicitRunId <= runs.length) {
+        selectedRunId = explicitRunId;
+        isFollowLatest = (explicitRunId === runs.length);
+      } else {
+        selectedRunId = runs[runs.length - 1].index || runs.length; // 默认选中最新一轮
+        isFollowLatest = true;
+      }
 
       const drawerEl = document.getElementById('drawer');
       drawerEl.scrollTop = 0;
@@ -1594,16 +1697,19 @@
       document.getElementById('drawer-overlay').classList.add('open');
       drawerEl.setAttribute('aria-hidden', 'false');
       
+      syncURLState(shouldPushHistory);
       refreshDrawer();
     }
 
-    function closeDrawer() {
+    function closeDrawer(shouldPushHistory = true) {
       selectedId = null;
       selectedRunId = null;
+      isFollowLatest = true;
       toggleRunDropdown(false);
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'true');
+      syncURLState(shouldPushHistory);
     }
 
     function toggleRunDropdown(force) {
@@ -1711,9 +1817,11 @@
       const target = selectedRunId + delta;
       if (target >= 1 && target <= runs.length) {
         selectedRunId = target;
+        isFollowLatest = (selectedRunId === runs.length);
         updateStepButtons(runs.length);
         populateRunDropdown(runs);
         renderSelectedRunDetails(task, runs);
+        syncURLState();
       }
     }
 
@@ -1722,9 +1830,11 @@
       const task = tasksMap.get(selectedId);
       if (!task) return;
       const runs = getTaskRuns(task);
+      isFollowLatest = (selectedRunId === runs.length);
       updateStepButtons(runs.length);
       populateRunDropdown(runs);
       renderSelectedRunDetails(task, runs);
+      syncURLState();
     }
 
     function renderSelectedRunDetails(task, runs) {
@@ -1995,6 +2105,26 @@
         totalDurEl.dataset.start = isTaskRunning && task.activeRunStart ? task.activeRunStart : '';
       }
       document.getElementById('drawer-runs-count').innerText = `Total Runs: ${runs.length}`;
+
+      // 刷新 Follow Latest 按钮样式与状态
+      const btnFollowLatest = document.getElementById('btn-follow-latest');
+      const dotFollowLatest = document.getElementById('dot-follow-latest');
+      const lblFollowLatest = document.getElementById('lbl-follow-latest');
+      if (btnFollowLatest && dotFollowLatest && lblFollowLatest) {
+        if (isFollowLatest) {
+          dotFollowLatest.className = 'w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0';
+          lblFollowLatest.textContent = t('btnFollowLatest');
+          btnFollowLatest.classList.add('text-zinc-300');
+          btnFollowLatest.classList.remove('text-zinc-500');
+          btnFollowLatest.title = t('followingLatest');
+        } else {
+          dotFollowLatest.className = 'w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0';
+          lblFollowLatest.textContent = t('followPaused');
+          btnFollowLatest.classList.remove('text-zinc-300');
+          btnFollowLatest.classList.add('text-zinc-500');
+          btnFollowLatest.title = t('followPaused');
+        }
+      }
 
       populateRunDropdown(runs);
       renderSelectedRunDetails(task, runs);
@@ -2356,6 +2486,9 @@
               updateBatchUI();
               scheduleRender();
             }
+            if (isInitialLoad) {
+              restoreURLState();
+            }
             return;
           }
 
@@ -2394,6 +2527,12 @@
             if (data.keyId && !currentTenant) {
               currentTenant = data.keyId;
               updateAuthButtonUI();
+            }
+            if (selectedId === data.id && isFollowLatest) {
+              const runs = getTaskRuns(data);
+              selectedRunId = runs[runs.length - 1].index || runs.length;
+              if (selectedId) refreshDrawer();
+              syncURLState(false);
             }
             if (!isInitialLoad && oldTask && oldTask.status === 'running') {
               if (data.status === 'completed') {
@@ -2930,6 +3069,7 @@
     const debouncedSearch = debounce((val) => {
       query = val.trim().toLowerCase();
       updateBatchUI();
+      syncURLState();
       render();
     }, 200);
 
@@ -2947,6 +3087,7 @@
       if (!btn) return;
       agentFilter = btn.dataset.filter;
       lastFilterSignature = '';
+      syncURLState();
       render();
     });
     const statusSelect = document.getElementById('status-filter');
@@ -2954,7 +3095,35 @@
       statusSelect.addEventListener('change', (e) => {
         statusFilter = e.target.value || 'all';
         lastFilterSignature = '';
+        syncURLState();
         render();
+      });
+    }
+    const sortSelect = document.getElementById('sort-selector');
+    if (sortSelect) {
+      sortSelect.value = sortOrder;
+      sortSelect.addEventListener('change', (e) => {
+        sortOrder = e.target.value || 'recent';
+        localStorage.setItem('agent_monitor_sort', sortOrder);
+        lastFilterSignature = '';
+        syncURLState();
+        render();
+      });
+    }
+    const copyViewBtn = document.getElementById('btn-copy-view');
+    if (copyViewBtn) {
+      copyViewBtn.addEventListener('click', () => {
+        syncURLState();
+        const fullUrl = window.location.href;
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(fullUrl).then(() => {
+            showToast(t('linkCopied'), false);
+          }).catch(() => {
+            prompt(t('promptCopyUrl') || 'Copy URL:', fullUrl);
+          });
+        } else {
+          prompt(t('promptCopyUrl') || 'Copy URL:', fullUrl);
+        }
       });
     }
     document.getElementById('btn-lang').addEventListener('click', toggleLanguage);
@@ -2963,6 +3132,21 @@
     document.getElementById('drawer-overlay').addEventListener('click', closeDrawer);
     document.getElementById('btn-prev-run').addEventListener('click', () => stepRun(-1));
     document.getElementById('btn-next-run').addEventListener('click', () => stepRun(1));
+    const btnFollowToggle = document.getElementById('btn-follow-latest');
+    if (btnFollowToggle) {
+      btnFollowToggle.addEventListener('click', () => {
+        isFollowLatest = !isFollowLatest;
+        const task = tasksMap.get(selectedId);
+        if (task) {
+          const runs = getTaskRuns(task);
+          if (isFollowLatest) {
+            selectedRunId = runs[runs.length - 1].index || runs.length;
+          }
+          refreshDrawer();
+          syncURLState();
+        }
+      });
+    }
 
     // 清空操作下拉菜单与批量模式绑定
     const btnClearDropdown = document.getElementById('btn-clear-dropdown');
@@ -3222,6 +3406,79 @@
       if (!card) return;
       e.preventDefault();
       openDrawer(card.dataset.taskId);
+    });
+
+    // 深链接 (Deep Links) 与 URL 状态双向同步
+    let isRestoringURL = false;
+
+    function syncURLState(push = false) {
+      if (isRestoringURL) return;
+      const params = new URLSearchParams();
+      if (selectedId) params.set('task', selectedId);
+      if (selectedRunId) params.set('run', String(selectedRunId));
+      if (query) params.set('q', query);
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
+      if (agentFilter && agentFilter !== 'all') params.set('agent', agentFilter);
+      if (sortOrder && sortOrder !== 'recent') params.set('sort', sortOrder);
+
+      const queryStr = params.toString();
+      const newUrl = queryStr ? (window.location.pathname + '?' + queryStr) : window.location.pathname;
+      if (window.location.search !== (queryStr ? '?' + queryStr : '')) {
+        if (push) {
+          window.history.pushState({ task: selectedId, run: selectedRunId }, '', newUrl);
+        } else {
+          window.history.replaceState({ task: selectedId, run: selectedRunId }, '', newUrl);
+        }
+      }
+    }
+
+    function restoreURLState() {
+      isRestoringURL = true;
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const qParam = params.get('q');
+        const statusParam = params.get('status');
+        const agentParam = params.get('agent');
+        const sortParam = params.get('sort');
+        const taskParam = params.get('task');
+        const runParam = params.get('run');
+
+        // 搜索词重置或赋值
+        query = qParam !== null ? qParam.trim().toLowerCase() : '';
+        const sInput = document.getElementById('search-input');
+        if (sInput) sInput.value = query;
+
+        // 状态重置或赋值
+        statusFilter = (statusParam && ['all', 'running', 'completed', 'failed'].includes(statusParam)) ? statusParam : 'all';
+        const sSelect = document.getElementById('status-filter');
+        if (sSelect) sSelect.value = statusFilter;
+
+        // Agent 筛选重置或赋值
+        agentFilter = agentParam || 'all';
+
+        // 排序维度重置或赋值
+        sortOrder = (sortParam && ['recent', 'created', 'duration', 'runs', 'failed'].includes(sortParam))
+          ? sortParam
+          : (localStorage.getItem('agent_monitor_sort') || 'recent');
+        const sortSel = document.getElementById('sort-selector');
+        if (sortSel) sortSel.value = sortOrder;
+
+        lastFilterSignature = '';
+        render();
+
+        if (taskParam && tasksMap.has(taskParam)) {
+          const runId = runParam ? parseInt(runParam, 10) : null;
+          openDrawer(taskParam, runId, false); // URL 回退时不重复 push 历史
+        } else if (selectedId) {
+          closeDrawer(false); // URL 不含 task 参数时，同步关闭抽屉
+        }
+      } finally {
+        isRestoringURL = false;
+      }
+    }
+
+    window.addEventListener('popstate', () => {
+      restoreURLState();
     });
 
     setInterval(tickTimers, 1000);
