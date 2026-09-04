@@ -326,8 +326,8 @@
         <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
       </div>
       <div class="flex items-center gap-1.5 shrink-0">
-        <!-- 聚焦/定位 Cursor 对话 -->
-        <button id="btn-drawer-focus-cursor" type="button" class="h-7 px-2 rounded border border-indigo-800/60 bg-indigo-950/40 font-mono text-[10px] text-indigo-300 hover:bg-indigo-900/60 hover:text-white flex items-center gap-1 transition-colors" title="Focus in Cursor / 在 Cursor 中定位会话">
+        <!-- Cursor 尚未公开按 conversation_id 定位本地会话的稳定接口，入口暂时隐藏。 -->
+        <button id="btn-drawer-focus-cursor" type="button" class="hidden h-7 px-2 rounded border border-indigo-800/60 bg-indigo-950/40 font-mono text-[10px] text-indigo-300 hover:bg-indigo-900/60 hover:text-white items-center gap-1 transition-colors" title="Focus in Cursor / 在 Cursor 中定位会话" aria-hidden="true" tabindex="-1">
           <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
           <span id="lbl-drawer-focus-cursor">聚焦</span>
         </button>
