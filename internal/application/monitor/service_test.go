@@ -693,3 +693,36 @@ func TestMonitorService_GracefulCloseDrainsPersistence(t *testing.T) {
 		t.Fatalf("expected all 100 tasks to be persisted, but got %d", len(all))
 	}
 }
+
+func TestMonitorService_KillSafetyHostMismatch(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	svc := NewMonitorService(repo, nil)
+	defer svc.Close()
+
+	// 模拟一个来自远程主机的会话
+	remoteTask := task.NewTask(task.EventPayload{
+		ID:        "sess-remote-kill-01",
+		KeyID:     "tenant-safe",
+		Agent:     "Cursor",
+		Event:     "sessionStart",
+		PID:       99999, // 假定一个不存在或远端机器上的 PID
+		PGID:      99999,
+		HostID:    "foreign-machine-id-xyz",
+		BootID:    "foreign-boot-id-123",
+		Timestamp: time.Now().Unix(),
+	}, time.Now().UnixMilli())
+	remoteTask.Status = "running"
+	svc.tasks[remoteTask.TaskKey()] = remoteTask
+
+	// 发起 Kill 操作，由于 HostID/BootID 与当前 Monitor 运行宿主不匹配，必须坚决拒绝并返回 ErrHostMismatch
+	_, err := svc.KillTaskTenant("sess-remote-kill-01", "tenant-safe", false)
+	if err == nil || !errors.Is(err, ErrHostMismatch) {
+		t.Fatalf("expected ErrHostMismatch when killing remote task, got: %v", err)
+	}
+
+	// 验证任务状态未被伪造为 killed
+	tObj := svc.GetTaskTenant("sess-remote-kill-01", "tenant-safe", false)
+	if tObj == nil || tObj.Status != "running" || tObj.ControlState == "killed" {
+		t.Fatalf("task state should remain running when kill is rejected, got: %+v", tObj)
+	}
+}

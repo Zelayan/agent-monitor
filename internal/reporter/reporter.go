@@ -205,21 +205,24 @@ func ExtractSessionID(payload Payload) string {
 
 // EventReport 向 Monitor 服务端 /api/event 提交的数据结构
 type EventReport struct {
-	ID           string `json:"id"`
-	ParentID     string `json:"parent_id,omitempty"`
-	SubagentID   string `json:"subagent_id,omitempty"`
-	SubagentType string `json:"subagent_type,omitempty"`
-	Agent        string `json:"agent"`
-	Repo         string `json:"repo"`
-	Event        string `json:"event"`
-	Timestamp    int64  `json:"timestamp"`
-	Detail       string `json:"detail"`
-	TurnIndex    int    `json:"turn_index"`
-	Title        string `json:"title,omitempty"`
-	Prompt       string `json:"prompt,omitempty"`
-	AIResponse   string `json:"ai_response,omitempty"`
-	PID          int    `json:"pid,omitempty"`
-	PGID         int    `json:"pgid,omitempty"`
+	ID               string `json:"id"`
+	ParentID         string `json:"parent_id,omitempty"`
+	SubagentID       string `json:"subagent_id,omitempty"`
+	SubagentType     string `json:"subagent_type,omitempty"`
+	Agent            string `json:"agent"`
+	Repo             string `json:"repo"`
+	Event            string `json:"event"`
+	Timestamp        int64  `json:"timestamp"`
+	Detail           string `json:"detail"`
+	TurnIndex        int    `json:"turn_index"`
+	Title            string `json:"title,omitempty"`
+	Prompt           string `json:"prompt,omitempty"`
+	AIResponse       string `json:"ai_response,omitempty"`
+	PID              int    `json:"pid,omitempty"`
+	PGID             int    `json:"pgid,omitempty"`
+	HostID           string `json:"host_id,omitempty"`
+	BootID           string `json:"boot_id,omitempty"`
+	ProcessStartTime int64  `json:"process_start_time,omitempty"`
 }
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
@@ -777,20 +780,25 @@ func Run(cfg Config, inputReader io.Reader) {
 	subType, subID, _ := extractSubagentMetadata(payload)
 	parentID := extractParentID(payload)
 
+	hostID, bootID := GetHostAndBootID()
+	startTime := GetProcessStartTime(reportedPID)
+
 	data := EventReport{
-		ID:           sessionID,
-		ParentID:     parentID,
-		SubagentID:   subID,
-		SubagentType: subType,
-		Agent:        agentName,
-		Repo:         fmt.Sprintf("%s:%s", repo, branch),
-		Event:        mappedEvent,
-		Timestamp:    time.Now().Unix(),
-		Detail:       detail,
-		TurnIndex:    turnCount,
-		Title:        title,
-		PID:          reportedPID,
-		PGID:         os.Getppid(),
+		ID:               sessionID,
+		ParentID:         parentID,
+		SubagentID:       subID,
+		SubagentType:     subType,
+		Agent:            agentName,
+		Repo:             fmt.Sprintf("%s:%s", repo, branch),
+		Event:            mappedEvent,
+		Timestamp:        time.Now().Unix(),
+		Detail:           detail,
+		TurnIndex:        turnCount,
+		Title:            title,
+		PID:              reportedPID,
+		HostID:           hostID,
+		BootID:           bootID,
+		ProcessStartTime: startTime,
 	}
 	if len(currentPrompt) > 4000 {
 		data.Prompt = currentPrompt[:4000]

@@ -32,60 +32,66 @@ type Turn struct {
 
 // Task 表示 Monitor 上的一个 Agent 会话容器（聚合根 Workflow）。
 type Task struct {
-	ID             string         `json:"id"`                       // 会话 ID (如 sess_xxx)
-	Agent          string         `json:"agent"`                    // Agent 名称
-	Repo           string         `json:"repo"`                     // 仓库名与分支
-	Branch         string         `json:"branch"`                   // 分支名
-	Event          string         `json:"event"`                    // 最近一次事件名
-	RootGoal       string         `json:"rootGoal"`                 // 会话核心总目标（首轮 Prompt 原文，不随 LLM 改写）
-	GoalSummary    string         `json:"goalSummary,omitempty"`    // 多轮 LLM 会话总目标；空则 UI 回退 RootGoal
-	GoalSummaryRun int            `json:"goalSummaryRun,omitempty"` // GoalSummary 覆盖到的轮次，避免重复请求
-	Title          string         `json:"title"`                    // 会话容器展示标题（启发式短标题或 LLM 总结）
-	TitleSource    string         `json:"titleSource,omitempty"`    // 标题来源：heuristic | llm
-	Prompt         string         `json:"prompt,omitempty"`         // 首轮 Prompt（兼容字段）
-	Status         string         `json:"status"`                   // 全局状态：running / completed / failed
-	StartTime      int64          `json:"startTime"`                // 会话总创建时间戳（毫秒）
-	EndTime        int64          `json:"endTime,omitempty"`        // 会话最终完结时间戳（毫秒）
-	TotalLifetime  int64          `json:"totalLifetime,omitempty"`  // 累计所有已完成轮次的总有效执行秒数
-	Duration       string         `json:"duration,omitempty"`       // 会话累计总有效耗时
-	ActiveRunStart int64          `json:"activeRunStart,omitempty"` // 当前活跃 Run 的起始时间戳（毫秒）
-	ActiveRunIndex int            `json:"activeRunIndex"`           // 当前活跃/最新 Run 序号
-	TotalRuns      int            `json:"totalRuns"`                // 总 Run 轮数
-	Runs           []Turn         `json:"runs"`                     // 所有轮次列表
-	Turns          []Turn         `json:"turns,omitempty"`          // 兼容旧字段别名
-	LastHook       string         `json:"lastHook"`                 // 最近一次 hook
-	Detail         string         `json:"detail"`                   // 当前操作详情
-	Timeline       []TimelineItem `json:"timeline,omitempty"`       // 兼容顶层时间线（映射为当轮）
-	ControlState   string         `json:"controlState,omitempty"`   // 控制状态："" | "abort_requested" | "aborted"
-	AbortReason    string         `json:"abortReason,omitempty"`    // 中断原因
-	PID            int            `json:"pid,omitempty"`            // 关联的进程 ID
-	PGID           int            `json:"pgid,omitempty"`           // 关联的进程组 ID
-	KeyID          string         `json:"keyId,omitempty"`          // 归属的项目/租户空间标识
-	ParentID       string         `json:"parentId,omitempty"`       // 父任务 ID (若当前为子代理会话)
-	SubagentCount  int            `json:"subagentCount,omitempty"`  // 当前任务派发或关联的子智能体总数
-	Version        uint64         `json:"version,omitempty"`        // 状态单调递增版本号（防磁盘乱序覆写）
-	Generation     uint64         `json:"generation,omitempty"`     // 全局/租户状态世代，供前端权威对账
+	ID               string         `json:"id"`                         // 会话 ID (如 sess_xxx)
+	Agent            string         `json:"agent"`                      // Agent 名称
+	Repo             string         `json:"repo"`                       // 仓库名与分支
+	Branch           string         `json:"branch"`                     // 分支名
+	Event            string         `json:"event"`                      // 最近一次事件名
+	RootGoal         string         `json:"rootGoal"`                   // 会话核心总目标（首轮 Prompt 原文，不随 LLM 改写）
+	GoalSummary      string         `json:"goalSummary,omitempty"`      // 多轮 LLM 会话总目标；空则 UI 回退 RootGoal
+	GoalSummaryRun   int            `json:"goalSummaryRun,omitempty"`   // GoalSummary 覆盖到的轮次，避免重复请求
+	Title            string         `json:"title"`                      // 会话容器展示标题（启发式短标题或 LLM 总结）
+	TitleSource      string         `json:"titleSource,omitempty"`      // 标题来源：heuristic | llm
+	Prompt           string         `json:"prompt,omitempty"`           // 首轮 Prompt（兼容字段）
+	Status           string         `json:"status"`                     // 全局状态：running / completed / failed
+	StartTime        int64          `json:"startTime"`                  // 会话总创建时间戳（毫秒）
+	EndTime          int64          `json:"endTime,omitempty"`          // 会话最终完结时间戳（毫秒）
+	TotalLifetime    int64          `json:"totalLifetime,omitempty"`    // 累计所有已完成轮次的总有效执行秒数
+	Duration         string         `json:"duration,omitempty"`         // 会话累计总有效耗时
+	ActiveRunStart   int64          `json:"activeRunStart,omitempty"`   // 当前活跃 Run 的起始时间戳（毫秒）
+	ActiveRunIndex   int            `json:"activeRunIndex"`             // 当前活跃/最新 Run 序号
+	TotalRuns        int            `json:"totalRuns"`                  // 总 Run 轮数
+	Runs             []Turn         `json:"runs"`                       // 所有轮次列表
+	Turns            []Turn         `json:"turns,omitempty"`            // 兼容旧字段别名
+	LastHook         string         `json:"lastHook"`                   // 最近一次 hook
+	Detail           string         `json:"detail"`                     // 当前操作详情
+	Timeline         []TimelineItem `json:"timeline,omitempty"`         // 兼容顶层时间线（映射为当轮）
+	ControlState     string         `json:"controlState,omitempty"`     // 控制状态："" | "abort_requested" | "aborted"
+	AbortReason      string         `json:"abortReason,omitempty"`      // 中断原因
+	PID              int            `json:"pid,omitempty"`              // 关联的进程 ID
+	PGID             int            `json:"pgid,omitempty"`             // 关联的进程组 ID
+	HostID           string         `json:"hostId,omitempty"`           // 运行主机硬件/系统唯一标识
+	BootID           string         `json:"bootId,omitempty"`           // 运行宿主系统启动标识
+	ProcessStartTime int64          `json:"processStartTime,omitempty"` // 进程启动时间戳 (Unix毫秒)
+	KeyID            string         `json:"keyId,omitempty"`            // 归属的项目/租户空间标识
+	ParentID         string         `json:"parentId,omitempty"`         // 父任务 ID (若当前为子代理会话)
+	SubagentCount    int            `json:"subagentCount,omitempty"`    // 当前任务派发或关联的子智能体总数
+	Version          uint64         `json:"version,omitempty"`          // 状态单调递增版本号（防磁盘乱序覆写）
+	Generation       uint64         `json:"generation,omitempty"`       // 全局/租户状态世代，供前端权威对账
 }
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
-	ID           string `json:"id"`                      // 会话/任务 ID，空则自动生成
-	ParentID     string `json:"parent_id,omitempty"`     // 父任务 ID（可选）
-	SubagentID   string `json:"subagent_id,omitempty"`   // 子智能体 ID（可选）
-	SubagentType string `json:"subagent_type,omitempty"` // 子智能体类型（可选）
-	Agent        string `json:"agent"`                   // Agent 名称
-	Repo         string `json:"repo"`                    // 仓库信息
-	Branch       string `json:"branch"`                  // 分支名
-	Event        string `json:"event"`                   // hook 事件名，决定任务状态流转
-	Title        string `json:"title"`                   // 任务标题
-	Prompt       string `json:"prompt"`                  // 本轮 Prompt
-	AIResponse   string `json:"ai_response,omitempty"`   // 本轮 AI 总结与回复
-	Timestamp    int64  `json:"timestamp"`               // Unix 秒；为 0 则用服务端当前时间
-	Detail       string `json:"detail"`                  // 本次操作的简要说明
-	TurnIndex    int    `json:"turn_index,omitempty"`    // 上报指定的轮次（可选）
-	PID          int    `json:"pid,omitempty"`           // 上报来源的进程 PID（可选）
-	PGID         int    `json:"pgid,omitempty"`          // 上报来源的进程组 PGID（可选）
-	KeyID        string `json:"key_id,omitempty"`        // 归属的项目/租户空间标识（可选）
+	ID               string `json:"id"`                           // 会话/任务 ID，空则自动生成
+	ParentID         string `json:"parent_id,omitempty"`          // 父任务 ID（可选）
+	SubagentID       string `json:"subagent_id,omitempty"`        // 子智能体 ID（可选）
+	SubagentType     string `json:"subagent_type,omitempty"`      // 子智能体类型（可选）
+	Agent            string `json:"agent"`                        // Agent 名称
+	Repo             string `json:"repo"`                         // 仓库信息
+	Branch           string `json:"branch"`                       // 分支名
+	Event            string `json:"event"`                        // hook 事件名，决定任务状态流转
+	Title            string `json:"title"`                        // 任务标题
+	Prompt           string `json:"prompt"`                       // 本轮 Prompt
+	AIResponse       string `json:"ai_response,omitempty"`        // 本轮 AI 总结与回复
+	Timestamp        int64  `json:"timestamp"`                    // Unix 秒；为 0 则用服务端当前时间
+	Detail           string `json:"detail"`                       // 本次操作的简要说明
+	TurnIndex        int    `json:"turn_index,omitempty"`         // 上报指定的轮次（可选）
+	PID              int    `json:"pid,omitempty"`                // 上报来源的进程 PID（可选）
+	PGID             int    `json:"pgid,omitempty"`               // 上报来源的进程组 PGID（可选）
+	HostID           string `json:"host_id,omitempty"`            // 上报来源主机唯一标识（可选）
+	BootID           string `json:"boot_id,omitempty"`            // 上报来源系统启动标识（可选）
+	ProcessStartTime int64  `json:"process_start_time,omitempty"` // 上报来源进程启动时间戳（可选）
+	KeyID            string `json:"key_id,omitempty"`             // 归属的项目/租户空间标识（可选）
 }
 
 // BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。
@@ -144,26 +150,29 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	}
 
 	task := &Task{
-		ID:             p.ID,
-		ParentID:       p.ParentID,
-		SubagentCount:  subCount,
-		Agent:          p.Agent,
-		Repo:           p.Repo,
-		Branch:         p.Branch,
-		RootGoal:       rootGoal,
-		Title:          title,
-		Prompt:         p.Prompt,
-		Status:         "running",
-		StartTime:      nowMs,
-		ActiveRunStart: nowMs,
-		ActiveRunIndex: 1,
-		TotalRuns:      1,
-		Runs:           []Turn{firstTurn},
-		LastHook:       p.Event,
-		Detail:         p.Detail,
-		PID:            p.PID,
-		PGID:           p.PGID,
-		KeyID:          p.KeyID,
+		ID:               p.ID,
+		ParentID:         p.ParentID,
+		SubagentCount:    subCount,
+		Agent:            p.Agent,
+		Repo:             p.Repo,
+		Branch:           p.Branch,
+		RootGoal:         rootGoal,
+		Title:            title,
+		Prompt:           p.Prompt,
+		Status:           "running",
+		StartTime:        nowMs,
+		ActiveRunStart:   nowMs,
+		ActiveRunIndex:   1,
+		TotalRuns:        1,
+		Runs:             []Turn{firstTurn},
+		LastHook:         p.Event,
+		Detail:           p.Detail,
+		PID:              p.PID,
+		PGID:             p.PGID,
+		HostID:           p.HostID,
+		BootID:           p.BootID,
+		ProcessStartTime: p.ProcessStartTime,
+		KeyID:            p.KeyID,
 	}
 
 	return task
@@ -622,6 +631,15 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 	}
 	if p.PGID > 0 {
 		t.PGID = p.PGID
+	}
+	if p.HostID != "" {
+		t.HostID = p.HostID
+	}
+	if p.BootID != "" {
+		t.BootID = p.BootID
+	}
+	if p.ProcessStartTime > 0 {
+		t.ProcessStartTime = p.ProcessStartTime
 	}
 	if t.KeyID == "" && p.KeyID != "" {
 		t.KeyID = p.KeyID

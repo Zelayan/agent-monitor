@@ -2,6 +2,8 @@ package monitor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,14 +11,62 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
 
+var (
+	localHostOnce sync.Once
+	localHostID   string
+	localBootID   string
+)
+
+func detectHostAndBootID() (string, string) {
+	localHostOnce.Do(func() {
+		// 1. Host ID
+		for _, p := range []string{"/etc/machine-id", "/var/lib/dbus/machine-id"} {
+			if data, err := os.ReadFile(p); err == nil {
+				id := strings.TrimSpace(string(data))
+				if id != "" {
+					localHostID = id
+					break
+				}
+			}
+		}
+		if localHostID == "" {
+			if h, err := os.Hostname(); err == nil && h != "" {
+				hash := sha256.Sum256([]byte(h))
+				localHostID = hex.EncodeToString(hash[:16])
+			} else {
+				localHostID = "local-host"
+			}
+		}
+
+		// 2. Boot ID
+		if data, err := os.ReadFile("/proc/sys/kernel/random/boot_id"); err == nil {
+			id := strings.TrimSpace(string(data))
+			if id != "" {
+				localBootID = id
+			}
+		}
+		if localBootID == "" {
+			if id := darwinBootID(); id != "" {
+				localBootID = id
+			}
+		}
+		if localBootID == "" {
+			localBootID = "local-boot"
+		}
+	})
+	return localHostID, localBootID
+}
+
 // ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
 var ErrPermissionDenied = errors.New("permission denied")
+
+// ErrHostMismatch 表示目标进程所在主机/环境与当前 Monitor 实例不一致，拒绝跨机 Kill。
+var ErrHostMismatch = errors.New("host or boot mismatch: direct kill only permitted on matching local host")
 
 // PersistenceOp 表示持久化操作类型。
 type PersistenceOp int
@@ -37,6 +87,8 @@ type taskPersistenceCommand struct {
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
 	mu          sync.RWMutex
+	hostID      string
+	bootID      string
 	tasks       map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
 	repo        task.TaskRepository
 	hub         *Hub
@@ -57,7 +109,11 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 
 // NewMonitorServiceWithTTL 实例化应用服务并指定会话保留天数。
 func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *MonitorService {
+	hostID, bootID := detectHostAndBootID()
+
 	s := &MonitorService{
+		hostID:      hostID,
+		bootID:      bootID,
 		tasks:       make(map[task.TaskKey]*task.Task),
 		repo:        repo,
 		hub:         hub,
@@ -615,7 +671,7 @@ func (s *MonitorService) KillTask(id string) (*task.Task, error) {
 	return s.KillTaskTenant(id, "", true)
 }
 
-// KillTaskTenant 在指定租户权限下强制杀死会话关联的本地进程组。
+// KillTaskTenant 在指定租户权限下强制杀死会话关联的本地进程组（验证 HostID/BootID 与负 PGID 控制）。
 func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) (*task.Task, error) {
 	s.mu.Lock()
 	targetKey, t, exists := s.findTaskLocked(id, keyID, isMaster)
@@ -624,20 +680,33 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 		return nil, fmt.Errorf("task not found: %s", id)
 	}
 
+	// 1. 安全校验：如果任务上报了 HostID 或 BootID，且与 Monitor 运行宿主不匹配，严禁调用本机 kill 杀同号进程
+	if (t.HostID != "" && t.HostID != s.hostID) || (t.BootID != "" && t.BootID != s.bootID) {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("%w: task host (%s/%s) does not match monitor host (%s/%s)", ErrHostMismatch, t.HostID, t.BootID, s.hostID, s.bootID)
+	}
+
 	pid := t.PID
+	pgid := t.PGID
+	// 释放全局读写锁后再调用 OS 进程组终止系统调用，避免阻塞并发 HTTP 查询与事件流
+	s.mu.Unlock()
+
+	// 2. 真实进程组级终止：跨平台隔离实现（非持锁阶段）
+	_ = terminateProcessGroup(pid, pgid)
+
+	// 重新加锁更新领域状态
+	s.mu.Lock()
+	// 再次确认任务是否依然存在
+	targetKey, t, exists = s.findTaskLocked(id, keyID, isMaster)
+	if !exists || t == nil {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("task disappeared during kill: %s", id)
+	}
+
 	nowMs := time.Now().UnixMilli()
 	nowStr := time.Now().Format("15:04:05")
 
-	if pid > 0 {
-		proc, err := os.FindProcess(pid)
-		if err == nil && proc != nil {
-			if err := proc.Signal(syscall.SIGTERM); err != nil {
-				_ = proc.Kill()
-			}
-		}
-	}
-
-	reason := "用户强制终止了会话进程 (SIGTERM/SIGKILL)"
+	reason := "用户强制终止了会话进程组 (SIGTERM/SIGKILL)"
 	t.MarkKilled(reason, nowMs, nowStr)
 
 	s.generation++
