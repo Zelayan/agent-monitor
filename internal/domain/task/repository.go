@@ -10,10 +10,14 @@ type TaskRepository interface {
 	SaveRaw(id string, data []byte) error
 	// SaveRawKey 根据 TaskKey 保存预序列化的 JSON 任务数据（按租户隔离落盘）
 	SaveRawKey(key TaskKey, data []byte) error
+	// SaveRawKeyVersioned 保存预序列化的 JSON 任务数据，并校验版本单调递增
+	SaveRawKeyVersioned(key TaskKey, version uint64, data []byte) error
 	// Delete 按 ID 删除任务（兼容旧调用，默认租户）
 	Delete(id string) error
 	// DeleteKey 根据 TaskKey 删除对应租户下的任务文件
 	DeleteKey(key TaskKey) error
+	// DeleteKeyVersioned 根据 TaskKey 写入删除墓碑/执行删除并记录删除版本
+	DeleteKeyVersioned(key TaskKey, version uint64) error
 	// Close 关闭或释放底层存储资源
 	Close() error
 }

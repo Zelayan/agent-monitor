@@ -208,3 +208,91 @@ func TestJSONRepository_UnicodePathHandling(t *testing.T) {
 		t.Fatalf("unexpected task after load: %+v", all)
 	}
 }
+
+func TestJSONRepository_VersionedAndTombstoneSuppression(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-version-test-*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("NewJSONRepository failed: %v", err)
+	}
+	defer repo.Close()
+
+	key := task.NewTaskKey("tenant-order", "sess-v-01")
+	v1 := &task.Task{ID: "sess-v-01", KeyID: "tenant-order", Version: 1, Detail: "step 1"}
+	v2 := &task.Task{ID: "sess-v-01", KeyID: "tenant-order", Version: 2, Detail: "step 2"}
+
+	d1, _ := json.Marshal(v1)
+	d2, _ := json.Marshal(v2)
+
+	// 1. 先写入 v2
+	if err := repo.SaveRawKeyVersioned(key, 2, d2); err != nil {
+		t.Fatalf("Save v2 failed: %v", err)
+	}
+
+	// 2. 滞后的 v1 到达，版本更低，必须被忽略不能覆写磁盘
+	if err := repo.SaveRawKeyVersioned(key, 1, d1); err != nil {
+		t.Fatalf("Save v1 failed: %v", err)
+	}
+
+	loaded, err := repo.FindAll()
+	if err != nil || len(loaded) != 1 || loaded[0].Version != 2 || loaded[0].Detail != "step 2" {
+		t.Fatalf("v1 must not overwrite v2: got %+v", loaded)
+	}
+
+	// 3. 执行带版本的删除（版本 3），生成墓碑
+	if err := repo.DeleteKeyVersioned(key, 3); err != nil {
+		t.Fatalf("Delete v3 failed: %v", err)
+	}
+
+	// 4. 再次到达一个滞后的 v2 Save 请求，必须被版本 3 墓碑压制，文件不得复活
+	if err := repo.SaveRawKeyVersioned(key, 2, d2); err != nil {
+		t.Fatalf("Save stale v2 failed: %v", err)
+	}
+
+	afterStale, err := repo.FindAll()
+	if err != nil {
+		t.Fatalf("FindAll failed: %v", err)
+	}
+	if len(afterStale) != 0 {
+		t.Fatalf("stale v2 revived deleted task: %+v", afterStale)
+	}
+
+	// 5. 若有更高的版本（版本 4，例如该会话重新开启）到达，墓碑解除并成功落盘
+	v4 := &task.Task{ID: "sess-v-01", KeyID: "tenant-order", Version: 4, Detail: "step 4 new"}
+	d4, _ := json.Marshal(v4)
+	if err := repo.SaveRawKeyVersioned(key, 4, d4); err != nil {
+		t.Fatalf("Save v4 failed: %v", err)
+	}
+
+	afterV4, err := repo.FindAll()
+	if err != nil || len(afterV4) != 1 || afterV4[0].Version != 4 {
+		t.Fatalf("v4 should succeed and clear stale tombstone: got %+v", afterV4)
+	}
+
+	// 6. 重启 Repository 并通过 FindAll 恢复已落盘版本
+	repoRestart, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("NewJSONRepository restart failed: %v", err)
+	}
+	defer repoRestart.Close()
+
+	if _, err := repoRestart.FindAll(); err != nil {
+		t.Fatalf("FindAll on restart failed: %v", err)
+	}
+
+	// 重启后提交旧版本 v3，必须被恢复的 lastVersion 拦截，不得覆盖 v4
+	v3 := &task.Task{ID: "sess-v-01", KeyID: "tenant-order", Version: 3, Detail: "stale v3"}
+	d3, _ := json.Marshal(v3)
+	if err := repoRestart.SaveRawKeyVersioned(key, 3, d3); err != nil {
+		t.Fatalf("SaveRawKeyVersioned failed: %v", err)
+	}
+	reloaded, _ := repoRestart.FindAll()
+	if len(reloaded) != 1 || reloaded[0].Version != 4 {
+		t.Fatalf("stale v3 overwrote v4 after restart: %+v", reloaded)
+	}
+}

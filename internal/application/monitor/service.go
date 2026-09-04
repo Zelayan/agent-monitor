@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,24 +18,35 @@ import (
 // ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
 var ErrPermissionDenied = errors.New("permission denied")
 
-// taskWriteRequest 封装按 TaskKey 串行持久化的请求。
-type taskWriteRequest struct {
-	key  task.TaskKey
-	data []byte
+// PersistenceOp 表示持久化操作类型。
+type PersistenceOp int
+
+const (
+	OpSave PersistenceOp = iota
+	OpDelete
+)
+
+// taskPersistenceCommand 封装带版本的统一持久化命令流。
+type taskPersistenceCommand struct {
+	op      PersistenceOp
+	key     task.TaskKey
+	version uint64
+	data    []byte
 }
 
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
-	mu         sync.RWMutex
-	tasks      map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
-	repo       task.TaskRepository
-	hub        *Hub
-	writeChan  chan taskWriteRequest // 异步串行持久化管道，消除无节制 goroutine 与磁盘乱序
-	stopChan   chan struct{}
-	ttlDays    int // 自动清理天数（默认 30 天，<=0 则不清理）
-	summarizer *TitleSummarizer
-	titleJobs  sync.Map                              // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
-	steerQueue map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+	mu          sync.RWMutex
+	tasks       map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
+	repo        task.TaskRepository
+	hub         *Hub
+	persistChan chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
+	stopChan    chan struct{}
+	stoppedChan chan struct{} // persistenceWorker 完成排空后关闭
+	ttlDays     int           // 自动清理天数（默认 30 天，<=0 则不清理）
+	summarizer  *TitleSummarizer
+	titleJobs   sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
+	steerQueue  map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
@@ -45,13 +57,14 @@ func NewMonitorService(repo task.TaskRepository, hub *Hub) *MonitorService {
 // NewMonitorServiceWithTTL 实例化应用服务并指定会话保留天数。
 func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *MonitorService {
 	s := &MonitorService{
-		tasks:      make(map[task.TaskKey]*task.Task),
-		repo:       repo,
-		hub:        hub,
-		writeChan:  make(chan taskWriteRequest, 5000), // 削峰缓冲
-		stopChan:   make(chan struct{}),
-		ttlDays:    ttlDays,
-		steerQueue: make(map[task.TaskKey][]task.SteerInstruction),
+		tasks:       make(map[task.TaskKey]*task.Task),
+		repo:        repo,
+		hub:         hub,
+		persistChan: make(chan taskPersistenceCommand, 5000), // 削峰缓冲
+		stopChan:    make(chan struct{}),
+		stoppedChan: make(chan struct{}),
+		ttlDays:     ttlDays,
+		steerQueue:  make(map[task.TaskKey][]task.SteerInstruction),
 	}
 
 	if repo != nil {
@@ -105,34 +118,96 @@ func (s *MonitorService) SetTitleSummarizer(sum *TitleSummarizer) {
 	s.summarizer = sum
 }
 
-// persistenceWorker 顺序消费写入管道，彻底消除并发 goroutine 调度乱序导致的磁盘倒流。
+// persistenceWorker 顺序消费持久化命令管道，支持拥塞合并与有序落盘，并在收到 stopChan 后排空管道。
 func (s *MonitorService) persistenceWorker() {
+	defer close(s.stoppedChan)
+
 	for {
 		select {
 		case <-s.stopChan:
-			return
-		case req := <-s.writeChan:
-			if s.repo != nil && !req.key.IsZero() && len(req.data) > 0 {
-				if err := s.repo.SaveRawKey(req.key, req.data); err != nil {
-					log.Printf("[Application] Error persisting task %s: %v", req.key.String(), err)
+			// 优雅停机：排空管道内所有已排队的命令
+			for {
+				select {
+				case cmd := <-s.persistChan:
+					s.executePersistenceCommand(cmd)
+				default:
+					return
 				}
 			}
+		case cmd := <-s.persistChan:
+			s.executePersistenceCommand(cmd)
 		}
 	}
 }
 
-// enqueuePersist 尝试将序列化数据推入写入队列。
-func (s *MonitorService) enqueuePersist(key task.TaskKey, data []byte) {
+// executePersistenceCommand 执行单条持久化命令。
+func (s *MonitorService) executePersistenceCommand(cmd taskPersistenceCommand) {
+	if s.repo == nil || cmd.key.IsZero() {
+		return
+	}
+	switch cmd.op {
+	case OpSave:
+		if len(cmd.data) > 0 {
+			if err := s.repo.SaveRawKeyVersioned(cmd.key, cmd.version, cmd.data); err != nil {
+				log.Printf("[Application] Error persisting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+			}
+		}
+	case OpDelete:
+		if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
+			log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+		}
+	}
+}
+
+// enqueuePersist 尝试将 Save 命令推入管道。若管道满，通过短超时等待缓冲释放，超时后记录告警，严格维持单 Worker 串行有序消费。
+func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data []byte) {
 	if s.repo == nil || key.IsZero() || len(data) == 0 {
 		return
 	}
+	cmd := taskPersistenceCommand{
+		op:      OpSave,
+		key:     key,
+		version: version,
+		data:    data,
+	}
+
 	select {
-	case s.writeChan <- taskWriteRequest{key: key, data: data}:
+	case s.persistChan <- cmd:
+		return
 	default:
-		// 若队列暴涨触发极端背压，直接在独立 goroutine 写入
-		go func(k task.TaskKey, taskData []byte) {
-			_ = s.repo.SaveRawKey(k, taskData)
-		}(key, data)
+		// 管道满：短超时等待缓冲释放，杜绝反模式从 FIFO 管道头部误弹其他任务的命令
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case s.persistChan <- cmd:
+		case <-ctx.Done():
+			log.Printf("[Application] Warning: persistence queue saturated, dropped save command for %s v%d", key.String(), version)
+		}
+	}
+}
+
+// enqueueDelete 尝试将 Delete 命令推入管道。若管道满，通过短超时等待推入。
+func (s *MonitorService) enqueueDelete(key task.TaskKey, version uint64) {
+	if s.repo == nil || key.IsZero() {
+		return
+	}
+	cmd := taskPersistenceCommand{
+		op:      OpDelete,
+		key:     key,
+		version: version,
+	}
+
+	select {
+	case s.persistChan <- cmd:
+		return
+	default:
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case s.persistChan <- cmd:
+		case <-ctx.Done():
+			log.Printf("[Application] Warning: persistence queue saturated, dropped delete command for %s v%d", key.String(), version)
+		}
 	}
 }
 
@@ -156,7 +231,11 @@ func (s *MonitorService) cleanExpiredTasks() {
 		return
 	}
 	cutoffMs := time.Now().AddDate(0, 0, -s.ttlDays).UnixMilli()
-	var toDelete []task.TaskKey
+	type delTarget struct {
+		key task.TaskKey
+		ver uint64
+	}
+	var toDelete []delTarget
 
 	s.mu.Lock()
 	for k, t := range s.tasks {
@@ -168,26 +247,40 @@ func (s *MonitorService) cleanExpiredTasks() {
 			if endTime > 0 && endTime < cutoffMs {
 				delete(s.tasks, k)
 				delete(s.steerQueue, k)
-				toDelete = append(toDelete, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 			}
 		}
 	}
 	s.mu.Unlock()
 
 	if s.repo != nil && len(toDelete) > 0 {
-		for _, k := range toDelete {
-			_ = s.repo.DeleteKey(k)
+		for _, item := range toDelete {
+			s.enqueueDelete(item.key, item.ver)
 		}
 		log.Printf("[Application] Janitor cleaned up %d expired tasks (older than %d days)", len(toDelete), s.ttlDays)
 	}
 }
 
-// Close 停止后台 worker。
+// Close 停止后台 worker，等待持久化队列排空（默认 5 秒超时）。
 func (s *MonitorService) Close() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_ = s.CloseWithContext(ctx)
+}
+
+// CloseWithContext 优雅停止应用服务并排空待落盘数据。
+func (s *MonitorService) CloseWithContext(ctx context.Context) error {
 	select {
 	case <-s.stopChan:
 	default:
 		close(s.stopChan)
+	}
+
+	select {
+	case <-s.stoppedChan:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -241,8 +334,9 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {
 			delete(s.tasks, targetKey)
+			ver := t.Version
 			s.mu.Unlock()
-			s.forgetTask(targetKey)
+			s.forgetTask(targetKey, ver)
 			return HookEventResult{Action: "allow"}, nil
 		}
 	} else if !exists && !isMaster {
@@ -330,6 +424,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
+	taskVersion := t.Version
 	s.mu.Unlock() // 锁范围最小化
 
 	taskJSON, err := json.Marshal(taskCopy)
@@ -337,8 +432,8 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		return HookEventResult{Task: taskCopy, Action: action, Reason: reason, AdditionalContext: additionalCtx, AgentMessage: agentMsg}, fmt.Errorf("failed to marshal task: %w", err)
 	}
 
-	// 异步持久化：写入串行队列
-	s.enqueuePersist(targetKey, taskJSON)
+	// 异步持久化：写入串行管道
+	s.enqueuePersist(targetKey, taskVersion, taskJSON)
 
 	// 广播事件（向该租户空间及 Master 广播）
 	if s.hub != nil {
@@ -434,11 +529,12 @@ func (s *MonitorService) AbortTaskTenant(id string, reason string, keyID string,
 
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
+	taskVersion := t.Version
 	s.mu.Unlock()
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err == nil {
-		s.enqueuePersist(targetKey, taskJSON)
+		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
 			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
@@ -541,11 +637,12 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
+	taskVersion := t.Version
 	s.mu.Unlock()
 
 	taskJSON, err := json.Marshal(taskCopy)
 	if err == nil {
-		s.enqueuePersist(targetKey, taskJSON)
+		s.enqueuePersist(targetKey, taskVersion, taskJSON)
 		if s.hub != nil {
 			s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 		}
@@ -587,7 +684,11 @@ func (s *MonitorService) DeleteTasks(req DeleteTasksRequest) []string {
 // DeleteTasksTenant 在指定租户权限下删除属于该空间的任务。
 func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string, isMaster bool) []string {
 	s.mu.Lock()
-	var toDeleteKeys []task.TaskKey
+	type delTarget struct {
+		key task.TaskKey
+		ver uint64
+	}
+	var toDelete []delTarget
 	var toDeleteIDs []string
 
 	if req.All {
@@ -596,7 +697,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			if t != nil && t.BelongsTo(keyID, isMaster) {
 				delete(s.tasks, k)
 				delete(s.steerQueue, k)
-				toDeleteKeys = append(toDeleteKeys, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 				toDeleteIDs = append(toDeleteIDs, t.ID)
 			}
 		}
@@ -607,7 +708,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			if exists && t != nil {
 				delete(s.tasks, k)
 				delete(s.steerQueue, k)
-				toDeleteKeys = append(toDeleteKeys, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 				toDeleteIDs = append(toDeleteIDs, t.ID)
 			}
 		}
@@ -618,7 +719,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 				if t.Status == "completed" || t.Status == "failed" {
 					delete(s.tasks, k)
 					delete(s.steerQueue, k)
-					toDeleteKeys = append(toDeleteKeys, k)
+					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 					toDeleteIDs = append(toDeleteIDs, t.ID)
 				}
 			}
@@ -626,22 +727,18 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 	}
 	s.mu.Unlock()
 
-	// 异步持久化清理
-	if s.repo != nil && len(toDeleteKeys) > 0 {
-		go func(keys []task.TaskKey) {
-			for _, k := range keys {
-				if err := s.repo.DeleteKey(k); err != nil {
-					log.Printf("[Application] Error deleting task file %s: %v", k.String(), err)
-				}
-			}
-		}(toDeleteKeys)
+	// 统一写入有序持久化命令流，写入墓碑压制旧 Save，杜绝删除后复活
+	if s.repo != nil && len(toDelete) > 0 {
+		for _, item := range toDelete {
+			s.enqueueDelete(item.key, item.ver)
+		}
 	}
 
 	// 广播 SSE 删除消息给该空间客户端（同时携带 deletedIds 和 deletedKeys）
 	if s.hub != nil && len(toDeleteIDs) > 0 {
 		var toDeleteKeyStrs []string
-		for _, k := range toDeleteKeys {
-			toDeleteKeyStrs = append(toDeleteKeyStrs, k.String())
+		for _, item := range toDelete {
+			toDeleteKeyStrs = append(toDeleteKeyStrs, item.key.String())
 		}
 		delEvent := map[string]interface{}{
 			"type":        "delete_tasks",
@@ -657,15 +754,13 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 }
 
 // forgetTask 删除从未产生真实工作的空会话，避免看板留下「打开即关」的占位卡片。
-func (s *MonitorService) forgetTask(key task.TaskKey) {
+func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 	if key.IsZero() {
 		return
 	}
 	delete(s.steerQueue, key)
 	if s.repo != nil {
-		if err := s.repo.DeleteKey(key); err != nil {
-			log.Printf("[Application] Error discarding idle task %s: %v", key.String(), err)
-		}
+		s.enqueueDelete(key, version)
 	}
 	if s.hub != nil {
 		delEvent := map[string]interface{}{
@@ -782,6 +877,7 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 		return
 	}
 	taskKeyID := t.KeyID
+	taskVersion := t.Version
 	taskCopy := t.Clone()
 	s.mu.Unlock()
 
@@ -789,7 +885,7 @@ func (s *MonitorService) applySummarizedTitle(key task.TaskKey, title string) {
 	if err != nil {
 		return
 	}
-	s.enqueuePersist(key, taskJSON)
+	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
 		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}
@@ -807,6 +903,7 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 		return
 	}
 	taskKeyID := t.KeyID
+	taskVersion := t.Version
 	taskCopy := t.Clone()
 	s.mu.Unlock()
 
@@ -814,7 +911,7 @@ func (s *MonitorService) applySummarizedGoal(key task.TaskKey, goal string, atRu
 	if err != nil {
 		return
 	}
-	s.enqueuePersist(key, taskJSON)
+	s.enqueuePersist(key, taskVersion, taskJSON)
 	if s.hub != nil {
 		s.hub.BroadcastTenant(taskKeyID, string(taskJSON))
 	}

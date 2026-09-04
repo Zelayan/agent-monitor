@@ -6,12 +6,16 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/application/monitor"
 	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
@@ -99,6 +103,11 @@ func main() {
 	handler.RegisterRoutes(mux)
 
 	addr := ":" + port
+	server := &http.Server{
+		Addr:    addr,
+		Handler: mux,
+	}
+
 	fmt.Printf("\nAGENT MONITOR running on http://127.0.0.1%s\n", addr)
 	fmt.Printf("   Dashboard: http://127.0.0.1%s/\n", addr)
 	if masterKey != "" || apiKeys != "" {
@@ -113,7 +122,31 @@ func main() {
 	}
 	fmt.Println()
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("Server failed: %v", err)
+	// 启动 HTTP 服务
+	go func() {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Server failed: %v", err)
+		}
+	}()
+
+	// 5. 主线程阻塞监听操作系统中断与终止信号，按序执行优雅停机
+	stopSignals := make(chan os.Signal, 1)
+	signal.Notify(stopSignals, os.Interrupt, syscall.SIGTERM)
+	<-stopSignals
+
+	log.Printf("\n[Server] Shutdown signal received, draining active connections and persistence queue...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// 先停止接收新 HTTP 请求并等待进行中连接结束
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("[Server] HTTP server shutdown error: %v", err)
+	}
+
+	// 连接处理完毕后，排空并关闭持久化队列
+	if err := svc.CloseWithContext(shutdownCtx); err != nil {
+		log.Printf("[Server] Monitor service drain error: %v", err)
+	} else {
+		log.Printf("[Server] Persistence queue drained successfully.")
 	}
 }
