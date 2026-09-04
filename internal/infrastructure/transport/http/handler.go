@@ -273,12 +273,44 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	clientChan := h.hub.SubscribeTenant(authCtx.KeyID, authCtx.IsMaster)
 	defer h.hub.Unsubscribe(clientChan)
 
-	// 1. 新连接先发送属于该项目空间的所有当前任务快照
-	tasks := h.svc.GetAllTasksTenant(authCtx.KeyID, authCtx.IsMaster)
-	for _, t := range tasks {
-		data, _ := json.Marshal(t)
-		fmt.Fprintf(w, "data: %s\n\n", string(data))
+	// 1. 新连接发送权威快照（包含 snapshot_start / 全量 task_upsert / snapshot_end 与 generation）
+	tasks, gen := h.svc.GetSnapshotWithGeneration(authCtx.KeyID, authCtx.IsMaster)
+
+	tenantScope := authCtx.KeyID
+	if authCtx.IsMaster {
+		tenantScope = "*"
 	}
+
+	// 下发 snapshot_start
+	startFrame, _ := json.Marshal(map[string]interface{}{
+		"type":       "snapshot_start",
+		"generation": gen,
+		"tenant":     tenantScope,
+		"isMaster":   authCtx.IsMaster,
+		"count":      len(tasks),
+	})
+	fmt.Fprintf(w, "data: %s\n\n", string(startFrame))
+
+	taskIDs := make([]string, 0, len(tasks))
+	taskKeys := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		taskIDs = append(taskIDs, t.ID)
+		taskKeys = append(taskKeys, t.TaskKey().String())
+		tData, _ := json.Marshal(t)
+		fmt.Fprintf(w, "data: %s\n\n", string(tData))
+	}
+
+	// 下发 snapshot_end，携带权威全量 ID 与 Key 集合
+	endFrame, _ := json.Marshal(map[string]interface{}{
+		"type":       "snapshot_end",
+		"generation": gen,
+		"tenant":     tenantScope,
+		"isMaster":   authCtx.IsMaster,
+		"taskIds":    taskIDs,
+		"taskKeys":   taskKeys,
+		"count":      len(tasks),
+	})
+	fmt.Fprintf(w, "data: %s\n\n", string(endFrame))
 	flusher.Flush()
 
 	// 2. 15s 心跳 Ticker，防止云代理/反向代理（Nginx/Caddy/ALB）在无事件时空闲超时中断连接

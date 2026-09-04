@@ -2,9 +2,11 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"testing/fstest"
@@ -524,5 +526,79 @@ func TestTenantPayloadKeyIDCannotOverrideAuthContext(t *testing.T) {
 	delegated := svc.GetTask("task-master-delegated-1")
 	if delegated == nil || delegated.KeyID != "team-beta" {
 		t.Fatalf("expected master to be able to designate 'team-beta', got %+v", delegated)
+	}
+}
+
+func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok"))
+
+	// 预先创建两个会话
+	_, _ = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "task-snap-1",
+		Agent:     "Cursor",
+		Event:     "sessionStart",
+		Title:     "Task Snap 1",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-snap", false)
+
+	_, _ = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "task-snap-2",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Title:     "Task Snap 2",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-snap", false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stream", nil).WithContext(ctx)
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 10)}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		handler.HandleStream(w, req)
+	}()
+
+	// 等待首帧 Flush
+	select {
+	case <-w.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for initial SSE flush")
+	}
+	cancel()  // 关闭流
+	wg.Wait() // 确保后台 HandleStream 完全退出，杜绝并发读写 Body 数据竞争
+
+	body := w.Body.String()
+	if !strings.Contains(body, `"type":"snapshot_start"`) {
+		t.Fatalf("expected SSE stream to emit snapshot_start frame, got: %s", body)
+	}
+	if !strings.Contains(body, `"type":"snapshot_end"`) {
+		t.Fatalf("expected SSE stream to emit snapshot_end frame, got: %s", body)
+	}
+	if !strings.Contains(body, `"generation"`) {
+		t.Fatalf("expected SSE stream frames to contain generation, got: %s", body)
+	}
+	if !strings.Contains(body, `"task-snap-1"`) || !strings.Contains(body, `"task-snap-2"`) {
+		t.Fatalf("expected SSE snapshot to include tasks, got: %s", body)
+	}
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	flushed chan struct{}
+}
+
+func (f *flushRecorder) Flush() {
+	select {
+	case f.flushed <- struct{}{}:
+	default:
 	}
 }
