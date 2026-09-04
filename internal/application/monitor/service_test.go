@@ -36,10 +36,22 @@ func (m *memoryRepo) SaveRaw(id string, data []byte) error {
 	return nil
 }
 
+func (m *memoryRepo) SaveRawKey(key task.TaskKey, data []byte) error {
+	return nil
+}
+
 func (m *memoryRepo) Delete(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.tasks, id)
+	return nil
+}
+
+func (m *memoryRepo) DeleteKey(key task.TaskKey) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tasks, key.TaskID)
+	delete(m.tasks, key.String())
 	return nil
 }
 
@@ -352,7 +364,7 @@ func TestMonitorService_DiscardsIdleGhostOnCloseAndRestore(t *testing.T) {
 		Event: "sessionStart",
 	}, 2_000_000)
 	live.mu.Lock()
-	live.tasks[idle.ID] = idle
+	live.tasks[idle.TaskKey()] = idle
 	live.mu.Unlock()
 
 	_, err := live.HandleHookEvent(task.EventPayload{
@@ -468,8 +480,105 @@ func TestHandleHookEventTenantIsolation(t *testing.T) {
 	if err == nil || !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied when anonymous caller mutates project-alpha task, got %v", err)
 	}
-	// 验证任务并未被非法篡改或销毁
-	if svc.GetTask("sess-iso-1") == nil {
-		t.Fatal("task was illegally deleted by anonymous terminal event")
+		// 验证任务并未被非法篡改或销毁
+		if svc.GetTask("sess-iso-1") == nil {
+			t.Fatal("task was illegally deleted by anonymous terminal event")
+		}
+	}
+
+func TestMonitorService_MultiTenantSameSessionIDIsolation(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	hub := NewHub()
+	go hub.Run()
+
+	svc := NewMonitorService(repo, hub)
+	defer svc.Close()
+
+	sharedID := "sess-duplicate-999"
+
+	// 1. Tenant A 启动同名会话
+	_, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        sharedID,
+		Agent:     "Cursor Agent",
+		Event:     "sessionStart",
+		Title:     "Tenant A Workspace",
+		Prompt:    "Task for tenant A",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-a", false)
+	if err != nil {
+		t.Fatalf("tenant A start failed: %v", err)
+	}
+
+	// 2. Tenant B 启动相同 ID 的独立会话
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        sharedID,
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Title:     "Tenant B Workspace",
+		Prompt:    "Task for tenant B",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-b", false)
+	if err != nil {
+		t.Fatalf("tenant B start failed: %v", err)
+	}
+
+	// 3. 验证各自在自身租户空间下读取到的是独立对象，无覆盖
+	taskA := svc.GetTaskTenant(sharedID, "tenant-a", false)
+	if taskA == nil || taskA.KeyID != "tenant-a" || taskA.Title != "Tenant A Workspace" {
+		t.Fatalf("unexpected task A: %+v", taskA)
+	}
+
+	taskB := svc.GetTaskTenant(sharedID, "tenant-b", false)
+	if taskB == nil || taskB.KeyID != "tenant-b" || taskB.Title != "Tenant B Workspace" {
+		t.Fatalf("unexpected task B: %+v", taskB)
+	}
+
+	// 4. Master 视图同时包含两个独立任务
+	masterList := svc.GetAllTasksTenant("", true)
+	if len(masterList) != 2 {
+		t.Fatalf("master should see 2 tasks, got %d", len(masterList))
+	}
+
+	// 5. 并发更新各自任务，验证零数据竞争与状态隔离
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_, _ = svc.HandleHookEventTenant(task.EventPayload{
+				ID:        sharedID,
+				Agent:     "Cursor Agent",
+				Event:     "beforeShellExecution",
+				Detail:    "echo A",
+				Timestamp: time.Now().Unix(),
+			}, "tenant-a", false)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 20; i++ {
+			_, _ = svc.HandleHookEventTenant(task.EventPayload{
+				ID:        sharedID,
+				Agent:     "ZCode",
+				Event:     "beforeShellExecution",
+				Detail:    "echo B",
+				Timestamp: time.Now().Unix(),
+			}, "tenant-b", false)
+		}
+	}()
+	wg.Wait()
+
+	// 6. Tenant A 删除自己的同名任务，Tenant B 任务必须不受影响
+	deleted := svc.DeleteTasksTenant(DeleteTasksRequest{IDs: []string{sharedID}}, "tenant-a", false)
+	if len(deleted) != 1 || deleted[0] != sharedID {
+		t.Fatalf("tenant A delete failed: %+v", deleted)
+	}
+
+	if svc.GetTaskTenant(sharedID, "tenant-a", false) != nil {
+		t.Fatal("tenant A task should be deleted")
+	}
+	taskBAfter := svc.GetTaskTenant(sharedID, "tenant-b", false)
+	if taskBAfter == nil || taskBAfter.KeyID != "tenant-b" {
+		t.Fatalf("tenant B task must still exist and be intact, got %+v", taskBAfter)
 	}
 }
