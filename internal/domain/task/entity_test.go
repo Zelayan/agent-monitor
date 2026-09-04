@@ -680,3 +680,36 @@ func TestTaskKeyIDImmutability(t *testing.T) {
 		t.Fatalf("KeyID was illegally overwritten: expected 'project-alpha', got %q", task.KeyID)
 	}
 }
+
+func TestNormalizeRepoAndBranch(t *testing.T) {
+	// 1. 独立传递规范格式
+	r, b := NormalizeRepoAndBranch("agent-monitor", "feat/test")
+	if r != "agent-monitor" || b != "feat/test" {
+		t.Fatalf("expected repo and branch isolated, got %q, %q", r, b)
+	}
+
+	// 2. 兼容历史 repo:branch 复合格式
+	r2, b2 := NormalizeRepoAndBranch("Zelayan/agent-monitor:master", "")
+	if r2 != "Zelayan/agent-monitor" || b2 != "master" {
+		t.Fatalf("failed to decompose legacy repo:branch, got %q, %q", r2, b2)
+	}
+
+	// 3. NewTask 自动应用规范化
+	task := NewTask(EventPayload{
+		ID:     "task-repo-test",
+		Repo:   "agent-monitor:v1.0",
+		Branch: "",
+	}, 1000)
+	if task.Repo != "agent-monitor" || task.Branch != "v1.0" {
+		t.Fatalf("NewTask did not normalize repo/branch: repo=%q, branch=%q", task.Repo, task.Branch)
+	}
+
+	// 4. 后续事件更新 Branch
+	task.ApplyEvent(EventPayload{
+		ID:     "task-repo-test",
+		Branch: "hotfix/urgent",
+	}, 2000, "10:00:00")
+	if task.Branch != "hotfix/urgent" || task.Repo != "agent-monitor" {
+		t.Fatalf("ApplyEvent failed to update branch: repo=%q, branch=%q", task.Repo, task.Branch)
+	}
+}

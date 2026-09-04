@@ -1072,9 +1072,19 @@
     }
 
     function repoLabel(tObj) {
-      const repo = tObj.repo || 'workspace';
-      if (tObj.branch && !String(repo).includes(tObj.branch) && !String(repo).includes(':')) {
-        return `${repo}:${tObj.branch}`;
+      if (!tObj) return 'workspace';
+      let repo = String(tObj.repo || '').trim();
+      let branch = String(tObj.branch || '').trim();
+
+      // 双向兼容：如果 repo 包含冒号（旧格式历史任务），拆分提取
+      if (!branch && repo.includes(':')) {
+        const parts = repo.split(':');
+        repo = parts[0].trim();
+        branch = parts.slice(1).join(':').trim();
+      }
+      if (!repo) repo = 'workspace';
+      if (branch) {
+        return `${repo}:${branch}`;
       }
       return repo;
     }
