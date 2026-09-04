@@ -218,8 +218,11 @@ type EventReport struct {
 	Title        string `json:"title,omitempty"`
 	Prompt       string `json:"prompt,omitempty"`
 	AIResponse   string `json:"ai_response,omitempty"`
-	PID          int    `json:"pid,omitempty"`
-	PGID         int    `json:"pgid,omitempty"`
+	PID              int    `json:"pid,omitempty"`
+	PGID             int    `json:"pgid,omitempty"`
+	HostID           string `json:"host_id,omitempty"`
+	BootID           string `json:"boot_id,omitempty"`
+	ProcessStartTime int64  `json:"process_start_time,omitempty"`
 }
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
@@ -777,21 +780,27 @@ func Run(cfg Config, inputReader io.Reader) {
 	subType, subID, _ := extractSubagentMetadata(payload)
 	parentID := extractParentID(payload)
 
-	data := EventReport{
-		ID:           sessionID,
-		ParentID:     parentID,
-		SubagentID:   subID,
-		SubagentType: subType,
-		Agent:        agentName,
-		Repo:         fmt.Sprintf("%s:%s", repo, branch),
-		Event:        mappedEvent,
-		Timestamp:    time.Now().Unix(),
-		Detail:       detail,
-		TurnIndex:    turnCount,
-		Title:        title,
-		PID:          reportedPID,
-		PGID:         os.Getppid(),
-	}
+		hostID, bootID := GetHostAndBootID()
+		startTime := GetProcessStartTime(reportedPID)
+
+		data := EventReport{
+			ID:               sessionID,
+			ParentID:         parentID,
+			SubagentID:       subID,
+			SubagentType:     subType,
+			Agent:            agentName,
+			Repo:             fmt.Sprintf("%s:%s", repo, branch),
+			Event:            mappedEvent,
+			Timestamp:        time.Now().Unix(),
+			Detail:           detail,
+			TurnIndex:        turnCount,
+			Title:            title,
+			PID:              reportedPID,
+			PGID:             os.Getppid(),
+			HostID:           hostID,
+			BootID:           bootID,
+			ProcessStartTime: startTime,
+		}
 	if len(currentPrompt) > 4000 {
 		data.Prompt = currentPrompt[:4000]
 	} else {
