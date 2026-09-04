@@ -117,8 +117,12 @@ func NormalizeRepoAndBranch(rawRepo, rawBranch string) (string, string) {
 
 	if branch == "" && strings.Contains(repo, ":") {
 		parts := strings.SplitN(repo, ":", 2)
-		repo = strings.TrimSpace(parts[0])
-		branch = strings.TrimSpace(parts[1])
+		// 防御形如 "C:\path" 或 "D:/path" 的 Windows 盘符路径
+		isWindowsDrive := len(parts[0]) == 1 && (parts[1] == "" || parts[1][0] == '\\' || parts[1][0] == '/')
+		if !isWindowsDrive {
+			repo = strings.TrimSpace(parts[0])
+			branch = strings.TrimSpace(parts[1])
+		}
 	}
 	return repo, branch
 }
