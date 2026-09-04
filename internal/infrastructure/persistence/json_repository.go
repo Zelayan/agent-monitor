@@ -125,7 +125,7 @@ func (r *JSONRepository) CleanOrphanTmpFiles() {
 		if err != nil {
 			return nil
 		}
-		if !info.IsDir() && strings.Contains(info.Name(), ".tmp") {
+		if !info.IsDir() && strings.HasSuffix(info.Name(), ".tmp") {
 			if now.Sub(info.ModTime()) > 30*time.Minute {
 				_ = os.Remove(path)
 			}
@@ -142,7 +142,7 @@ func (r *JSONRepository) migrateLegacyFiles() {
 	}
 
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.Contains(entry.Name(), ".tmp") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".tmp") {
 			continue
 		}
 		oldPath := filepath.Join(r.dir, entry.Name())
@@ -186,7 +186,7 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 		if err != nil {
 			return nil
 		}
-		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") || strings.Contains(info.Name(), ".tmp") {
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") || strings.HasSuffix(info.Name(), ".tmp") {
 			return nil
 		}
 

@@ -369,15 +369,23 @@ func (s *MonitorService) findTaskLocked(id string, keyID string, isMaster bool) 
 		return task.TaskKey{}, nil, false
 	}
 
-	// Master 模式且未指定租户：先匹配默认租户，再全量遍历
+	// Master 模式且未指定租户：先匹配默认租户，若有跨租户同名任务则确定性选择最新活跃任务
 	defaultKey := task.NewTaskKey(task.DefaultTenantID, id)
 	if t, ok := s.tasks[defaultKey]; ok && t != nil {
 		return defaultKey, t, true
 	}
+	var bestKey task.TaskKey
+	var bestTask *task.Task
 	for k, t := range s.tasks {
 		if t != nil && t.ID == id {
-			return k, t, true
+			if bestTask == nil || t.StartTime > bestTask.StartTime {
+				bestKey = k
+				bestTask = t
+			}
 		}
+	}
+	if bestTask != nil {
+		return bestKey, bestTask, true
 	}
 	return task.TaskKey{}, nil, false
 }
@@ -611,9 +619,14 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 
 	// 广播 SSE 删除消息给该空间客户端（同时携带 deletedIds 和 deletedKeys）
 	if s.hub != nil && len(toDeleteIDs) > 0 {
+		var toDeleteKeyStrs []string
+		for _, k := range toDeleteKeys {
+			toDeleteKeyStrs = append(toDeleteKeyStrs, k.String())
+		}
 		delEvent := map[string]interface{}{
-			"type":       "delete_tasks",
-			"deletedIds": toDeleteIDs,
+			"type":        "delete_tasks",
+			"deletedIds":  toDeleteIDs,
+			"deletedKeys": toDeleteKeyStrs,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
 			s.hub.BroadcastTenant(keyID, string(msgJSON))
@@ -636,8 +649,9 @@ func (s *MonitorService) forgetTask(key task.TaskKey) {
 	}
 	if s.hub != nil {
 		delEvent := map[string]interface{}{
-			"type":       "delete_tasks",
-			"deletedIds": []string{key.TaskID},
+			"type":        "delete_tasks",
+			"deletedIds":  []string{key.TaskID},
+			"deletedKeys": []string{key.String()},
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
 			s.hub.BroadcastTenant(key.TenantID, string(msgJSON))
