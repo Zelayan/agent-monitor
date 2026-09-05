@@ -64,7 +64,7 @@
 | **WP-16** | **无障碍、焦点管理与动效偏好**<br>(标准Dialog/Focus Trap/方向键导航/Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (已清理)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-17** | **国际化全量完备化**<br>(动态Run/事件/操作全量字典化/Intl 本地化格式) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (已清理)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-18** | **完整 PWA 生命周期与离线快照**<br>(IndexedDB 加密快照/SW升级提示/脱机只读) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-19** | **浏览器级端到端测试**<br>(端到端快照对账/无障碍/重连断线覆盖) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `Pending` | - | 待启动 |
+| **WP-19** | **浏览器级端到端测试**<br>(端到端快照对账/无障碍/重连断线覆盖) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | [#43](https://github.com/Zelayan/agent-monitor/pull/43) | [PASS] 0 BLOCK, 测试 100% 绿灯 (端到端/SSE/租户/控制安全全量覆盖) |
 
 ---
 
@@ -79,6 +79,7 @@
 | 2026-09-05 | WP-16 | CI & AI Review | 无阻断项 | ARIA 标准 Dialog、焦点还原与 Reduced Motion | CSS 动效偏好适配、Focus Trap 与卡片键盘导航 | `go test -race` 全绿，AI Review Pass (PR #37) | ✅ 已归档 |
 | 2026-09-05 | WP-17 | CI & AI Review | 无阻断项 | 动态 Run/事件字典化与 Intl 格式化 | 全量字典化与本地化导出 | `go test -race` 全绿，AI Review Pass (PR #39) | ✅ 已归档 |
 | 2026-09-05 | WP-15 | CI AI Review | 批量选择状态未计入列渲染签名导致 Checkbox 勾选时 DOM 未更新 | 列签名 `runSig`/`compSig`/`failSig` 仅比对了版本和子任务，未包含 `selectedTaskIds.has(id)` | 在 `getColumnSignature` 中将 `selectedTaskIds.has(id)` 作为独立签名项纳入列变更比对 | CI AI Review 重新复核通过，`go test -race` 全绿 | ✅ 已自愈 |
+| 2026-09-05 | WP-19 | 本地 E2E 验证 | 测试断言与统一错误封装结构 (error_dto) schema 及 focus-visible/trapFocus 对齐 | 测试断言未解构 error 包装层且 FocusTrap 函数名为 trapFocus | 增加 extractErrorCode 解构包装器并校准 A11y 测试断言 | `go test -race ./...` 100% 通过，0 Race，0 BLOCK | ✅ 已自愈 |
 
 ---
 
