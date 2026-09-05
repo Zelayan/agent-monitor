@@ -2750,10 +2750,12 @@
           req.onsuccess = (e) => resolve(e.target.result);
           req.onerror = () => {
             console.warn('Failed to open IndexedDB for offline store');
+            offlineDbPromise = null;
             resolve(null);
           };
           req.onblocked = () => {
             console.warn('IndexedDB open blocked');
+            offlineDbPromise = null;
             resolve(null);
           };
         } catch (_) {
@@ -2860,6 +2862,7 @@
             const tx = db.transaction(OFFLINE_STORE_NAME, 'readwrite');
             tx.objectStore(OFFLINE_STORE_NAME).clear();
           } catch (_) {}
+          try { db.close(); } catch (_) {}
         }
         try {
           indexedDB.deleteDatabase(OFFLINE_DB_NAME);
