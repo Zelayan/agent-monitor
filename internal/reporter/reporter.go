@@ -107,18 +107,18 @@ type Payload struct {
 	Message           string                 `json:"message,omitempty"`
 	Status            string                 `json:"status,omitempty"`
 	Reason            string                 `json:"reason,omitempty"`
-		Text              string                 `json:"text,omitempty"`
-		FilePath          string                 `json:"file_path,omitempty"`
-		MCPServerName     string                 `json:"mcp_server_name,omitempty"`
-		WorkspaceRoots    []string               `json:"workspace_roots,omitempty"`
-		TranscriptPath    string                 `json:"transcript_path,omitempty"`
-		SpanID            string                 `json:"span_id,omitempty"`
-		SpanIDCamel       string                 `json:"spanId,omitempty"`
-		ParentSpanID      string                 `json:"parent_span_id,omitempty"`
-		ParentSpanIDCamel string                 `json:"parentSpanId,omitempty"`
-		Timestamp         int64                  `json:"timestamp,omitempty"`
-		Sequence          uint64                 `json:"sequence,omitempty"`
-	}
+	Text              string                 `json:"text,omitempty"`
+	FilePath          string                 `json:"file_path,omitempty"`
+	MCPServerName     string                 `json:"mcp_server_name,omitempty"`
+	WorkspaceRoots    []string               `json:"workspace_roots,omitempty"`
+	TranscriptPath    string                 `json:"transcript_path,omitempty"`
+	SpanID            string                 `json:"span_id,omitempty"`
+	SpanIDCamel       string                 `json:"spanId,omitempty"`
+	ParentSpanID      string                 `json:"parent_span_id,omitempty"`
+	ParentSpanIDCamel string                 `json:"parentSpanId,omitempty"`
+	Timestamp         int64                  `json:"timestamp,omitempty"`
+	Sequence          uint64                 `json:"sequence,omitempty"`
+}
 
 // DetectAgentName 智能推断上报来源的 Agent 名称
 func DetectAgentName(cfgAgent, payloadAgent string) string {
@@ -225,16 +225,16 @@ type EventReport struct {
 	Title            string `json:"title,omitempty"`
 	Prompt           string `json:"prompt,omitempty"`
 	AIResponse       string `json:"ai_response,omitempty"`
-		PID              int    `json:"pid,omitempty"`
-		PGID             int    `json:"pgid,omitempty"`
-		HostID           string `json:"host_id,omitempty"`
-		BootID           string `json:"boot_id,omitempty"`
-		ProcessStartTime int64  `json:"process_start_time,omitempty"`
-		SpanID           string `json:"span_id,omitempty"`
-		ParentSpanID     string `json:"parent_span_id,omitempty"`
-		ToolName         string `json:"tool_name,omitempty"`
-		Sequence         uint64 `json:"sequence,omitempty"`
-	}
+	PID              int    `json:"pid,omitempty"`
+	PGID             int    `json:"pgid,omitempty"`
+	HostID           string `json:"host_id,omitempty"`
+	BootID           string `json:"boot_id,omitempty"`
+	ProcessStartTime int64  `json:"process_start_time,omitempty"`
+	SpanID           string `json:"span_id,omitempty"`
+	ParentSpanID     string `json:"parent_span_id,omitempty"`
+	ToolName         string `json:"tool_name,omitempty"`
+	Sequence         uint64 `json:"sequence,omitempty"`
+}
 
 // ServerControlResponse 是 Monitor 服务端返回的决策指令。
 type ServerControlResponse struct {
@@ -911,72 +911,72 @@ func Run(cfg Config, inputReader io.Reader) {
 	subType, subID, _ := extractSubagentMetadata(payload)
 	parentID := extractParentID(payload)
 
-		hostID, bootID := GetHostAndBootID()
-		startTime := GetProcessStartTime(reportedPID)
+	hostID, bootID := GetHostAndBootID()
+	startTime := GetProcessStartTime(reportedPID)
 
-		// 9.1 单调序号自增
-		seq := NextSessionSequence(sessionID)
+	// 9.1 单调序号自增
+	seq := NextSessionSequence(sessionID)
 
-		// 9.2 工具识别与 TraceSpan 关联
-		resolvedToolName := toolName
-		if resolvedToolName == "" {
-			if isBashTool(payload.Tool) || payload.Command != "" {
-				resolvedToolName = "Bash"
-			} else if payload.Tool != "" {
-				resolvedToolName = payload.Tool
-			}
+	// 9.2 工具识别与 TraceSpan 关联
+	resolvedToolName := toolName
+	if resolvedToolName == "" {
+		if isBashTool(payload.Tool) || payload.Command != "" {
+			resolvedToolName = "Bash"
+		} else if payload.Tool != "" {
+			resolvedToolName = payload.Tool
 		}
-		spanID := payload.SpanID
-		if spanID == "" {
-			spanID = payload.SpanIDCamel
-		}
-		parentSpanID := payload.ParentSpanID
-		if parentSpanID == "" {
-			parentSpanID = payload.ParentSpanIDCamel
-		}
+	}
+	spanID := payload.SpanID
+	if spanID == "" {
+		spanID = payload.SpanIDCamel
+	}
+	parentSpanID := payload.ParentSpanID
+	if parentSpanID == "" {
+		parentSpanID = payload.ParentSpanIDCamel
+	}
 
-		if isToolStartHookName(eventName) {
-			if spanID == "" && sessionID != "" && resolvedToolName != "" {
-				spanID = fmt.Sprintf("span-%s-%d-%d", cleanToolName(resolvedToolName), time.Now().UnixMilli(), seq)
-				saveActiveToolSpan(sessionID, resolvedToolName, spanID, time.Now().UnixMilli())
-			}
-		} else if isToolEndHookName(eventName) || isFailure {
-			if spanID == "" && sessionID != "" && resolvedToolName != "" {
-				spanID, _ = popActiveToolSpan(sessionID, resolvedToolName)
-			}
+	if isToolStartHookName(eventName) {
+		if spanID == "" && sessionID != "" && resolvedToolName != "" {
+			spanID = fmt.Sprintf("span-%s-%d-%d", cleanToolName(resolvedToolName), time.Now().UnixMilli(), seq)
+			saveActiveToolSpan(sessionID, resolvedToolName, spanID, time.Now().UnixMilli())
 		}
+	} else if isToolEndHookName(eventName) || isFailure {
+		if spanID == "" && sessionID != "" && resolvedToolName != "" {
+			spanID, _ = popActiveToolSpan(sessionID, resolvedToolName)
+		}
+	}
 
-		// 9.3 时间戳校验（防止未来时间回穿或异常负数）
-		reportedTimestamp := time.Now().Unix()
-		if payload.Timestamp > 0 {
-			nowSec := time.Now().Unix()
-			if payload.Timestamp <= nowSec+86400 {
-				reportedTimestamp = payload.Timestamp
-			}
+	// 9.3 时间戳校验（防止未来时间回穿或异常负数）
+	reportedTimestamp := time.Now().Unix()
+	if payload.Timestamp > 0 {
+		nowSec := time.Now().Unix()
+		if payload.Timestamp <= nowSec+86400 {
+			reportedTimestamp = payload.Timestamp
 		}
+	}
 
-		data := EventReport{
-			ID:               sessionID,
-			ParentID:         parentID,
-			SubagentID:       subID,
-			SubagentType:     subType,
-			Agent:            agentName,
-			Repo:             repo,
-			Branch:           branch,
-			Event:            mappedEvent,
-			Timestamp:        reportedTimestamp,
-			Detail:           detail,
-			TurnIndex:        turnCount,
-			Title:            title,
-			PID:              reportedPID,
-			HostID:           hostID,
-			BootID:           bootID,
-			ProcessStartTime: startTime,
-			SpanID:           spanID,
-			ParentSpanID:     parentSpanID,
-			ToolName:         resolvedToolName,
-			Sequence:         seq,
-		}
+	data := EventReport{
+		ID:               sessionID,
+		ParentID:         parentID,
+		SubagentID:       subID,
+		SubagentType:     subType,
+		Agent:            agentName,
+		Repo:             repo,
+		Branch:           branch,
+		Event:            mappedEvent,
+		Timestamp:        reportedTimestamp,
+		Detail:           detail,
+		TurnIndex:        turnCount,
+		Title:            title,
+		PID:              reportedPID,
+		HostID:           hostID,
+		BootID:           bootID,
+		ProcessStartTime: startTime,
+		SpanID:           spanID,
+		ParentSpanID:     parentSpanID,
+		ToolName:         resolvedToolName,
+		Sequence:         seq,
+	}
 	if len(currentPrompt) > 4000 {
 		data.Prompt = currentPrompt[:4000]
 	} else {

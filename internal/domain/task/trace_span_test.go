@@ -536,3 +536,52 @@ func TestTraceSpan_ConcurrentAccess_RaceFree(t *testing.T) {
 		t.Errorf("expected 20 trace spans, got %d", len(task.TraceSpans))
 	}
 }
+
+// TestTraceSpan_UnknownSpanIDDoesNotCancelUnrelatedActiveSpan 验证未知 SpanID 的结束事件不会误杀其他运行中的活跃工具
+func TestTraceSpan_UnknownSpanIDDoesNotCancelUnrelatedActiveSpan(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:        "sess-span-isolation",
+		Agent:     "ZCode",
+		Event:     "sessionStart",
+		Prompt:    "Test unrelated span safety",
+		Timestamp: 1000,
+	}, 1000000)
+
+	// 启动一个长时间运行的后台 Bash 工具跨度
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-span-isolation",
+		Event:     "beforeShellExecution",
+		ToolName:  "Bash",
+		Detail:    "long-running server process",
+		Timestamp: 1001,
+		SpanID:    "span-bash-long",
+	}, 1001000, "10:00:01")
+
+	if len(task.ActiveSpans) != 1 {
+		t.Fatalf("expected 1 active span, got %d", len(task.ActiveSpans))
+	}
+
+	// 客户端上报了一个完全不相干且在 ActiveSpans 中不存在的 SpanID 结束事件
+	task.ApplyEvent(EventPayload{
+		ID:        "sess-span-isolation",
+		Event:     "afterToolUse",
+		ToolName:  "Grep",
+		Detail:    "grep finish (orphan/out-of-order)",
+		Timestamp: 1002,
+		SpanID:    "span-grep-nonexistent",
+	}, 1002000, "10:00:02")
+
+	// 核心断言：长任务 Bash 必须继续处于 ActiveSpans 中，绝不能被误闭合或删除！
+	if len(task.ActiveSpans) != 1 {
+		t.Fatalf("expected Bash span to remain active, but ActiveSpans count is %d", len(task.ActiveSpans))
+	}
+	bashSpan, ok := task.ActiveSpans["span-bash-long"]
+	if !ok || bashSpan.Status != SpanStatusRunning {
+		t.Fatalf("span-bash-long was wrongfully removed or modified in ActiveSpans!")
+	}
+
+	// 检查孤儿事件被正常记录在 TraceSpans 中作为补齐
+	if len(task.TraceSpans) != 2 {
+		t.Fatalf("expected 2 trace spans (1 running, 1 orphan completed), got %d", len(task.TraceSpans))
+	}
+}

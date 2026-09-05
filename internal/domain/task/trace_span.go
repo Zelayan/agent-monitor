@@ -150,35 +150,39 @@ func (t *Task) StartTraceSpan(p EventPayload, startMs int64) *TraceSpan {
 	return &span
 }
 
+// recordOrphanSpan 记录未匹配到前置 Start 钩子的孤儿跨度（例如由于前置钩子丢失或乱序晚到）。
+func (t *Task) recordOrphanSpan(p EventPayload, endMs int64, isFailure bool) *TraceSpan {
+	toolName := ResolveToolName(p.Event, p.ToolName, p.Detail)
+	spanID := p.SpanID
+	if spanID == "" {
+		spanID = fmt.Sprintf("span-%s-%d-%d", strings.ToLower(toolName), endMs, len(t.TraceSpans)+1)
+	}
+	status := SpanStatusCompleted
+	if isFailure {
+		status = SpanStatusFailed
+	}
+	span := TraceSpan{
+		SpanID:       spanID,
+		ParentSpanID: p.ParentSpanID,
+		ToolName:     toolName,
+		Detail:       p.Detail,
+		StartMs:      endMs,
+		EndMs:        endMs,
+		DurationMs:   0,
+		Status:       status,
+	}
+	t.TraceSpans = append(t.TraceSpans, span)
+	if len(t.Runs) > 0 {
+		curRun := &t.Runs[len(t.Runs)-1]
+		curRun.TraceSpans = append(curRun.TraceSpans, span)
+	}
+	return &span
+}
+
 // CompleteTraceSpan 完成一条活跃的工具跨度，计算其持续耗时并检测是否异常超时。
 func (t *Task) CompleteTraceSpan(p EventPayload, endMs int64, isFailure bool) *TraceSpan {
 	if len(t.ActiveSpans) == 0 {
-		// 没有匹配的活跃跨度（例如 Pre 钩子丢失或乱序晚到），补记一条已完成/失败的跨度
-		toolName := ResolveToolName(p.Event, p.ToolName, p.Detail)
-		spanID := p.SpanID
-		if spanID == "" {
-			spanID = fmt.Sprintf("span-%s-%d-%d", strings.ToLower(toolName), endMs, len(t.TraceSpans)+1)
-		}
-		status := SpanStatusCompleted
-		if isFailure {
-			status = SpanStatusFailed
-		}
-		span := TraceSpan{
-			SpanID:       spanID,
-			ParentSpanID: p.ParentSpanID,
-			ToolName:     toolName,
-			Detail:       p.Detail,
-			StartMs:      endMs,
-			EndMs:        endMs,
-			DurationMs:   0,
-			Status:       status,
-		}
-		t.TraceSpans = append(t.TraceSpans, span)
-		if len(t.Runs) > 0 {
-			curRun := &t.Runs[len(t.Runs)-1]
-			curRun.TraceSpans = append(curRun.TraceSpans, span)
-		}
-		return &span
+		return t.recordOrphanSpan(p, endMs, isFailure)
 	}
 
 	// 匹配对应的活跃 span
@@ -186,11 +190,15 @@ func (t *Task) CompleteTraceSpan(p EventPayload, endMs int64, isFailure bool) *T
 	if p.SpanID != "" {
 		if _, ok := t.ActiveSpans[p.SpanID]; ok {
 			matchedID = p.SpanID
+		} else {
+			// 若明确指定了 SpanID 但未在活跃列表中找到，说明可能前置 start 钩子丢失或乱序，
+			// 绝不能跨 ID 盲目闭合其它无关的活跃跨度
+			return t.recordOrphanSpan(p, endMs, isFailure)
 		}
 	}
 
 	targetTool := ResolveToolName(p.Event, p.ToolName, p.Detail)
-	if matchedID == "" && targetTool != "" {
+	if matchedID == "" && targetTool != "" && targetTool != "tool" {
 		// 按 ToolName 匹配最新（最近启动）的一个
 		var latestStart int64 = -1
 		for id, s := range t.ActiveSpans {
@@ -204,26 +212,17 @@ func (t *Task) CompleteTraceSpan(p EventPayload, endMs int64, isFailure bool) *T
 	}
 
 	if matchedID == "" {
-		// 如果只有 1 个活跃跨度，直接匹配该跨度
+		// 仅在未指定 SpanID 且只有一个活跃跨度时，才允许兜底匹配
 		if len(t.ActiveSpans) == 1 {
 			for id := range t.ActiveSpans {
 				matchedID = id
 				break
 			}
-		} else {
-			// 匹配启动时间最晚的一个
-			var latestStart int64 = -1
-			for id, s := range t.ActiveSpans {
-				if s.StartMs >= latestStart {
-					latestStart = s.StartMs
-					matchedID = id
-				}
-			}
 		}
 	}
 
 	if matchedID == "" {
-		return nil
+		return t.recordOrphanSpan(p, endMs, isFailure)
 	}
 
 	span := t.ActiveSpans[matchedID]
@@ -313,7 +312,7 @@ func (t *Task) DetectAnomalies(nowMs int64) []AnomalyInfo {
 	return t.DetectAnomaliesWithThreshold(nowMs, DefaultSpanAnomalyThresholdMs)
 }
 
-// DetectAnomaliesWithThreshold 基于指定超时阈值毫秒数检测卡死/超时的活跃跨度。
+// DetectAnomaliesWithThreshold 基于指定超时阈值毫秒数只读检测卡死/超时的活跃跨度（纯查询无聚合根写副作用）。
 func (t *Task) DetectAnomaliesWithThreshold(nowMs int64, thresholdMs int64) []AnomalyInfo {
 	if thresholdMs <= 0 {
 		thresholdMs = DefaultSpanAnomalyThresholdMs
@@ -325,37 +324,13 @@ func (t *Task) DetectAnomaliesWithThreshold(nowMs int64, thresholdMs int64) []An
 			duration = 0
 		}
 		if duration > thresholdMs {
-			span.IsAnomaly = true
-			span.AnomalyMsg = AnomalyMsgStuckTool
-			span.DurationMs = duration
-			t.ActiveSpans[id] = span
-
-			for i := range t.TraceSpans {
-				if t.TraceSpans[i].SpanID == id {
-					t.TraceSpans[i].IsAnomaly = true
-					t.TraceSpans[i].AnomalyMsg = span.AnomalyMsg
-					t.TraceSpans[i].DurationMs = duration
-					break
-				}
-			}
-			for r := range t.Runs {
-				for s := range t.Runs[r].TraceSpans {
-					if t.Runs[r].TraceSpans[s].SpanID == id {
-						t.Runs[r].TraceSpans[s].IsAnomaly = true
-						t.Runs[r].TraceSpans[s].AnomalyMsg = span.AnomalyMsg
-						t.Runs[r].TraceSpans[s].DurationMs = duration
-						break
-					}
-				}
-			}
-
 			anomalies = append(anomalies, AnomalyInfo{
 				SpanID:      id,
 				ToolName:    span.ToolName,
 				DurationMs:  duration,
 				ThresholdMs: thresholdMs,
 				AnomalyType: "stuck_tool",
-				Message:     span.AnomalyMsg,
+				Message:     AnomalyMsgStuckTool,
 			})
 		}
 	}

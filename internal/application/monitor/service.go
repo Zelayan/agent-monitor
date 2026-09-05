@@ -894,8 +894,8 @@ func (s *MonitorService) GetTaskEventReplayTenant(id string, tenantKeyID string,
 		return records[i].Timestamp < records[j].Timestamp
 	})
 
-		return records, nil
-	}
+	return records, nil
+}
 
 // GetTaskTraceSpansTenant 查询指定会话的 TraceSpan 追踪跨度列表与活跃跨度。
 func (s *MonitorService) GetTaskTraceSpansTenant(id string, tenantKeyID string, isMaster bool, nowMs int64) ([]task.TraceSpan, error) {
@@ -927,10 +927,10 @@ func (s *MonitorService) GetTaskTraceSpansTenant(id string, tenantKeyID string, 
 	return allSpans, nil
 }
 
-// DetectTaskAnomaliesTenant 执行指定会话的工具卡死与超时异常诊断。
+// DetectTaskAnomaliesTenant 执行指定会话的工具卡死与超时异常诊断（只读读锁）。
 func (s *MonitorService) DetectTaskAnomaliesTenant(id string, tenantKeyID string, isMaster bool, nowMs int64) ([]task.AnomalyInfo, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	_, targetTask, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
 	if !exists {
 		return nil, fmt.Errorf("task not found: %s", id)

@@ -697,11 +697,11 @@ func TestSubagentRecognition(t *testing.T) {
 	}
 
 	// 5. extractParentID 提取
-		parentID := extractParentID(p)
-		if parentID != "parent-sess-001" {
-			t.Errorf("expected parent_id parent-sess-001, got %s", parentID)
-		}
+	parentID := extractParentID(p)
+	if parentID != "parent-sess-001" {
+		t.Errorf("expected parent_id parent-sess-001, got %s", parentID)
 	}
+}
 
 func TestReporter_SequenceAndSpanTracking(t *testing.T) {
 	sessionID := fmt.Sprintf("test-seq-span-%d", time.Now().UnixNano())
