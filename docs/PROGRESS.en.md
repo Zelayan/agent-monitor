@@ -78,7 +78,7 @@ This document serves as the single source of truth for persistent progress track
 | 2026-09-05 | WP-14 | CI & AI Review | None | Thread-safe ring buffer and expired resync protocol | Monotonic sequence IDs & Last-Event-ID replay | `go test -race` 100% green, AI Review Pass (PR #36) | ✅ Archived |
 | 2026-09-05 | WP-16 | CI & AI Review | None | ARIA standard dialogs, focus restore & reduced motion | CSS motion adaptation, focus trap & arrow navigation | `go test -race` 100% green, AI Review Pass (PR #37) | ✅ Archived |
 | 2026-09-05 | WP-17 | CI & AI Review | None | Dynamic run/event dictionary coverage & Intl formatting | Full dictionary internationalization & localized export | `go test -race` 100% green, AI Review Pass (PR #39) | ✅ Archived |
-| 2026-09-05 | WP-15 | Local & CI Pre-check | None | Frequent full DOM rebuilding, repetitive search re-indexing, and background CPU churn | Keyed DOM patching, column-isolated repainting, versioned search caching, and background tab throttling | `go test -race` 100% green, 0 BLOCK | ✅ Self-Healed |
+| 2026-09-05 | WP-15 | CI AI Review | Batch selection state omitted from column signature causing unrendered checkbox changes | Column signature `runSig`/`compSig`/`failSig` compared version and children without `selectedTaskIds.has(id)` | Incorporated `selectedTaskIds.has(id)` into `getColumnSignature` so selection changes trigger DOM patch | CI AI Review re-verified, `go test -race` 100% green | ✅ Self-Healed |
 
 ---
 

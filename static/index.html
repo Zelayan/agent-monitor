@@ -1851,14 +1851,22 @@
         buckets[status].push(node);
       });
 
-      // WP-15: 高性能列隔离渲染与签名检查（仅在列内卡片序列/版本发生变更时执行 Keyed DOM Patching）
-      const runSig = buckets.running.map(n => `${n.task.id}:${getTaskVersionKey(n.task)}:${(n.children || []).map(c => `${c.id}:${getTaskVersionKey(c)}`).join(',')}`).join(';') + `|sm:${isSelectMode}`;
+      // WP-15: 高性能列隔离渲染与签名检查（仅在列内卡片序列/版本/选中态发生变更时执行 Keyed DOM Patching）
+      function getColumnSignature(bucket) {
+        return bucket.map(n => {
+          const isSel = selectedTaskIds.has(n.task.id) ? 1 : 0;
+          const childSig = (n.children || []).map(c => `${c.id}:${getTaskVersionKey(c)}`).join(',');
+          return `${n.task.id}:${getTaskVersionKey(n.task)}:${isSel}:${childSig}`;
+        }).join(';') + `|sm:${isSelectMode}`;
+      }
+
+      const runSig = getColumnSignature(buckets.running);
       if (runSig !== lastRenderedBucketSignatures.running) {
         lastRenderedBucketSignatures.running = runSig;
         patchColumn('col-running', 'running', buckets.running);
       }
 
-      const compSig = buckets.completed.map(n => `${n.task.id}:${getTaskVersionKey(n.task)}:${(n.children || []).map(c => `${c.id}:${getTaskVersionKey(c)}`).join(',')}`).join(';') + `|sm:${isSelectMode}`;
+      const compSig = getColumnSignature(buckets.completed);
       if (compSig !== lastRenderedBucketSignatures.completed) {
         lastRenderedBucketSignatures.completed = compSig;
         patchColumn('col-completed', 'completed', buckets.completed);
@@ -1872,7 +1880,7 @@
       failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
       boardGrid.classList.toggle('has-failed', hasFailed);
 
-      const failSig = buckets.failed.map(n => `${n.task.id}:${getTaskVersionKey(n.task)}:${(n.children || []).map(c => `${c.id}:${getTaskVersionKey(c)}`).join(',')}`).join(';') + `|sm:${isSelectMode}`;
+      const failSig = getColumnSignature(buckets.failed);
       if (failSig !== lastRenderedBucketSignatures.failed) {
         lastRenderedBucketSignatures.failed = failSig;
         patchColumn('col-failed', 'failed', buckets.failed);

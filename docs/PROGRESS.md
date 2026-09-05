@@ -78,7 +78,7 @@
 | 2026-09-05 | WP-14 | CI & AI Review | 无阻断项 | 环形缓冲区线程安全与过期重同步协议 | 单调递增序号与 Last-Event-ID 重放 | `go test -race` 全绿，AI Review Pass (PR #36) | ✅ 已归档 |
 | 2026-09-05 | WP-16 | CI & AI Review | 无阻断项 | ARIA 标准 Dialog、焦点还原与 Reduced Motion | CSS 动效偏好适配、Focus Trap 与卡片键盘导航 | `go test -race` 全绿，AI Review Pass (PR #37) | ✅ 已归档 |
 | 2026-09-05 | WP-17 | CI & AI Review | 无阻断项 | 动态 Run/事件字典化与 Intl 格式化 | 全量字典化与本地化导出 | `go test -race` 全绿，AI Review Pass (PR #39) | ✅ 已归档 |
-| 2026-09-05 | WP-15 | 本地 & CI 预审 | 无阻断项 | 高频渲染重刷 DOM、搜索索引重复计算与后台无谓重绘 | Keyed DOM Patching、列隔离局部重绘、按版本搜索缓存、后台标签页节流 | `go test -race` 全绿，0 BLOCK | ✅ 已自愈 |
+| 2026-09-05 | WP-15 | CI AI Review | 批量选择状态未计入列渲染签名导致 Checkbox 勾选时 DOM 未更新 | 列签名 `runSig`/`compSig`/`failSig` 仅比对了版本和子任务，未包含 `selectedTaskIds.has(id)` | 在 `getColumnSignature` 中将 `selectedTaskIds.has(id)` 作为独立签名项纳入列变更比对 | CI AI Review 重新复核通过，`go test -race` 全绿 | ✅ 已自愈 |
 
 ---
 
