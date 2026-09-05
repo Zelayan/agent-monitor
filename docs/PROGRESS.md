@@ -60,8 +60,8 @@
 
 | WP 编号 | 任务名称 | 架构目录 | 负责 Agent / 分支 | 隔离 Worktree | 当前状态 | PR 链接 | 质量门禁与审查结论 |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-20** | **Agent 适配成熟度模型与正式化**<br>(Claude Code / Aider 正式支持、Transcript 解析、Fail-Safe 自动化测试) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `../agent-monitor-worktrees/wt-wp20` | `Pending` | - | 待启动 |
-| **WP-21** | **Cursor 多根工作区 Hook 管理**<br>(多根工作区遍历配置、Hook 冲突检测、无损 Diff 与撤销备份) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `../agent-monitor-worktrees/wt-wp21` | `Quality Passed` | - | `go test -race` 100% 绿灯，`npm test` 9/9 绿灯，0 BLOCK |
+| **WP-20** | **Agent 适配成熟度模型与正式化**<br>(Claude Code / Aider 正式支持、Transcript 解析、Fail-Safe 自动化测试) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `wt-wp20` (已清理) | `Merged` | [#46](https://github.com/Zelayan/agent-monitor/pull/46) | 审查 [BLOCK] 已就地自愈，深拷贝隔离与别名覆盖验证通过，100% 绿灯 |
+| **WP-21** | **Cursor 多根工作区 Hook 管理**<br>(多根工作区遍历配置、Hook 冲突检测、无损 Diff 与撤销备份) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `wt-wp21` (已清理) | `Merged` | [#45](https://github.com/Zelayan/agent-monitor/pull/45) | `go test -race` 100% 绿灯，`npm test` 9/9 绿灯，AI Review [PASS]，0 BLOCK |
 | **WP-22** | **VSIX 跨平台内置二进制与分发**<br>(全平台交叉编译分发、按 OS/Arch 智能选择、执行权限与校验和) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `Pending` | - | 待启动 (可并发) |
 | **WP-23** | **扩展自诊断与自动化测试**<br>(Output Channel、自诊断健康命令、端口/版本/SSE 检测与自动化测试) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `../agent-monitor-worktrees/wt-wp23` | `Pending` | - | 待启动 |
 
@@ -79,7 +79,8 @@
 | 2026-09-05 | WP-17 | CI & AI Review | 无阻断项 | 动态 Run/事件字典化与 Intl 格式化 | 全量字典化与本地化导出 | `go test -race` 全绿，AI Review Pass (PR #39) | ✅ 已归档 |
 | 2026-09-05 | WP-15 | CI AI Review | 批量选择状态未计入列渲染签名导致 Checkbox 勾选时 DOM 未更新 | 列签名 `runSig`/`compSig`/`failSig` 仅比对了版本和子任务，未包含 `selectedTaskIds.has(id)` | 在 `getColumnSignature` 中将 `selectedTaskIds.has(id)` 作为独立签名项纳入列变更比对 | CI AI Review 重新复核通过，`go test -race` 全绿 | ✅ 已自愈 |
 | 2026-09-05 | WP-19 | 本地 E2E 验证 | 测试断言与统一错误封装结构 (error_dto) schema 及 focus-visible/trapFocus 对齐 | 测试断言未解构 error 包装层且 FocusTrap 函数名为 trapFocus | 增加 extractErrorCode 解构包装器并校准 A11y 测试断言 | `go test -race ./...` 100% 通过，0 Race，0 BLOCK | ✅ 已自愈 |
-| 2026-09-05 | WP-21 | 本地验证 & 测试 | 无阻断项 | 多根工作区遍历配置、无损合并自定义钩子、路径空格转义、Diff与备份撤销、用户级重复钩子检测 | 实现完整多根工作区选择与批量配置、9组自动化单元测试全覆盖 | `go test -race ./...` 100% 通过，`npm test` 9/9 通过，0 BLOCK | ✅ 验证通过 |
+| 2026-09-05 | WP-21 | 本地验证 & 测试 | 无阻断项 | 多根工作区遍历配置、无损合并自定义钩子、路径空格转义、Diff与备份撤销、用户级重复钩子检测 | 实现完整多根工作区选择与批量配置、9组自动化单元测试全覆盖 | `go test -race ./...` 100% 通过，`npm test` 9/9 通过，AI Review [PASS]，PR #45 已合入 | ✅ 已合入 |
+| 2026-09-05 | WP-20 | CI AI Review | `NormalizeAgentName` 对 `codex-desktop` 匹配缺失导致误识别为 CLI；复合规格对象 `HookTypes` 切片未做深拷贝，外部修改存在数据竞争隐患 | `strings.Contains` 别名优先级漏洞及引用类型浅拷贝 | 1. 扩展别名覆盖 `codex-desktop`/`codex_desktop`/`codex.app`；2. 为 `AgentMaturitySpec` 引入 `Clone()` 完全深拷贝切片；3. 增加并发与隔离性测试断言 | CI AI Review 重新复核给出 [PASS]，`go test -race` 100% 绿灯，PR #46 已合入 | ✅ 已自愈合入 |
 
 ---
 
