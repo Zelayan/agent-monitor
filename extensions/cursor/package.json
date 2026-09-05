@@ -53,6 +53,11 @@
         "command": "agent-monitor.restartDaemon",
         "title": "Agent Monitor: Restart Backend Daemon",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "agent-monitor.showDiagnostics",
+        "title": "Agent Monitor: Run Diagnostics and Health Checks",
+        "icon": "$(pulse)"
       }
     ],
     "viewsContainers": {

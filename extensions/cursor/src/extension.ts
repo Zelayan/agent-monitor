@@ -3,15 +3,18 @@ import { DaemonManager } from './daemonManager';
 import { HooksManager } from './hooksManager';
 import { StatusBarTracker } from './statusBar';
 import { DashboardPanel, SidebarViewProvider } from './dashboardPanel';
+import { DiagnosticsManager } from './diagnosticsManager';
 
 let daemonManager: DaemonManager | undefined;
 let hooksManager: HooksManager | undefined;
 let statusBarTracker: StatusBarTracker | undefined;
+let diagnosticsManager: DiagnosticsManager | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
   daemonManager = new DaemonManager(context);
   hooksManager = new HooksManager(daemonManager);
   statusBarTracker = new StatusBarTracker(daemonManager);
+  diagnosticsManager = new DiagnosticsManager(context, daemonManager, hooksManager);
 
   // 1. 自动启动后台服务并提示配置工作区 Hooks
   daemonManager.ensureRunning().then((running) => {
@@ -49,6 +52,24 @@ export async function activate(context: vscode.ExtensionContext) {
           }
         } else {
           vscode.window.showErrorMessage('Failed to restart Agent Monitor daemon.');
+        }
+      }
+    }),
+
+    vscode.commands.registerCommand('agent-monitor.showDiagnostics', async () => {
+      if (diagnosticsManager) {
+        vscode.window.showInformationMessage('Running Agent Monitor diagnostics...');
+        const report = await diagnosticsManager.runFullDiagnostics();
+        if (report.summary.error > 0) {
+          vscode.window.showErrorMessage(
+            `Agent Monitor Diagnostics: ${report.summary.error} issue(s) detected. Check "Agent Monitor Diagnostics" Output tab.`
+          );
+        } else if (report.summary.warning > 0) {
+          vscode.window.showWarningMessage(
+            `Agent Monitor Diagnostics: ${report.summary.warning} warning(s). Check "Agent Monitor Diagnostics" Output tab.`
+          );
+        } else {
+          vscode.window.showInformationMessage('✓ Agent Monitor Diagnostics: All health checks passed!');
         }
       }
     })
@@ -91,7 +112,7 @@ export async function activate(context: vscode.ExtensionContext) {
   );
 
   // 5. 清理注册
-  context.subscriptions.push(daemonManager, statusBarTracker);
+  context.subscriptions.push(daemonManager, statusBarTracker, diagnosticsManager);
 }
 
 export function deactivate() {
@@ -100,5 +121,8 @@ export function deactivate() {
   }
   if (statusBarTracker) {
     statusBarTracker.dispose();
+  }
+  if (diagnosticsManager) {
+    diagnosticsManager.dispose();
   }
 }
