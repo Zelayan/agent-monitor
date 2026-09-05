@@ -83,6 +83,56 @@
       border-color: #3f3f46;
       color: #e4e4e7;
     }
+
+    /* 高对比度焦点环 (WCAG 2.1 AA :focus-visible 对齐 Linear/Sentry 风格) */
+    :focus-visible {
+      outline: 2px solid #6366f1 !important;
+      outline-offset: 2px !important;
+    }
+    .task-card:focus-visible {
+      outline: 2px solid #6366f1 !important;
+      outline-offset: 2px !important;
+      border-color: #6366f1 !important;
+    }
+
+    /* 屏幕阅读器专用隐藏工具类 */
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border-width: 0;
+    }
+
+    /* 动效偏好 (Reduced Motion Support) */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important;
+        scroll-behavior: auto !important;
+      }
+      .drawer {
+        transition: none !important;
+        transform: translateX(100%);
+      }
+      .drawer.open {
+        transform: translateX(0);
+      }
+      .overlay {
+        transition: none !important;
+      }
+      .task-card {
+        transition: none !important;
+      }
+      .animate-pulse, .animate-spin {
+        animation: none !important;
+      }
+    }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 999px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -335,8 +385,8 @@
   </main>
 
   <!-- 3. 企业级多轮工作流抽屉 (支持宽屏/全屏展开与 Run 步进器) -->
-  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/60"></div>
-  <aside id="drawer" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line p-3.5 sm:p-5 pb-16 sm:pb-20 overflow-y-auto" aria-hidden="true">
+  <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/60" aria-hidden="true"></div>
+  <aside id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-root-title" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line p-3.5 sm:p-5 pb-16 sm:pb-20 overflow-y-auto" aria-hidden="true" tabindex="-1">
     
     <!-- 抽屉顶部 Bar -->
     <div class="sticky top-0 z-20 -mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 px-3.5 pt-3.5 sm:px-5 sm:pt-5 pb-3 bg-panel/95 backdrop-blur-md border-b border-line flex items-center justify-between gap-2">
@@ -632,6 +682,10 @@
       </div>
     </div>
   </div>
+
+  <!-- 全局无障碍实时播报区 (Screen Reader Live Region for Announcements & Toasts) -->
+  <div id="a11y-live-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <div id="a11y-live-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
 
   <script>
     const I18N = {
@@ -1677,7 +1731,56 @@
       }
     }
 
+    // 无障碍焦点恢复与管理 (WCAG 2.1 AA Focus Restoration)
+    let previouslyFocusedElement = null;
+
+    function captureFocus() {
+      if (!previouslyFocusedElement && document.activeElement && document.activeElement !== document.body) {
+        previouslyFocusedElement = document.activeElement;
+      }
+    }
+
+    function restorePreviousFocus() {
+      const drawerOpen = document.getElementById('drawer')?.classList.contains('open');
+      const authOpen = !document.getElementById('auth-modal')?.classList.contains('hidden');
+      const confirmOpen = !document.getElementById('confirm-modal')?.classList.contains('hidden');
+      if (!drawerOpen && !authOpen && !confirmOpen && previouslyFocusedElement) {
+        if (typeof previouslyFocusedElement.focus === 'function') {
+          try { previouslyFocusedElement.focus(); } catch (_) {}
+        }
+        previouslyFocusedElement = null;
+      }
+    }
+
+    function trapFocus(container, e) {
+      if (e.key !== 'Tab') return;
+      const focusables = Array.from(container.querySelectorAll('button:not([disabled]):not([tabindex="-1"]), [href], input:not([disabled]):not([tabindex="-1"]), select:not([disabled]):not([tabindex="-1"]), textarea:not([disabled]):not([tabindex="-1"]), [tabindex]:not([tabindex="-1"])')).filter(el => el.offsetParent !== null);
+      if (!focusables || focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey) {
+        if (document.activeElement === first || !container.contains(document.activeElement)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last || !container.contains(document.activeElement)) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    function announceA11y(message, assertive = false) {
+      const el = document.getElementById(assertive ? 'a11y-live-assertive' : 'a11y-live-polite');
+      if (el) {
+        el.textContent = '';
+        setTimeout(() => { el.textContent = message; }, 40);
+      }
+    }
+
     function openDrawer(id, explicitRunId = null, shouldPushHistory = true) {
+      captureFocus();
       selectedId = id;
       const task = tasksMap.get(id);
       if (!task) return;
@@ -1699,6 +1802,10 @@
       
       syncURLState(shouldPushHistory);
       refreshDrawer();
+      setTimeout(() => {
+        const closeBtn = document.getElementById('drawer-close-btn');
+        if (closeBtn) closeBtn.focus();
+      }, 50);
     }
 
     function closeDrawer(shouldPushHistory = true) {
@@ -1710,6 +1817,7 @@
       document.getElementById('drawer-overlay').classList.remove('open');
       document.getElementById('drawer').setAttribute('aria-hidden', 'true');
       syncURLState(shouldPushHistory);
+      restorePreviousFocus();
     }
 
     function toggleRunDropdown(force) {
@@ -2312,6 +2420,7 @@
     }
 
     function showAuthModal(is401 = false) {
+      captureFocus();
       const modal = document.getElementById('auth-modal');
       const input = document.getElementById('auth-key-input');
       const hint = document.getElementById('auth-status-hint');
@@ -2330,6 +2439,7 @@
     function closeAuthModal() {
       const modal = document.getElementById('auth-modal');
       if (modal) modal.classList.add('hidden');
+      restorePreviousFocus();
     }
 
     function saveAuthKey() {
@@ -2359,6 +2469,7 @@
     // 弱提示 Toast 通知
     let toastTimer = null;
     function showToast(message, isError = false) {
+      announceA11y(message, isError);
       let toastEl = document.getElementById('global-toast');
       if (!toastEl) {
         toastEl = document.createElement('div');
@@ -2603,6 +2714,7 @@
     let confirmModalResolver = null;
 
     function showConfirmModal({ title, message, confirmText, cancelText, danger = true } = {}) {
+      captureFocus();
       const modal = document.getElementById('confirm-modal');
       const titleEl = document.getElementById('confirm-modal-title');
       const msgEl = document.getElementById('confirm-modal-message');
@@ -2647,6 +2759,7 @@
         confirmModalResolver = null;
         resolve(Boolean(result));
       }
+      restorePreviousFocus();
     }
 
     // 1. 清空已完成与失败任务
@@ -3359,6 +3472,10 @@
     document.addEventListener('keydown', (e) => {
       const authModal = document.getElementById('auth-modal');
       if (authModal && !authModal.classList.contains('hidden')) {
+        if (e.key === 'Tab') {
+          trapFocus(authModal, e);
+          return;
+        }
         if (e.key === 'Escape') {
           e.preventDefault();
           closeAuthModal();
@@ -3367,6 +3484,10 @@
       }
       const modal = document.getElementById('confirm-modal');
       if (modal && !modal.classList.contains('hidden')) {
+        if (e.key === 'Tab') {
+          trapFocus(modal, e);
+          return;
+        }
         if (e.key === 'Escape') {
           e.preventDefault();
           closeConfirmModal(false);
@@ -3384,6 +3505,18 @@
         }
         return;
       }
+      const drawer = document.getElementById('drawer');
+      if (drawer && drawer.classList.contains('open')) {
+        if (e.key === 'Tab') {
+          trapFocus(drawer, e);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeDrawer();
+          return;
+        }
+      }
       if (e.key === 'Escape') {
         if (isSelectMode) {
           toggleSelectMode(false);
@@ -3398,6 +3531,19 @@
       if (e.key === '/' && document.activeElement.tagName !== 'INPUT') {
         e.preventDefault();
         focusSearch();
+      }
+      // 卡片列表键盘方向键导航 (WCAG 2.1 AA Arrow Navigation)
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        const activeCard = document.activeElement && document.activeElement.closest ? document.activeElement.closest('[data-task-id]') : null;
+        if (activeCard) {
+          const cards = Array.from(document.querySelectorAll('[data-task-id]'));
+          const idx = cards.indexOf(activeCard);
+          if (idx !== -1) {
+            e.preventDefault();
+            const nextIdx = e.key === 'ArrowDown' ? Math.min(idx + 1, cards.length - 1) : Math.max(idx - 1, 0);
+            cards[nextIdx].focus();
+          }
+        }
       }
     });
 
