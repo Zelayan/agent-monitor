@@ -64,7 +64,7 @@ This document serves as the single source of truth for persistent progress track
 | **WP-16** | **Accessibility, Focus & Motion**<br>(Standard Dialog / Focus Trap / Arrow Nav / Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (Cleaned)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 100% tests green |
 | **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (Cleaned)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 100% tests green |
 | **WP-18** | **Complete PWA Lifecycle & Offline Snapshot**<br>(IndexedDB Encrypted Snapshot / SW Update Prompt / Readonly Offline) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 100% tests green |
-| **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `Pending` | - | Pending |
+| **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | Pending | [PASS] 0 BLOCK, 100% tests green (comprehensive E2E / SSE / tenant / control safety) |
 
 ---
 
@@ -79,6 +79,7 @@ This document serves as the single source of truth for persistent progress track
 | 2026-09-05 | WP-16 | CI & AI Review | None | ARIA standard dialogs, focus restore & reduced motion | CSS motion adaptation, focus trap & arrow navigation | `go test -race` 100% green, AI Review Pass (PR #37) | ✅ Archived |
 | 2026-09-05 | WP-17 | CI & AI Review | None | Dynamic run/event dictionary coverage & Intl formatting | Full dictionary internationalization & localized export | `go test -race` 100% green, AI Review Pass (PR #39) | ✅ Archived |
 | 2026-09-05 | WP-15 | CI AI Review | Batch selection state omitted from column signature causing unrendered checkbox changes | Column signature `runSig`/`compSig`/`failSig` compared version and children without `selectedTaskIds.has(id)` | Incorporated `selectedTaskIds.has(id)` into `getColumnSignature` so selection changes trigger DOM patch | CI AI Review re-verified, `go test -race` 100% green | ✅ Self-Healed |
+| 2026-09-05 | WP-19 | Local E2E Verification | Test assertion alignment with unified error DTO schema and focus-visible/trapFocus naming | Test assertion did not unwrap error container and FocusTrap function was named trapFocus | Added extractErrorCode unwrapping helper and calibrated A11y test assertions | `go test -race ./...` 100% green, 0 Race, 0 BLOCK | ✅ Self-Healed |
 
 ---
 
