@@ -21,3 +21,11 @@ type TaskRepository interface {
 	// Close 关闭或释放底层存储资源
 	Close() error
 }
+
+// EventLogRepository 定义事件流水账的持久化仓储接口（领域层规范）。
+type EventLogRepository interface {
+	// AppendEventLog 追加单条事件记录至持久化介质
+	AppendEventLog(key TaskKey, rec EventRecord) error
+	// ReadEventLogs 读取指定任务的历史事件流水记录
+	ReadEventLogs(key TaskKey) ([]EventRecord, error)
+}

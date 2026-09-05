@@ -336,3 +336,96 @@ func TestJSONRepository_QuarantineCorruptedFiles(t *testing.T) {
 		t.Fatalf("unexpected quarantine stats: %+v", stats)
 	}
 }
+
+func TestJSONRepository_EventLog(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-eventlog-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	keyDefault := task.NewTaskKey("default", "sess-log-1")
+	keyTenant := task.NewTaskKey("tenant-alpha", "sess-log-1")
+
+	// 1. 验证空读取返回 nil, nil
+	logs, err := repo.ReadEventLogs(keyDefault)
+	if err != nil || len(logs) != 0 {
+		t.Fatalf("expected empty logs on non-existent task, got %v, err: %v", logs, err)
+	}
+
+	// 2. 写入两条默认租户事件
+	rec1 := task.EventRecord{
+		EventID:     "ev-1",
+		Sequence:    1,
+		Timestamp:   1700000000,
+		ReceivedAt:  1700000001,
+		Event:       "sessionStart",
+		Detail:      "Start",
+		TaskStatus:  "running",
+		TaskVersion: 1,
+	}
+	rec2 := task.EventRecord{
+		EventID:     "ev-2",
+		Sequence:    2,
+		Timestamp:   1700000010,
+		ReceivedAt:  1700000011,
+		Event:       "toolUse",
+		Detail:      "Exec",
+		TaskStatus:  "running",
+		TaskVersion: 2,
+	}
+
+	if err := repo.AppendEventLog(keyDefault, rec1); err != nil {
+		t.Fatalf("AppendEventLog rec1 failed: %v", err)
+	}
+	if err := repo.AppendEventLog(keyDefault, rec2); err != nil {
+		t.Fatalf("AppendEventLog rec2 failed: %v", err)
+	}
+
+	// 3. 读取默认租户事件
+	readLogs, err := repo.ReadEventLogs(keyDefault)
+	if err != nil {
+		t.Fatalf("ReadEventLogs failed: %v", err)
+	}
+	if len(readLogs) != 2 {
+		t.Fatalf("expected 2 logs, got %d", len(readLogs))
+	}
+	if readLogs[0].EventID != "ev-1" || readLogs[1].EventID != "ev-2" {
+		t.Fatalf("unexpected readLogs: %+v", readLogs)
+	}
+
+	// 4. 验证多租户隔离：相同 TaskID 但不同 Tenant 具有独立事件流水
+	recTenant := task.EventRecord{
+		EventID:     "ev-tenant-1",
+		Sequence:    1,
+		Timestamp:   1700000020,
+		ReceivedAt:  1700000021,
+		Event:       "subagentStart",
+		Detail:      "Subagent",
+		TaskStatus:  "running",
+		TaskVersion: 1,
+	}
+	if err := repo.AppendEventLog(keyTenant, recTenant); err != nil {
+		t.Fatalf("AppendEventLog recTenant failed: %v", err)
+	}
+
+	tenantLogs, err := repo.ReadEventLogs(keyTenant)
+	if err != nil || len(tenantLogs) != 1 {
+		t.Fatalf("expected 1 tenant log, got %d, err: %v", len(tenantLogs), err)
+	}
+	if tenantLogs[0].EventID != "ev-tenant-1" {
+		t.Fatalf("unexpected tenant log: %+v", tenantLogs[0])
+	}
+
+	// 确认默认租户依然只有 2 条
+	readLogs2, _ := repo.ReadEventLogs(keyDefault)
+	if len(readLogs2) != 2 {
+		t.Fatalf("expected 2 logs for default tenant, got %d", len(readLogs2))
+	}
+}
