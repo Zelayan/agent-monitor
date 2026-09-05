@@ -927,14 +927,14 @@ func TestHandler_ReplayEndpoint(t *testing.T) {
 		t.Fatalf("expected 404 Not Found, got %d", wNotFound.Code)
 	}
 
-		// 7. /api/tasks/replay 缺少 id 参数返回 400 Bad Request
-		reqMissingID := httptest.NewRequest(http.MethodGet, "/api/tasks/replay?id=", nil)
-		reqMissingID.Header.Set("Authorization", "Bearer token-alpha")
-		wMissingID := httptest.NewRecorder()
-		mux.ServeHTTP(wMissingID, reqMissingID)
-		if wMissingID.Code != http.StatusBadRequest {
-			t.Fatalf("expected 400 Bad Request when id is missing, got %d", wMissingID.Code)
-		}
+	// 7. /api/tasks/replay 缺少 id 参数返回 400 Bad Request
+	reqMissingID := httptest.NewRequest(http.MethodGet, "/api/tasks/replay?id=", nil)
+	reqMissingID.Header.Set("Authorization", "Bearer token-alpha")
+	wMissingID := httptest.NewRecorder()
+	mux.ServeHTTP(wMissingID, reqMissingID)
+	if wMissingID.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request when id is missing, got %d", wMissingID.Code)
+	}
 
 	// 8. 非 GET 方法返回 405 Method Not Allowed
 	reqMethodNotAllowed := httptest.NewRequest(http.MethodPost, "/api/tasks/"+taskID+"/replay", nil)
@@ -943,6 +943,86 @@ func TestHandler_ReplayEndpoint(t *testing.T) {
 	mux.ServeHTTP(wMethodNotAllowed, reqMethodNotAllowed)
 	if wMethodNotAllowed.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("expected 405 Method Not Allowed for POST replay, got %d", wMethodNotAllowed.Code)
+	}
+}
+
+func TestHandler_TaskSpansAndAnomalies(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	staticHTML := []byte("<html><body>Agent Monitor</body></html>")
+	handler := NewHandler(svc, hub, staticHTML)
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	taskID := "sess-spans-api"
+	nowSec := time.Now().Unix()
+	// 启动任务并包含一个工具跨度
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        taskID,
+		Event:     "sessionStart",
+		Prompt:    "APM trace span test",
+		Timestamp: nowSec,
+	})
+	_, _ = svc.HandleHookEvent(task.EventPayload{
+		ID:        taskID,
+		Event:     "beforeShellExecution",
+		ToolName:  "Bash",
+		Detail:    "go build ./...",
+		SpanID:    "span-http-1",
+		Timestamp: nowSec,
+	})
+
+	// 1. GET /api/tasks/{id}/spans
+	reqSpans := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/spans", nil)
+	wSpans := httptest.NewRecorder()
+	mux.ServeHTTP(wSpans, reqSpans)
+	if wSpans.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/tasks/{id}/spans, got %d: %s", wSpans.Code, wSpans.Body.String())
+	}
+	var spans []task.TraceSpan
+	if err := json.Unmarshal(wSpans.Body.Bytes(), &spans); err != nil {
+		t.Fatalf("failed to decode spans json: %v", err)
+	}
+	if len(spans) != 1 {
+		t.Fatalf("expected 1 span, got %d", len(spans))
+	}
+	if spans[0].SpanID != "span-http-1" {
+		t.Errorf("expected span-http-1, got %s", spans[0].SpanID)
+	}
+
+	// 2. GET /api/tasks/{id}/anomalies (当前运行时间较短，0 异常)
+	reqAnomalies := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/anomalies", nil)
+	wAnomalies := httptest.NewRecorder()
+	mux.ServeHTTP(wAnomalies, reqAnomalies)
+	if wAnomalies.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/tasks/{id}/anomalies, got %d", wAnomalies.Code)
+	}
+	var anomalies []task.AnomalyInfo
+	if err := json.Unmarshal(wAnomalies.Body.Bytes(), &anomalies); err != nil {
+		t.Fatalf("failed to decode anomalies json: %v", err)
+	}
+	if len(anomalies) != 0 {
+		t.Errorf("expected 0 anomalies initially, got %d", len(anomalies))
+	}
+
+	// 3. 404 测试：不存在的 taskID
+	reqNotFound := httptest.NewRequest(http.MethodGet, "/api/tasks/non-existent/spans", nil)
+	wNotFound := httptest.NewRecorder()
+	mux.ServeHTTP(wNotFound, reqNotFound)
+	if wNotFound.Code != http.StatusNotFound {
+		t.Errorf("expected 404 for non-existent task spans, got %d", wNotFound.Code)
+	}
+
+	// 4. 405 测试：非 GET 请求
+	req405 := httptest.NewRequest(http.MethodPost, "/api/tasks/"+taskID+"/spans", nil)
+	w405 := httptest.NewRecorder()
+	mux.ServeHTTP(w405, req405)
+	if w405.Code != http.StatusMethodNotAllowed {
+		t.Errorf("expected 405 for POST /api/tasks/{id}/spans, got %d", w405.Code)
 	}
 }
 
