@@ -1,6 +1,8 @@
 package persistence
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -527,6 +529,204 @@ func (r *JSONRepository) ReadEventLogs(key task.TaskKey) ([]task.EventRecord, er
 		}
 	}
 	return records, nil
+}
+
+// ArchiveTask 将指定任务及其事件流水账打包为 gzip 压缩的 tar 归档文件，并安全清理原始文件。
+func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
+	if key.IsZero() {
+		return "", fmt.Errorf("invalid task key")
+	}
+
+	keyStr := key.String()
+	lock := r.stripe.getLock(keyStr)
+	lock.Lock()
+	defer lock.Unlock()
+
+	targetPath := r.taskKeyPath(key)
+	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		legacyPath := r.legacyTaskPath(key.TaskID)
+		if _, err2 := os.Stat(legacyPath); os.IsNotExist(err2) {
+			return "", fmt.Errorf("task file not found for key %s: %w", keyStr, os.ErrNotExist)
+		}
+		targetPath = legacyPath
+	}
+
+	jsonData, err := os.ReadFile(targetPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read task json file %s: %w", targetPath, err)
+	}
+
+	eventsPath := r.eventLogPath(key)
+	var eventsData []byte
+	if ed, err := os.ReadFile(eventsPath); err == nil && len(ed) > 0 {
+		eventsData = ed
+	}
+
+	archiveDir := filepath.Join(r.tenantDir(key.TenantID), "archives")
+	if err := os.MkdirAll(archiveDir, 0755); err != nil {
+		return "", fmt.Errorf("failed to create archive dir %s: %w", archiveDir, err)
+	}
+
+	archiveName := fmt.Sprintf("%s.tar.gz", SafeFilenamePrefix(key.TaskID))
+	archivePath := filepath.Join(archiveDir, archiveName)
+
+	tmpArchive, err := os.CreateTemp(archiveDir, SafeFilenamePrefix(key.TaskID)+".*.tar.gz.tmp")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp archive file: %w", err)
+	}
+	tmpName := tmpArchive.Name()
+
+	var success bool
+	defer func() {
+		if !success {
+			_ = tmpArchive.Close()
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	gw := gzip.NewWriter(tmpArchive)
+	tw := tar.NewWriter(gw)
+
+	// 1. 打包 session JSON 数据
+	jsonEntryName := fmt.Sprintf("%s.json", SafeFilenamePrefix(key.TaskID))
+	hdr := &tar.Header{
+		Name:    jsonEntryName,
+		Mode:    0644,
+		Size:    int64(len(jsonData)),
+		ModTime: time.Now(),
+	}
+	if err := tw.WriteHeader(hdr); err != nil {
+		return "", fmt.Errorf("failed to write tar header for json: %w", err)
+	}
+	if _, err := tw.Write(jsonData); err != nil {
+		return "", fmt.Errorf("failed to write tar json content: %w", err)
+	}
+
+	// 2. 打包事件流水账 (若存在)
+	if len(eventsData) > 0 {
+		eventsEntryName := fmt.Sprintf("%s.events.jsonl", SafeFilenamePrefix(key.TaskID))
+		hdrEv := &tar.Header{
+			Name:    eventsEntryName,
+			Mode:    0644,
+			Size:    int64(len(eventsData)),
+			ModTime: time.Now(),
+		}
+		if err := tw.WriteHeader(hdrEv); err != nil {
+			return "", fmt.Errorf("failed to write tar header for events: %w", err)
+		}
+		if _, err := tw.Write(eventsData); err != nil {
+			return "", fmt.Errorf("failed to write tar events content: %w", err)
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		return "", fmt.Errorf("failed to close tar writer: %w", err)
+	}
+	if err := gw.Close(); err != nil {
+		return "", fmt.Errorf("failed to close gzip writer: %w", err)
+	}
+	if err := tmpArchive.Sync(); err != nil {
+		return "", fmt.Errorf("failed to sync temp archive: %w", err)
+	}
+	if err := tmpArchive.Close(); err != nil {
+		return "", fmt.Errorf("failed to close temp archive: %w", err)
+	}
+
+	if err := os.Rename(tmpName, archivePath); err != nil {
+		return "", fmt.Errorf("failed to commit archive file %s: %w", archivePath, err)
+	}
+	success = true
+
+	// 3. 安全清理已成功归档的原始未压缩文件
+	_ = os.Remove(targetPath)
+	if targetPath != r.taskKeyPath(key) {
+		_ = os.Remove(r.taskKeyPath(key))
+	}
+	legacyPath := r.legacyTaskPath(key.TaskID)
+	if targetPath != legacyPath {
+		_ = os.Remove(legacyPath)
+	}
+	_ = os.Remove(eventsPath)
+
+	r.versionLock.Lock()
+	r.tombstones[keyStr] = tombstoneItem{
+		version:   ^uint64(0) / 2, // 极大版本号墓碑，彻底压制并作废异步管道中滞后的 opSave
+		expiresAt: time.Now().Add(60 * time.Second),
+	}
+	delete(r.lastVersion, keyStr)
+	r.versionLock.Unlock()
+
+	return archivePath, nil
+}
+
+// ArchiveCompletedTasks 批量将符合条件的已完结/失败任务归档为 .tar.gz。
+func (r *JSONRepository) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]task.ArchiveResult, error) {
+	var searchDirs []string
+	tid := task.NormalizeTenantID(tenantID)
+	if tid == "" || tid == "*" {
+		searchDirs = append(searchDirs, r.dir)
+	} else {
+		searchDirs = append(searchDirs, r.tenantDir(tid))
+	}
+
+	var candidates []task.TaskKey
+	for _, baseDir := range searchDirs {
+		_ = filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if info.IsDir() {
+				if info.Name() == "quarantine" || info.Name() == "archives" {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !strings.HasSuffix(info.Name(), ".json") || strings.HasSuffix(info.Name(), ".tmp") || strings.HasSuffix(info.Name(), ".events.jsonl") {
+				return nil
+			}
+
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return nil
+			}
+			var t task.Task
+			if err := json.Unmarshal(data, &t); err != nil || t.ID == "" {
+				return nil
+			}
+
+			if t.Status != "completed" && t.Status != "failed" {
+				return nil
+			}
+
+			if !beforeTime.IsZero() {
+				var refTime time.Time
+				if t.EndTime > 0 {
+					refTime = time.UnixMilli(t.EndTime)
+				} else if t.StartTime > 0 {
+					refTime = time.UnixMilli(t.StartTime)
+				}
+				if !refTime.IsZero() && !refTime.Before(beforeTime) {
+					return nil
+				}
+			}
+
+			candidates = append(candidates, t.TaskKey())
+			return nil
+		})
+	}
+
+	var results []task.ArchiveResult
+	for _, key := range candidates {
+		archivePath, err := r.ArchiveTask(key)
+		if err == nil {
+			results = append(results, task.ArchiveResult{
+				Key:         key,
+				ArchivePath: archivePath,
+			})
+		}
+	}
+
+	return results, nil
 }
 
 // Close 释放存储资源。

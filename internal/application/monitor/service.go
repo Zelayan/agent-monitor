@@ -83,8 +83,19 @@ type ServiceMetrics struct {
 // ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
 var ErrPermissionDenied = errors.New("permission denied")
 
+// ErrQuotaExceeded 表示租户并发活跃会话数量超出配额限制。
+var ErrQuotaExceeded = errors.New("Tenant active task quota exceeded (429)")
+
 // ErrHostMismatch 表示目标进程所在主机/环境与当前 Monitor 实例不一致，拒绝跨机 Kill。
 var ErrHostMismatch = errors.New("host or boot mismatch: direct kill only permitted on matching local host")
+
+const (
+	// DefaultMaxActiveTasksPerTenant 默认每个租户最大并发运行中的任务数
+	DefaultMaxActiveTasksPerTenant = 100
+
+	// ActiveTaskStaleThresholdMs 活跃任务无任何更新的判定超时阈值 (2小时)，防止僵死会话永久泄漏配额
+	ActiveTaskStaleThresholdMs int64 = 2 * 3600 * 1000
+)
 
 // PersistenceOp 表示持久化操作类型。
 type PersistenceOp int
@@ -106,21 +117,22 @@ type taskPersistenceCommand struct {
 
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
-	mu               sync.RWMutex
-	hostID           string
-	bootID           string
-	tasks            map[task.TaskKey]*task.Task               // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
-	eventRingBuffers map[task.TaskKey]*task.EventLogRingBuffer // 会话事件幂等防抖与回放环形缓冲区
-	repo             task.TaskRepository
-	hub              *Hub
-	generation       uint64                      // 全局/租户状态变更 generation，单调递增
-	persistChan      chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
-	stopChan         chan struct{}
-	stoppedChan      chan struct{} // persistenceWorker 完成排空后关闭
-	ttlDays          int           // 自动清理天数（默认 30 天，<=0 则不清理）
-	summarizer       *TitleSummarizer
-	titleJobs        sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
-	steerQueue       map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+	mu                      sync.RWMutex
+	hostID                  string
+	bootID                  string
+	tasks                   map[task.TaskKey]*task.Task               // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
+	eventRingBuffers        map[task.TaskKey]*task.EventLogRingBuffer // 会话事件幂等防抖与回放环形缓冲区
+	repo                    task.TaskRepository
+	hub                     *Hub
+	generation              uint64                      // 全局/租户状态变更 generation，单调递增
+	persistChan             chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
+	stopChan                chan struct{}
+	stoppedChan             chan struct{} // persistenceWorker 完成排空后关闭
+	ttlDays                 int           // 自动清理天数（默认 30 天，<=0 则不清理）
+	summarizer              *TitleSummarizer
+	titleJobs               sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
+	steerQueue              map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+	maxActiveTasksPerTenant int                                      // 单租户最大并发运行中的任务配额 (<= 0 表示不限制)
 
 	// 指标统计 (原子操作)
 	eventsReceived uint64
@@ -139,17 +151,18 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 	hostID, bootID := detectHostAndBootID()
 
 	s := &MonitorService{
-		hostID:           hostID,
-		bootID:           bootID,
-		tasks:            make(map[task.TaskKey]*task.Task),
-		eventRingBuffers: make(map[task.TaskKey]*task.EventLogRingBuffer),
-		repo:             repo,
-		hub:              hub,
-		persistChan:      make(chan taskPersistenceCommand, 5000), // 削峰缓冲
-		stopChan:         make(chan struct{}),
-		stoppedChan:      make(chan struct{}),
-		ttlDays:          ttlDays,
-		steerQueue:       make(map[task.TaskKey][]task.SteerInstruction),
+		hostID:                  hostID,
+		bootID:                  bootID,
+		tasks:                   make(map[task.TaskKey]*task.Task),
+		eventRingBuffers:        make(map[task.TaskKey]*task.EventLogRingBuffer),
+		repo:                    repo,
+		hub:                     hub,
+		persistChan:             make(chan taskPersistenceCommand, 5000), // 削峰缓冲
+		stopChan:                make(chan struct{}),
+		stoppedChan:             make(chan struct{}),
+		ttlDays:                 ttlDays,
+		steerQueue:              make(map[task.TaskKey][]task.SteerInstruction),
+		maxActiveTasksPerTenant: DefaultMaxActiveTasksPerTenant,
 	}
 
 	if repo != nil {
@@ -201,6 +214,19 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 // SetTitleSummarizer 注入可选的会话标题 LLM 总结器（未配置则保持 nil，完全不发网）。
 func (s *MonitorService) SetTitleSummarizer(sum *TitleSummarizer) {
 	s.summarizer = sum
+}
+
+// SetTenantQuota 设置单租户最大并发运行中的任务配额 (<= 0 表示不限制)
+func (s *MonitorService) SetTenantQuota(maxActive int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maxActiveTasksPerTenant = maxActive
+}
+
+// WithTenantQuota 链式配置单租户最大并发运行中的任务配额
+func (s *MonitorService) WithTenantQuota(maxActive int) *MonitorService {
+	s.SetTenantQuota(maxActive)
+	return s
 }
 
 // persistenceWorker 顺序消费持久化命令管道，支持拥塞合并与有序落盘，并在收到 stopChan 后排空管道。
@@ -536,6 +562,35 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 			s.mu.Unlock()
 			return HookEventResult{Action: "allow"}, nil
 		}
+
+		// 检查租户并发活跃运行中任务配额 (O(1) key 字段访问 + 僵死超时过滤防泄漏)
+		normTenant := task.NormalizeTenantID(p.KeyID)
+		if s.maxActiveTasksPerTenant > 0 {
+			activeCount := 0
+			for k, existing := range s.tasks {
+				if existing != nil && k.TenantID == normTenant && existing.Status == "running" {
+					lastActive := existing.LastTimelineTimestamp
+					if lastActive == 0 {
+						lastActive = existing.ActiveRunStart
+					}
+					if lastActive == 0 {
+						lastActive = existing.StartTime
+					}
+					if lastActive > 0 && (nowMs-lastActive) > ActiveTaskStaleThresholdMs {
+						continue // 超过超时阈值未活跃的会话视为孤儿僵尸任务，不阻塞新会话接入
+					}
+					activeCount++
+				}
+			}
+			if activeCount >= s.maxActiveTasksPerTenant {
+				s.mu.Unlock()
+				return HookEventResult{
+					Action: "deny",
+					Reason: "Tenant active task quota exceeded (429)",
+				}, ErrQuotaExceeded
+			}
+		}
+
 		t = task.NewTask(p, nowMs)
 		targetKey = t.TaskKey()
 		s.tasks[targetKey] = t
@@ -1192,6 +1247,141 @@ func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 func (s *MonitorService) ClearFinishedTasks() int {
 	deleted := s.DeleteTasks(DeleteTasksRequest{})
 	return len(deleted)
+}
+
+// ArchiveTask 将指定 ID 的任务执行冷归档（默认租户/Master）。
+func (s *MonitorService) ArchiveTask(id string) (string, error) {
+	return s.ArchiveTaskTenant(id, "", true)
+}
+
+// ArchiveTaskTenant 按租户权限校验并将已完成/失败的任务打包为 gzip tar 归档并清理活跃存储。
+func (s *MonitorService) ArchiveTaskTenant(id string, tenantKeyID string, isMaster bool) (string, error) {
+	s.mu.Lock()
+	targetKey, t, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
+	var taskVer uint64
+	var latestSnapshot []byte
+	if exists {
+		if !isMaster && t.KeyID != "" && t.KeyID != tenantKeyID {
+			s.mu.Unlock()
+			return "", fmt.Errorf("%w: task %s belongs to tenant %s, cannot be archived by %s", ErrPermissionDenied, id, t.KeyID, tenantKeyID)
+		}
+		if t.Status == "running" {
+			s.mu.Unlock()
+			return "", fmt.Errorf("task %s is currently running; only completed or failed tasks can be archived", id)
+		}
+		taskVer = t.Version
+		latestSnapshot, _ = json.MarshalIndent(t, "", "  ")
+	} else {
+		if !isMaster {
+			normTenant := task.NormalizeTenantID(tenantKeyID)
+			for otherKey, otherTask := range s.tasks {
+				if otherTask != nil && otherTask.ID == id && otherKey.TenantID != normTenant {
+					s.mu.Unlock()
+					return "", fmt.Errorf("%w: task %s belongs to tenant %s, cannot be archived by %s", ErrPermissionDenied, id, otherKey.TenantID, tenantKeyID)
+				}
+			}
+		}
+		targetKey = task.NewTaskKey(tenantKeyID, id)
+	}
+	s.mu.Unlock()
+
+	if s.repo == nil {
+		return "", fmt.Errorf("repository is nil")
+	}
+
+	// 1. 同步预刷盘：若内存中存在最新状态，立即同步刷盘以保证打包数据绝对新鲜，消除与 persistChan 的时序竞态
+	if len(latestSnapshot) > 0 {
+		_ = s.repo.SaveRawKey(targetKey, latestSnapshot)
+	}
+
+	// 2. 执行打包并删除 raw 磁盘文件
+	archivePath, err := s.repo.ArchiveTask(targetKey)
+	if err != nil {
+		return "", err
+	}
+
+	// 3. 写入墓碑：压制并作废 persistChan 中可能正在排队写入的旧版本 Save 命令，杜绝已归档任务被滞后写“死而复生”
+	_ = s.repo.DeleteKeyVersioned(targetKey, taskVer+1)
+
+	s.mu.Lock()
+	delete(s.tasks, targetKey)
+	delete(s.eventRingBuffers, targetKey)
+	delete(s.steerQueue, targetKey)
+	s.generation++
+	gen := s.generation
+	s.mu.Unlock()
+
+	if s.hub != nil {
+		delEvent := map[string]interface{}{
+			"type":        "delete_tasks",
+			"deletedIds":  []string{targetKey.TaskID},
+			"deletedKeys": []string{targetKey.String()},
+			"generation":  gen,
+			"archived":    true,
+		}
+		if msgJSON, err := json.Marshal(delEvent); err == nil {
+			s.hub.BroadcastEvent("delete_tasks", targetKey.TenantID, string(msgJSON))
+		}
+	}
+
+	return archivePath, nil
+}
+
+// ArchiveCompletedTasks 批量将截止时间前的已完结任务执行冷归档（Master/全量）。
+func (s *MonitorService) ArchiveCompletedTasks(beforeTime time.Time) ([]string, error) {
+	return s.ArchiveCompletedTasksTenant("*", true, beforeTime)
+}
+
+// ArchiveCompletedTasksTenant 批量将指定租户在截止时间前的已完结任务执行冷归档。
+func (s *MonitorService) ArchiveCompletedTasksTenant(tenantKeyID string, isMaster bool, beforeTime time.Time) ([]string, error) {
+	targetTenant := tenantKeyID
+	if !isMaster {
+		if targetTenant == "" || targetTenant == "*" {
+			targetTenant = "default"
+		}
+	}
+
+	if s.repo == nil {
+		return nil, fmt.Errorf("repository is nil")
+	}
+
+	archivedResults, err := s.repo.ArchiveCompletedTasks(targetTenant, beforeTime)
+	if err != nil {
+		return nil, err
+	}
+
+	var archivedPaths []string
+	if len(archivedResults) > 0 {
+		var evictedIDs []string
+		var evictedKeys []string
+		s.mu.Lock()
+		for _, item := range archivedResults {
+			archivedPaths = append(archivedPaths, item.ArchivePath)
+			delete(s.tasks, item.Key)
+			delete(s.eventRingBuffers, item.Key)
+			delete(s.steerQueue, item.Key)
+			evictedIDs = append(evictedIDs, item.Key.TaskID)
+			evictedKeys = append(evictedKeys, item.Key.String())
+		}
+		s.generation++
+		gen := s.generation
+		s.mu.Unlock()
+
+		if s.hub != nil && len(evictedIDs) > 0 {
+			delEvent := map[string]interface{}{
+				"type":        "delete_tasks",
+				"deletedIds":  evictedIDs,
+				"deletedKeys": evictedKeys,
+				"generation":  gen,
+				"archived":    true,
+			}
+			if msgJSON, err := json.Marshal(delEvent); err == nil {
+				s.hub.BroadcastEvent("delete_tasks", targetTenant, string(msgJSON))
+			}
+		}
+	}
+
+	return archivedPaths, nil
 }
 
 func shouldSummarizeSessionTitle(event, action string, t *task.Task) bool {

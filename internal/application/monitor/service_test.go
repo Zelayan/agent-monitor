@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -65,6 +66,20 @@ func (m *memoryRepo) DeleteKey(key task.TaskKey) error {
 
 func (m *memoryRepo) DeleteKeyVersioned(key task.TaskKey, version uint64) error {
 	return m.DeleteKey(key)
+}
+
+func (m *memoryRepo) ArchiveTask(key task.TaskKey) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tasks, key.TaskID)
+	delete(m.tasks, key.String())
+	return "mock_archive.tar.gz", nil
+}
+
+func (m *memoryRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]task.ArchiveResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return []task.ArchiveResult{{Key: task.NewTaskKey(tenantID, "sess-mock"), ArchivePath: "mock_archive.tar.gz"}}, nil
 }
 
 func (m *memoryRepo) Close() error {
@@ -852,5 +867,233 @@ func TestMonitorService_IdempotencyAndReplay(t *testing.T) {
 	_, err = svc.GetTaskEventReplayTenant("non-existent", tenantID, false)
 	if err == nil {
 		t.Fatal("expected error for non-existent task")
+	}
+}
+
+func TestMonitorService_TenantActiveTaskQuota(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	svc := NewMonitorService(repo, nil).WithTenantQuota(2)
+	t.Cleanup(svc.Close)
+
+	tenantA := "tenant-alpha"
+	tenantB := "tenant-beta"
+
+	// 1. 创建租户 A 的第 1 个活跃会话 -> 成功放行
+	res1, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-1",
+		KeyID:     tenantA,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start task 1",
+		Timestamp: 1700000001,
+	}, tenantA, false)
+	if err != nil || res1.Action != "allow" {
+		t.Fatalf("session 1 should be allowed, got res=%+v, err=%v", res1, err)
+	}
+
+	// 2. 创建租户 A 的第 2 个活跃会话 -> 成功放行
+	res2, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-2",
+		KeyID:     tenantA,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start task 2",
+		Timestamp: 1700000002,
+	}, tenantA, false)
+	if err != nil || res2.Action != "allow" {
+		t.Fatalf("session 2 should be allowed, got res=%+v, err=%v", res2, err)
+	}
+
+	// 3. 租户 A 当前活跃数已达配额 (2)，创建第 3 个会话 -> 必须拒绝并返回 429 配额错误
+	res3, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-3",
+		KeyID:     tenantA,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start task 3",
+		Timestamp: 1700000003,
+	}, tenantA, false)
+	if err == nil || !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("session 3 should be rejected with ErrQuotaExceeded, got: res=%+v, err=%v", res3, err)
+	}
+	if res3.Action != "deny" || !strings.Contains(res3.Reason, "quota exceeded") {
+		t.Fatalf("expected Action deny and quota reason, got: %+v", res3)
+	}
+
+	// 4. 既有会话后续事件正常放行（配额仅限制新建活跃任务）
+	resExisting, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-1",
+		KeyID:     tenantA,
+		Event:     "preToolUse",
+		Detail:    "running tool",
+		Timestamp: 1700000004,
+	}, tenantA, false)
+	if err != nil || resExisting.Action != "allow" {
+		t.Fatalf("existing session event should be allowed, got res=%+v, err=%v", resExisting, err)
+	}
+
+	// 5. 租户 B 的并发不受租户 A 影响
+	resB, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-b-1",
+		KeyID:     tenantB,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start tenant B task",
+		Timestamp: 1700000005,
+	}, tenantB, false)
+	if err != nil || resB.Action != "allow" {
+		t.Fatalf("tenant B session should be allowed independently, got res=%+v, err=%v", resB, err)
+	}
+
+	// 6. 会话 1 完结，活跃数由 2 降为 1
+	_, _ = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-1",
+		KeyID:     tenantA,
+		Event:     "agentCompletion",
+		Timestamp: 1700000006,
+	}, tenantA, false)
+
+	// 7. 活跃数已释放，再次创建会话 3 -> 成功放行
+	res3Retry, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-a-3",
+		KeyID:     tenantA,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Retry start task 3",
+		Timestamp: 1700000007,
+	}, tenantA, false)
+	if err != nil || res3Retry.Action != "allow" {
+		t.Fatalf("session 3 retry should be allowed after quota released, got res=%+v, err=%v", res3Retry, err)
+	}
+
+	// 8. 验证默认租户 (空 KeyID / default) 下同样生效且租户 ID 正确规范化
+	resDef1, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-1",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 1",
+		Timestamp: 1700000008,
+	}, "", false)
+	if err != nil || resDef1.Action != "allow" {
+		t.Fatalf("default session 1 should be allowed, got res=%+v, err=%v", resDef1, err)
+	}
+
+	resDef2, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-2",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 2",
+		Timestamp: 1700000009,
+	}, "", false)
+	if err != nil || resDef2.Action != "allow" {
+		t.Fatalf("default session 2 should be allowed, got res=%+v, err=%v", resDef2, err)
+	}
+
+	resDef3, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-3",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 3",
+		Timestamp: 1700000010,
+	}, "", false)
+	if err == nil || !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("default session 3 should be rejected with ErrQuotaExceeded, got res=%+v, err=%v", resDef3, err)
+	}
+}
+
+func TestMonitorService_ArchiveTaskOrchestration(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "svc-archive-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := persistence.NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	hub := NewHub()
+	go hub.Run()
+
+	svc := NewMonitorService(repo, hub)
+	t.Cleanup(svc.Close)
+
+	tenantID := "tenant-svc-arch"
+
+	// 1. 创建任务 sess-running 并保持运行中
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-running",
+		KeyID:     tenantID,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Long running task",
+		Timestamp: 1700000000,
+	}, tenantID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. 尝试归档处于 running 状态的任务 -> 必须拒绝
+	_, err = svc.ArchiveTaskTenant("sess-running", tenantID, false)
+	if err == nil || !strings.Contains(err.Error(), "running") {
+		t.Fatalf("expected error archiving running task, got: %v", err)
+	}
+
+	// 3. 创建并完结任务 sess-comp
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-comp",
+		KeyID:     tenantID,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Real user task to complete",
+		Timestamp: 1700000010,
+	}, tenantID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-comp",
+		KeyID:     tenantID,
+		Event:     "agentCompletion",
+		Timestamp: 1700000020,
+	}, tenantID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. 越权归档校验：非 Master 跨租户归档应拒绝
+	_, err = svc.ArchiveTaskTenant("sess-comp", "other-tenant", false)
+	if err == nil || !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied when other tenant attempts to archive, got: %v", err)
+	}
+
+	// 5. 合法归档 sess-comp (立即触发归档，检验与异步管道的竞态防御与墓碑压制)
+	archivePath, err := svc.ArchiveTaskTenant("sess-comp", tenantID, false)
+	if err != nil {
+		t.Fatalf("ArchiveTaskTenant failed: %v", err)
+	}
+	if !strings.HasSuffix(archivePath, ".tar.gz") {
+		t.Fatalf("expected .tar.gz archive path, got: %s", archivePath)
+	}
+
+	// 等待持久化队列充分排空
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证已归档任务不会被排队的异步 opSave 滞后覆写复活
+	_ = filepath.Walk(tmpDir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".json") && strings.Contains(info.Name(), "sess-comp") {
+			t.Fatalf("archived task raw file revived by lagging persist: %s", p)
+		}
+		return nil
+	})
+
+	// 6. 验证任务已从内存 tasks map 中清除
+	if tObj := svc.GetTaskTenant("sess-comp", tenantID, false); tObj != nil {
+		t.Fatalf("archived task should be evicted from memory, got: %+v", tObj)
 	}
 }

@@ -1,5 +1,7 @@
 package task
 
+import "time"
+
 // TaskRepository 定义 Task 聚合根的持久化仓储接口（领域层规范）。
 type TaskRepository interface {
 	// FindAll 查询并加载所有任务
@@ -18,8 +20,18 @@ type TaskRepository interface {
 	DeleteKey(key TaskKey) error
 	// DeleteKeyVersioned 根据 TaskKey 写入删除墓碑/执行删除并记录删除版本
 	DeleteKeyVersioned(key TaskKey, version uint64) error
+	// ArchiveTask 将指定任务及其事件流水账打包为 .tar.gz 冷归档，并清理原始未压缩文件
+	ArchiveTask(key TaskKey) (string, error)
+	// ArchiveCompletedTasks 批量将指定租户在截止时间前的已完结/失败任务执行冷归档
+	ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]ArchiveResult, error)
 	// Close 关闭或释放底层存储资源
 	Close() error
+}
+
+// ArchiveResult 封装归档成功的任务复合主键与产物路径。
+type ArchiveResult struct {
+	Key         TaskKey `json:"key"`
+	ArchivePath string  `json:"archivePath"`
 }
 
 // EventLogRepository 定义事件流水账的持久化仓储接口（领域层规范）。

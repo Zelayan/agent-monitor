@@ -1,10 +1,15 @@
 package persistence
 
 import (
+	"archive/tar"
+	"compress/gzip"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
 )
@@ -427,5 +432,219 @@ func TestJSONRepository_EventLog(t *testing.T) {
 	readLogs2, _ := repo.ReadEventLogs(keyDefault)
 	if len(readLogs2) != 2 {
 		t.Fatalf("expected 2 logs for default tenant, got %d", len(readLogs2))
+	}
+}
+
+func TestJSONRepository_ArchiveTask(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-archive-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	key := task.NewTaskKey("tenant-cold", "sess-archive-100")
+	taskObj := &task.Task{
+		ID:        "sess-archive-100",
+		KeyID:     "tenant-cold",
+		Status:    "completed",
+		Agent:     "TestAgent",
+		Title:     "Archive Test Task",
+		StartTime: 1700000000000,
+		EndTime:   1700000100000,
+	}
+
+	data, err := json.MarshalIndent(taskObj, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.SaveRawKey(key, data); err != nil {
+		t.Fatalf("SaveRawKey failed: %v", err)
+	}
+
+	rec := task.EventRecord{
+		EventID:    "ev-arch-1",
+		Sequence:   1,
+		Timestamp:  1700000010,
+		ReceivedAt: 1700000010000,
+		Event:      "toolUse",
+		Detail:     "Writing test code",
+	}
+	if err := repo.AppendEventLog(key, rec); err != nil {
+		t.Fatalf("AppendEventLog failed: %v", err)
+	}
+
+	rawTaskPath := repo.taskKeyPath(key)
+	rawEventsPath := repo.eventLogPath(key)
+	if _, err := os.Stat(rawTaskPath); err != nil {
+		t.Fatalf("raw task file does not exist before archive: %v", err)
+	}
+	if _, err := os.Stat(rawEventsPath); err != nil {
+		t.Fatalf("raw events file does not exist before archive: %v", err)
+	}
+
+	// 执行归档
+	archivePath, err := repo.ArchiveTask(key)
+	if err != nil {
+		t.Fatalf("ArchiveTask failed: %v", err)
+	}
+
+	if !strings.HasSuffix(archivePath, ".tar.gz") {
+		t.Fatalf("expected .tar.gz archive path, got: %s", archivePath)
+	}
+
+	// 验证未压缩的 raw 文件已被彻底清理
+	if _, err := os.Stat(rawTaskPath); !os.IsNotExist(err) {
+		t.Fatalf("raw task file should be deleted after archive: %s", rawTaskPath)
+	}
+	if _, err := os.Stat(rawEventsPath); !os.IsNotExist(err) {
+		t.Fatalf("raw events file should be deleted after archive: %s", rawEventsPath)
+	}
+
+	// 验证 .tar.gz 归档文件内容
+	f, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatalf("failed to open archive: %v", err)
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("failed to create gzip reader: %v", err)
+	}
+	defer gzr.Close()
+
+	tr := tar.NewReader(gzr)
+	entries := make(map[string][]byte)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("failed to read tar entry: %v", err)
+		}
+		content, err := io.ReadAll(tr)
+		if err != nil {
+			t.Fatalf("failed to read content of %s: %v", hdr.Name, err)
+		}
+		entries[hdr.Name] = content
+	}
+
+	expectedJSONName := SafeFilenamePrefix(key.TaskID) + ".json"
+	expectedEventsName := SafeFilenamePrefix(key.TaskID) + ".events.jsonl"
+
+	if _, ok := entries[expectedJSONName]; !ok {
+		t.Fatalf("archive missing json entry %s, found: %v", expectedJSONName, entries)
+	}
+	if _, ok := entries[expectedEventsName]; !ok {
+		t.Fatalf("archive missing events entry %s, found: %v", expectedEventsName, entries)
+	}
+
+	var extractedTask task.Task
+	if err := json.Unmarshal(entries[expectedJSONName], &extractedTask); err != nil {
+		t.Fatalf("failed to unmarshal archived task json: %v", err)
+	}
+	if extractedTask.ID != "sess-archive-100" || extractedTask.Title != "Archive Test Task" {
+		t.Fatalf("unexpected unmarshaled task: %+v", extractedTask)
+	}
+
+	if !strings.Contains(string(entries[expectedEventsName]), "ev-arch-1") {
+		t.Fatalf("archived events log missing expected event record")
+	}
+}
+
+func TestJSONRepository_ArchiveCompletedTasks(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-batch-archive-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+
+	now := time.Now()
+	oldTime := now.Add(-2 * time.Hour)
+	recentTime := now.Add(-10 * time.Minute)
+
+	// 1. 已完结且早于阈值的任务 (应归档)
+	k1 := task.NewTaskKey("tenant-batch", "sess-old-completed")
+	t1 := &task.Task{
+		ID:        "sess-old-completed",
+		KeyID:     "tenant-batch",
+		Status:    "completed",
+		StartTime: oldTime.Add(-10 * time.Minute).UnixMilli(),
+		EndTime:   oldTime.UnixMilli(),
+	}
+	d1, _ := json.Marshal(t1)
+	_ = repo.SaveRawKey(k1, d1)
+
+	// 2. 失败且早于阈值的任务 (应归档)
+	k2 := task.NewTaskKey("tenant-batch", "sess-old-failed")
+	t2 := &task.Task{
+		ID:        "sess-old-failed",
+		KeyID:     "tenant-batch",
+		Status:    "failed",
+		StartTime: oldTime.Add(-20 * time.Minute).UnixMilli(),
+		EndTime:   oldTime.UnixMilli(),
+	}
+	d2, _ := json.Marshal(t2)
+	_ = repo.SaveRawKey(k2, d2)
+
+	// 3. 运行中但时间早的任务 (不得归档！)
+	k3 := task.NewTaskKey("tenant-batch", "sess-old-running")
+	t3 := &task.Task{
+		ID:        "sess-old-running",
+		KeyID:     "tenant-batch",
+		Status:    "running",
+		StartTime: oldTime.UnixMilli(),
+	}
+	d3, _ := json.Marshal(t3)
+	_ = repo.SaveRawKey(k3, d3)
+
+	// 4. 已完结但晚于阈值的近期任务 (不得归档)
+	k4 := task.NewTaskKey("tenant-batch", "sess-recent-completed")
+	t4 := &task.Task{
+		ID:        "sess-recent-completed",
+		KeyID:     "tenant-batch",
+		Status:    "completed",
+		StartTime: recentTime.Add(-5 * time.Minute).UnixMilli(),
+		EndTime:   recentTime.UnixMilli(),
+	}
+	d4, _ := json.Marshal(t4)
+	_ = repo.SaveRawKey(k4, d4)
+
+	// 截止时间设为 1 小时前
+	threshold := now.Add(-1 * time.Hour)
+	archived, err := repo.ArchiveCompletedTasks("tenant-batch", threshold)
+	if err != nil {
+		t.Fatalf("ArchiveCompletedTasks failed: %v", err)
+	}
+
+	if len(archived) != 2 {
+		t.Fatalf("expected 2 archived tasks, got %d: %v", len(archived), archived)
+	}
+
+	for _, item := range archived {
+		if item.Key.IsZero() || !strings.HasSuffix(item.ArchivePath, ".tar.gz") {
+			t.Fatalf("unexpected archive result item: %+v", item)
+		}
+	}
+
+	// 验证 running 任务和 recent 任务依然保留在磁盘
+	if _, err := os.Stat(repo.taskKeyPath(k3)); err != nil {
+		t.Fatalf("running task file must still exist: %v", err)
+	}
+	if _, err := os.Stat(repo.taskKeyPath(k4)); err != nil {
+		t.Fatalf("recent completed task file must still exist: %v", err)
 	}
 }
