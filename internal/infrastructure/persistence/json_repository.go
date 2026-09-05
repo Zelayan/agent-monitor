@@ -460,6 +460,73 @@ func (r *JSONRepository) DeleteKeyVersioned(key task.TaskKey, version uint64) er
 	return nil
 }
 
+// eventLogPath 返回根据 TaskKey 生成的事件流水账规范落盘路径：<dataDir>/<tenantSubdir>/<safeID>-<hash>.events.jsonl。
+func (r *JSONRepository) eventLogPath(key task.TaskKey) string {
+	tDir := r.tenantDir(key.TenantID)
+	safeID := SafeFilenamePrefix(key.TaskID)
+	h := hashPrefix(key.TaskID, 8)
+	return filepath.Join(tDir, fmt.Sprintf("%s-%s.events.jsonl", safeID, h))
+}
+
+// AppendEventLog 追加一条事件记录至指定 TaskKey 的事件流水账文件 (events.jsonl)。
+func (r *JSONRepository) AppendEventLog(key task.TaskKey, rec task.EventRecord) error {
+	if key.IsZero() {
+		return fmt.Errorf("invalid task key")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	eventLogFile := r.eventLogPath(key)
+	dir := filepath.Dir(eventLogFile)
+	_ = os.MkdirAll(dir, 0755)
+
+	f, err := os.OpenFile(eventLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open event log file %s: %w", eventLogFile, err)
+	}
+	defer f.Close()
+
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("failed to marshal event record: %w", err)
+	}
+	data = append(data, '\n')
+	if _, err := f.Write(data); err != nil {
+		return fmt.Errorf("failed to write event record: %w", err)
+	}
+	return nil
+}
+
+// ReadEventLogs 读取指定 TaskKey 的所有事件流水历史。
+func (r *JSONRepository) ReadEventLogs(key task.TaskKey) ([]task.EventRecord, error) {
+	if key.IsZero() {
+		return nil, fmt.Errorf("invalid task key")
+	}
+
+	eventLogFile := r.eventLogPath(key)
+	data, err := os.ReadFile(eventLogFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to read event log file: %w", err)
+	}
+
+	lines := strings.Split(string(data), "\n")
+	var records []task.EventRecord
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var rec task.EventRecord
+		if err := json.Unmarshal([]byte(line), &rec); err == nil {
+			records = append(records, rec)
+		}
+	}
+	return records, nil
+}
+
 // Close 释放存储资源。
 func (r *JSONRepository) Close() error {
 	return nil

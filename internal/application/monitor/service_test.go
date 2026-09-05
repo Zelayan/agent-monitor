@@ -720,9 +720,137 @@ func TestMonitorService_KillSafetyHostMismatch(t *testing.T) {
 		t.Fatalf("expected ErrHostMismatch when killing remote task, got: %v", err)
 	}
 
-	// 验证任务状态未被伪造为 killed
-	tObj := svc.GetTaskTenant("sess-remote-kill-01", "tenant-safe", false)
-	if tObj == nil || tObj.Status != "running" || tObj.ControlState == "killed" {
-		t.Fatalf("task state should remain running when kill is rejected, got: %+v", tObj)
+		// 验证任务状态未被伪造为 killed
+		tObj := svc.GetTaskTenant("sess-remote-kill-01", "tenant-safe", false)
+		if tObj == nil || tObj.Status != "running" || tObj.ControlState == "killed" {
+			t.Fatalf("task state should remain running when kill is rejected, got: %+v", tObj)
+		}
+	}
+
+func TestMonitorService_IdempotencyAndReplay(t *testing.T) {
+	repo := &memoryRepo{tasks: make(map[string]*task.Task)}
+	svc := NewMonitorService(repo, nil)
+	t.Cleanup(svc.Close)
+
+	taskID := "sess-idemp-01"
+	tenantID := "tenant-alpha"
+
+	// 1. 发送第一条事件 UserPromptSubmit
+	res1, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "UserPromptSubmit",
+		Prompt:    "Implement feature X",
+		Timestamp: 1700000000,
+		EventID:   "evt-100",
+	}, tenantID, false)
+	if err != nil {
+		t.Fatalf("res1 error: %v", err)
+	}
+	if res1.Task == nil || len(res1.Task.Runs) != 1 {
+		t.Fatalf("expected 1 run, got: %+v", res1.Task)
+	}
+
+	// 2. 发送 toolUse
+	res2, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "preToolUse",
+		Detail:    "Executing grep",
+		Timestamp: 1700000001,
+		EventID:   "evt-101",
+	}, tenantID, false)
+	if err != nil {
+		t.Fatalf("res2 error: %v", err)
+	}
+	timelineCount := len(res2.Task.Runs[0].Timeline)
+
+	// 3. 重复发送相同的 evt-101，验证幂等防御
+	resDup, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "preToolUse",
+		Detail:    "Executing grep",
+		Timestamp: 1700000001,
+		EventID:   "evt-101",
+	}, tenantID, false)
+	if err != nil {
+		t.Fatalf("resDup error: %v", err)
+	}
+	if resDup.Action != "allow" {
+		t.Fatalf("expected allow action on duplicate, got %s", resDup.Action)
+	}
+	// 时间线项数不应增加
+	if len(resDup.Task.Runs[0].Timeline) != timelineCount {
+		t.Fatalf("duplicate event should not expand timeline, expected %d got %d",
+			timelineCount, len(resDup.Task.Runs[0].Timeline))
+	}
+
+	// 4. 发送无 EventID 的事件，测试确定性指纹防抖
+	fixedTime := int64(1700000005)
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "toolResult",
+		Detail:    "grep done",
+		Timestamp: fixedTime,
+	}, tenantID, false)
+	if err != nil {
+		t.Fatalf("toolResult error: %v", err)
+	}
+	tCurrent := svc.GetTaskTenant(taskID, tenantID, false)
+	timelineCount2 := len(tCurrent.Runs[0].Timeline)
+
+	// 重复发送完全相同的无 EventID 事件
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "toolResult",
+		Detail:    "grep done",
+		Timestamp: fixedTime,
+	}, tenantID, false)
+	if err != nil {
+		t.Fatalf("duplicate toolResult error: %v", err)
+	}
+	tCurrent2 := svc.GetTaskTenant(taskID, tenantID, false)
+	if len(tCurrent2.Runs[0].Timeline) != timelineCount2 {
+		t.Fatalf("inferred fingerprint duplicate should not expand timeline, expected %d got %d",
+			timelineCount2, len(tCurrent2.Runs[0].Timeline))
+	}
+
+	// 5. 校验时序回放接口 GetTaskEventReplayTenant
+	replay, err := svc.GetTaskEventReplayTenant(taskID, tenantID, false)
+	if err != nil {
+		t.Fatalf("GetTaskEventReplayTenant failed: %v", err)
+	}
+	if len(replay) != 3 {
+		t.Fatalf("expected 3 replay records (evt-100, evt-101, inferred toolResult), got %d", len(replay))
+	}
+	// 验证序列号单调递增
+	if replay[0].Sequence != 1 || replay[1].Sequence != 2 || replay[2].Sequence != 3 {
+		t.Fatalf("expected sequences 1, 2, 3, got %d, %d, %d",
+			replay[0].Sequence, replay[1].Sequence, replay[2].Sequence)
+	}
+	if replay[0].EventID != "evt-100" || replay[1].EventID != "evt-101" {
+		t.Fatalf("unexpected event IDs in replay: %+v", replay)
+	}
+
+	// 6. 租户隔离校验
+	// 非 Master 跨租户查询应返回 ErrPermissionDenied
+	_, err = svc.GetTaskEventReplayTenant(taskID, "other-tenant", false)
+	if !errors.Is(err, ErrPermissionDenied) {
+		t.Fatalf("expected ErrPermissionDenied for other-tenant, got %v", err)
+	}
+
+	// Master 查询应放行
+	masterReplay, err := svc.GetTaskEventReplayTenant(taskID, "", true)
+	if err != nil || len(masterReplay) != 3 {
+		t.Fatalf("master query should succeed with 3 records, got err=%v, count=%d", err, len(masterReplay))
+	}
+
+	// 不存在的任务查询应报错
+	_, err = svc.GetTaskEventReplayTenant("non-existent", tenantID, false)
+	if err == nil {
+		t.Fatal("expected error for non-existent task")
 	}
 }

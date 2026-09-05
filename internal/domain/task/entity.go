@@ -92,6 +92,7 @@ type EventPayload struct {
 	BootID           string `json:"boot_id,omitempty"`            // 上报来源系统启动标识（可选）
 	ProcessStartTime int64  `json:"process_start_time,omitempty"` // 上报来源进程启动时间戳（可选）
 	KeyID            string `json:"key_id,omitempty"`             // 归属的项目/租户空间标识（可选）
+	EventID          string `json:"event_id,omitempty"`           // 幂等唯一指纹或客户端指定ID（可选）
 }
 
 // BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。

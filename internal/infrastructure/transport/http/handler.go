@@ -575,30 +575,79 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1.1 /api/tasks/{id}/kill 进程级强杀
-	if len(parts) == 2 && parts[1] == "kill" {
-		if r.Method != http.MethodPost {
-			MethodNotAllowed(w, "POST, OPTIONS")
-			return
-		}
-		killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
-		if err != nil {
-			if errors.Is(err, monitor.ErrHostMismatch) {
-				WriteJSONError(w, http.StatusBadRequest, "HOST_MISMATCH", err.Error())
+		// 1.1 /api/tasks/{id}/kill 进程级强杀
+		if len(parts) == 2 && parts[1] == "kill" {
+			if r.Method != http.MethodPost {
+				MethodNotAllowed(w, "POST, OPTIONS")
 				return
 			}
-			WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+			killedTask, err := h.svc.KillTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+			if err != nil {
+				if errors.Is(err, monitor.ErrHostMismatch) {
+					WriteJSONError(w, http.StatusBadRequest, "HOST_MISMATCH", err.Error())
+					return
+				}
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"status":        "ok",
+				"control_state": "killed",
+				"task":          killedTask,
+			})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"status":        "ok",
-			"control_state": "killed",
-			"task":          killedTask,
-		})
-		return
-	}
 
-	// 2. /api/tasks/{id} 单任务查询与删除
+		// 1.2 /api/tasks/{id}/replay 事件流时序回放
+		if len(parts) == 2 && parts[1] == "replay" {
+			if r.Method != http.MethodGet {
+				MethodNotAllowed(w, "GET, OPTIONS")
+				return
+			}
+			records, err := h.svc.GetTaskEventReplayTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+			if err != nil {
+				if errors.Is(err, monitor.ErrPermissionDenied) {
+					WriteJSONError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+					return
+				}
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			if records == nil {
+				records = []task.EventRecord{}
+			}
+			_ = json.NewEncoder(w).Encode(records)
+			return
+		}
+
+		// 1.3 /api/tasks/replay?id={id} 查询参数形式事件流时序回放
+		if len(parts) == 1 && parts[0] == "replay" {
+			if r.Method != http.MethodGet {
+				MethodNotAllowed(w, "GET, OPTIONS")
+				return
+			}
+			targetID := strings.TrimSpace(r.URL.Query().Get("id"))
+			if targetID == "" {
+				WriteJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing id query parameter")
+				return
+			}
+			records, err := h.svc.GetTaskEventReplayTenant(targetID, authCtx.KeyID, authCtx.IsMaster)
+			if err != nil {
+				if errors.Is(err, monitor.ErrPermissionDenied) {
+					WriteJSONError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+					return
+				}
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			if records == nil {
+				records = []task.EventRecord{}
+			}
+			_ = json.NewEncoder(w).Encode(records)
+			return
+		}
+
+		// 2. /api/tasks/{id} 单任务查询与删除
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:

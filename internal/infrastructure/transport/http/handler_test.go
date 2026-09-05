@@ -813,10 +813,139 @@ func TestHandler_HealthzReadyzAndMetrics(t *testing.T) {
 	if err := json.NewDecoder(wMetrics.Body).Decode(&metrics); err != nil {
 		t.Fatalf("failed to decode metrics: %v", err)
 	}
-	if metrics.PersistQueueCapacity != 5000 {
-		t.Fatalf("expected queue capacity 5000, got %d", metrics.PersistQueueCapacity)
+		if metrics.PersistQueueCapacity != 5000 {
+			t.Fatalf("expected queue capacity 5000, got %d", metrics.PersistQueueCapacity)
+		}
+	}
+
+func TestHandler_ReplayEndpoint(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+	svc := monitor.NewMonitorService(repo, hub)
+	staticHTML := []byte("<html><body>Dashboard</body></html>")
+
+	handler := NewHandler(svc, hub, staticHTML).
+		WithMasterKey("master-token").
+		WithProjectKeys("team-alpha=token-alpha,team-beta=token-beta")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. Team Alpha 上报 2 条事件
+	taskID := "task-replay-01"
+	body1, _ := json.Marshal(task.EventPayload{
+		ID:        taskID,
+		Agent:     "ZCode",
+		Event:     "UserPromptSubmit",
+		Prompt:    "Initial prompt",
+		Timestamp: 1700000000,
+		EventID:   "ev-1",
+	})
+	req1 := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(body1))
+	req1.Header.Set("Authorization", "Bearer token-alpha")
+	w1 := httptest.NewRecorder()
+	mux.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("event 1 failed: %d", w1.Code)
+	}
+
+	body2, _ := json.Marshal(task.EventPayload{
+		ID:        taskID,
+		Agent:     "ZCode",
+		Event:     "toolUse",
+		Detail:    "Executing grep",
+		Timestamp: 1700000001,
+		EventID:   "ev-2",
+	})
+	req2 := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewReader(body2))
+	req2.Header.Set("Authorization", "Bearer token-alpha")
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusOK {
+		t.Fatalf("event 2 failed: %d", w2.Code)
+	}
+
+	// 2. GET /api/tasks/{id}/replay 路径格式
+	reqReplayPath := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/replay", nil)
+	reqReplayPath.Header.Set("Authorization", "Bearer token-alpha")
+	wReplayPath := httptest.NewRecorder()
+	mux.ServeHTTP(wReplayPath, reqReplayPath)
+	if wReplayPath.Code != http.StatusOK {
+		t.Fatalf("replay path failed: %d body=%s", wReplayPath.Code, wReplayPath.Body.String())
+	}
+	var recordsPath []task.EventRecord
+	if err := json.NewDecoder(wReplayPath.Body).Decode(&recordsPath); err != nil {
+		t.Fatalf("failed to decode replay records: %v", err)
+	}
+	if len(recordsPath) != 2 {
+		t.Fatalf("expected 2 replay records, got %d", len(recordsPath))
+	}
+	if recordsPath[0].EventID != "ev-1" || recordsPath[1].EventID != "ev-2" {
+		t.Fatalf("unexpected records: %+v", recordsPath)
+	}
+
+	// 3. GET /api/tasks/replay?id={id} 查询参数格式
+	reqReplayQuery := httptest.NewRequest(http.MethodGet, "/api/tasks/replay?id="+taskID, nil)
+	reqReplayQuery.Header.Set("Authorization", "Bearer token-alpha")
+	wReplayQuery := httptest.NewRecorder()
+	mux.ServeHTTP(wReplayQuery, reqReplayQuery)
+	if wReplayQuery.Code != http.StatusOK {
+		t.Fatalf("replay query failed: %d body=%s", wReplayQuery.Code, wReplayQuery.Body.String())
+	}
+	var recordsQuery []task.EventRecord
+	if err := json.NewDecoder(wReplayQuery.Body).Decode(&recordsQuery); err != nil {
+		t.Fatalf("failed to decode query replay records: %v", err)
+	}
+	if len(recordsQuery) != 2 {
+		t.Fatalf("expected 2 query replay records, got %d", len(recordsQuery))
+	}
+
+	// 4. 租户隔离：Team Beta 尝试查询 Team Alpha 的回放应返回 403 Forbidden
+	reqBeta := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/replay", nil)
+	reqBeta.Header.Set("Authorization", "Bearer token-beta")
+	wBeta := httptest.NewRecorder()
+	mux.ServeHTTP(wBeta, reqBeta)
+	if wBeta.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for cross-tenant replay, got %d", wBeta.Code)
+	}
+
+	// 5. Master 用户查询任何租户的回放应返回 200 OK
+	reqMaster := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/replay", nil)
+	reqMaster.Header.Set("Authorization", "Bearer master-token")
+	wMaster := httptest.NewRecorder()
+	mux.ServeHTTP(wMaster, reqMaster)
+	if wMaster.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for master replay, got %d", wMaster.Code)
+	}
+
+	// 6. 不存在的任务返回 404 Not Found
+	reqNotFound := httptest.NewRequest(http.MethodGet, "/api/tasks/non-existent-task/replay", nil)
+	reqNotFound.Header.Set("Authorization", "Bearer token-alpha")
+	wNotFound := httptest.NewRecorder()
+	mux.ServeHTTP(wNotFound, reqNotFound)
+	if wNotFound.Code != http.StatusNotFound {
+		t.Fatalf("expected 404 Not Found, got %d", wNotFound.Code)
+	}
+
+	// 7. /api/tasks/replay 缺少 id 参数返回 400 Bad Request
+	reqMissingID := httptest.NewRequest(http.MethodGet, "/api/tasks/replay", nil)
+	reqMissingID.Header.Set("Authorization", "Bearer token-alpha")
+	wMissingID := httptest.NewRecorder()
+	mux.ServeHTTP(wMissingID, reqMissingID)
+	if wMissingID.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request when id is missing, got %d", wMissingID.Code)
+	}
+
+	// 8. 非 GET 方法返回 405 Method Not Allowed
+	reqMethodNotAllowed := httptest.NewRequest(http.MethodPost, "/api/tasks/"+taskID+"/replay", nil)
+	reqMethodNotAllowed.Header.Set("Authorization", "Bearer token-alpha")
+	wMethodNotAllowed := httptest.NewRecorder()
+	mux.ServeHTTP(wMethodNotAllowed, reqMethodNotAllowed)
+	if wMethodNotAllowed.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 Method Not Allowed for POST replay, got %d", wMethodNotAllowed.Code)
 	}
 }
+
 
 type flushRecorder struct {
 	*httptest.ResponseRecorder

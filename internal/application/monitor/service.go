@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -91,32 +92,35 @@ type PersistenceOp int
 const (
 	OpSave PersistenceOp = iota
 	OpDelete
+	OpAppendEventLog
 )
 
 // taskPersistenceCommand 封装带版本的统一持久化命令流。
 type taskPersistenceCommand struct {
-	op      PersistenceOp
-	key     task.TaskKey
-	version uint64
-	data    []byte
+	op       PersistenceOp
+	key      task.TaskKey
+	version  uint64
+	data     []byte
+	eventRec *task.EventRecord
 }
 
 // MonitorService 负责会话用例编排、事件处理与仓储/广播联动。
 type MonitorService struct {
-	mu          sync.RWMutex
-	hostID      string
-	bootID      string
-	tasks       map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
-	repo        task.TaskRepository
-	hub         *Hub
-	generation  uint64                      // 全局/租户状态变更 generation，单调递增
-	persistChan chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
-	stopChan    chan struct{}
-	stoppedChan chan struct{} // persistenceWorker 完成排空后关闭
-	ttlDays     int           // 自动清理天数（默认 30 天，<=0 则不清理）
-	summarizer  *TitleSummarizer
-	titleJobs   sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
-	steerQueue  map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+	mu               sync.RWMutex
+	hostID           string
+	bootID           string
+	tasks            map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
+	eventRingBuffers map[task.TaskKey]*task.EventLogRingBuffer // 会话事件幂等防抖与回放环形缓冲区
+	repo             task.TaskRepository
+	hub              *Hub
+	generation       uint64                      // 全局/租户状态变更 generation，单调递增
+	persistChan      chan taskPersistenceCommand // 异步串行持久化命令管道（Save 与 Delete 统一有序消费）
+	stopChan         chan struct{}
+	stoppedChan      chan struct{} // persistenceWorker 完成排空后关闭
+	ttlDays          int           // 自动清理天数（默认 30 天，<=0 则不清理）
+	summarizer       *TitleSummarizer
+	titleJobs        sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
+	steerQueue       map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
 
 	// 指标统计 (原子操作)
 	eventsReceived uint64
@@ -135,16 +139,17 @@ func NewMonitorServiceWithTTL(repo task.TaskRepository, hub *Hub, ttlDays int) *
 	hostID, bootID := detectHostAndBootID()
 
 	s := &MonitorService{
-		hostID:      hostID,
-		bootID:      bootID,
-		tasks:       make(map[task.TaskKey]*task.Task),
-		repo:        repo,
-		hub:         hub,
-		persistChan: make(chan taskPersistenceCommand, 5000), // 削峰缓冲
-		stopChan:    make(chan struct{}),
-		stoppedChan: make(chan struct{}),
-		ttlDays:     ttlDays,
-		steerQueue:  make(map[task.TaskKey][]task.SteerInstruction),
+		hostID:           hostID,
+		bootID:           bootID,
+		tasks:            make(map[task.TaskKey]*task.Task),
+		eventRingBuffers: make(map[task.TaskKey]*task.EventLogRingBuffer),
+		repo:             repo,
+		hub:              hub,
+		persistChan:      make(chan taskPersistenceCommand, 5000), // 削峰缓冲
+		stopChan:         make(chan struct{}),
+		stoppedChan:      make(chan struct{}),
+		ttlDays:          ttlDays,
+		steerQueue:       make(map[task.TaskKey][]task.SteerInstruction),
 	}
 
 	if repo != nil {
@@ -235,15 +240,26 @@ func (s *MonitorService) executePersistenceCommand(cmd taskPersistenceCommand) {
 				atomic.AddUint64(&s.persistSuccess, 1)
 			}
 		}
-	case OpDelete:
-		if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
-			atomic.AddUint64(&s.persistErrors, 1)
-			log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
-		} else {
-			atomic.AddUint64(&s.persistSuccess, 1)
+		case OpDelete:
+			if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
+				atomic.AddUint64(&s.persistErrors, 1)
+				log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+			} else {
+				atomic.AddUint64(&s.persistSuccess, 1)
+			}
+		case OpAppendEventLog:
+			if cmd.eventRec != nil && s.repo != nil {
+				if er, ok := s.repo.(task.EventLogRepository); ok {
+					if err := er.AppendEventLog(cmd.key, *cmd.eventRec); err != nil {
+						atomic.AddUint64(&s.persistErrors, 1)
+						log.Printf("[Application] Error appending event log for %s: %v", cmd.key.String(), err)
+					} else {
+						atomic.AddUint64(&s.persistSuccess, 1)
+					}
+				}
+			}
 		}
 	}
-}
 
 // enqueuePersist 尝试将 Save 命令推入管道。若管道满，通过短超时等待缓冲释放，超时后记录告警，严格维持单 Worker 串行有序消费。
 func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data []byte) {
@@ -271,6 +287,45 @@ func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data [
 			log.Printf("[Application] Warning: persistence queue saturated, dropped save command for %s v%d", key.String(), version)
 		}
 	}
+}
+
+// enqueueEventLog 尝试将追加 EventLog 命令推入持久化管道。
+func (s *MonitorService) enqueueEventLog(key task.TaskKey, rec task.EventRecord) {
+	if s.repo == nil || key.IsZero() {
+		return
+	}
+	if _, ok := s.repo.(task.EventLogRepository); !ok {
+		return
+	}
+	cmd := taskPersistenceCommand{
+		op:       OpAppendEventLog,
+		key:      key,
+		eventRec: &rec,
+	}
+
+	select {
+	case s.persistChan <- cmd:
+		return
+	default:
+		ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+		defer cancel()
+		select {
+		case s.persistChan <- cmd:
+		case <-ctx.Done():
+			atomic.AddUint64(&s.persistDropped, 1)
+			log.Printf("[Application] Warning: persistence queue saturated, dropped event log for %s", key.String())
+		}
+	}
+}
+
+// getOrCreateEventRingBufferLocked 在持有 s.mu 时获取或初始化指定 TaskKey 的事件环形缓冲区。
+func (s *MonitorService) getOrCreateEventRingBufferLocked(key task.TaskKey) *task.EventLogRingBuffer {
+	rb, ok := s.eventRingBuffers[key]
+	if !ok || rb == nil {
+		rb = task.NewEventLogRingBuffer(256)
+		s.eventRingBuffers[key] = rb
+	}
+	return rb
 }
 
 // enqueueDelete 尝试将 Delete 命令推入管道。若管道满，通过短超时等待推入。
@@ -332,11 +387,12 @@ func (s *MonitorService) cleanExpiredTasks() {
 			if endTime == 0 {
 				endTime = t.StartTime
 			}
-			if endTime > 0 && endTime < cutoffMs {
-				delete(s.tasks, k)
-				delete(s.steerQueue, k)
-				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-			}
+				if endTime > 0 && endTime < cutoffMs {
+					delete(s.tasks, k)
+					delete(s.steerQueue, k)
+					delete(s.eventRingBuffers, k)
+					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+				}
 		}
 	}
 	s.mu.Unlock()
@@ -424,6 +480,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 		if !t.HasUserWork() && task.IsTerminalHook(p.Event) {
 			delete(s.tasks, targetKey)
+			delete(s.eventRingBuffers, targetKey)
 			ver := t.Version
 			s.mu.Unlock()
 			s.forgetTask(targetKey, ver)
@@ -449,6 +506,77 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		t = task.NewTask(p, nowMs)
 		targetKey = t.TaskKey()
 		s.tasks[targetKey] = t
+	}
+
+	if p.EventID == "" {
+		if exists && t != nil && p.TurnIndex <= 0 {
+			if t.ShouldStartNewTurn(p) {
+				p.TurnIndex = t.TotalRuns + 1
+			} else if t.TotalRuns > 0 {
+				p.TurnIndex = t.TotalRuns
+			} else {
+				p.TurnIndex = 1
+			}
+		} else if !exists && p.TurnIndex <= 0 {
+			p.TurnIndex = 1
+		}
+		p.EventID = task.ComputeEventFingerprint(p)
+	}
+
+	// 幂等去重检查与事件流水准备
+	rb := s.getOrCreateEventRingBufferLocked(targetKey)
+
+	summary := make(map[string]interface{})
+	if p.Agent != "" {
+		summary["agent"] = p.Agent
+	}
+	if p.Repo != "" {
+		summary["repo"] = p.Repo
+	}
+	if p.Branch != "" {
+		summary["branch"] = p.Branch
+	}
+	if p.SubagentID != "" {
+		summary["subagentId"] = p.SubagentID
+	}
+	if p.SubagentType != "" {
+		summary["subagentType"] = p.SubagentType
+	}
+
+	rec := task.EventRecord{
+		EventID:        p.EventID,
+		Timestamp:      p.Timestamp,
+		ReceivedAt:     nowMs,
+		Event:          p.Event,
+		TurnIndex:      p.TurnIndex,
+		Detail:         p.Detail,
+		Prompt:         p.Prompt,
+		AIResponse:     p.AIResponse,
+		PayloadSummary: summary,
+	}
+
+	isNew, seq := rb.AppendIfNew(rec)
+	if !isNew {
+		// 命中幂等指纹：防抖降级，返回既有状态副本，避免重复应用导致 Turn 或 Timeline 膨胀
+		action := "allow"
+		reason := ""
+		agentMsg := ""
+		if t.IsAbortRequested() && isPreActionHook(p.Event) {
+			action = "deny"
+			reason = t.AbortReason
+			if reason == "" {
+				reason = "Session aborted from Agent Monitor Dashboard"
+			}
+			agentMsg = "CRITICAL: The user has intentionally aborted this session from the control panel. Do not invoke any more tools. Acknowledge and stop immediately."
+		}
+		taskCopy := t.Clone()
+		s.mu.Unlock()
+		return HookEventResult{
+			Task:         taskCopy,
+			Action:       action,
+			Reason:       reason,
+			AgentMessage: agentMsg,
+		}, nil
 	}
 
 	action := "allow"
@@ -517,6 +645,13 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 	taskCopy := t.Clone()
 	taskKeyID := t.KeyID
 	taskVersion := t.Version
+
+	// 更新环形缓冲区中该条事件记录的应用后状态与版本
+	rb.UpdateLastPostApplication(taskCopy.Status, taskCopy.Version)
+	rec.Sequence = seq
+	rec.TaskStatus = taskCopy.Status
+	rec.TaskVersion = taskCopy.Version
+
 	s.mu.Unlock() // 锁范围最小化
 
 	taskJSON, err := json.Marshal(taskCopy)
@@ -526,6 +661,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 	// 异步持久化：写入串行管道
 	s.enqueuePersist(targetKey, taskVersion, taskJSON)
+	s.enqueueEventLog(targetKey, rec)
 
 	// 广播事件（向该租户空间及 Master 广播）
 	if s.hub != nil {
@@ -547,7 +683,7 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 
 // findTaskLocked 必须在持有 s.mu 时调用，根据 ID 与租户权限查找匹配任务。
 func (s *MonitorService) findTaskLocked(id string, keyID string, isMaster bool) (task.TaskKey, *task.Task, bool) {
-	if !isMaster || (keyID != "" && keyID != "*") {
+	if !isMaster || (keyID != "" && keyID != "*" && keyID != "master") {
 		// 租户空间严格按复合键检索
 		targetKey := task.NewTaskKey(keyID, id)
 		if t, ok := s.tasks[targetKey]; ok && t != nil && t.BelongsTo(keyID, isMaster) {
@@ -697,6 +833,79 @@ func (s *MonitorService) GetTaskTenant(id string, keyID string, isMaster bool) *
 		return t.Clone()
 	}
 	return nil
+}
+
+// GetTaskEventReplay 查询指定会话的事件回放流水（Master 默认空间）。
+func (s *MonitorService) GetTaskEventReplay(id string) ([]task.EventRecord, error) {
+	return s.GetTaskEventReplayTenant(id, "", true)
+}
+
+// GetTaskEventReplayTenant 查询指定会话的时序回放事件流水日志。
+// 优先检索仓储持久化记录或环形缓冲区快照，支持时间有序回放。
+func (s *MonitorService) GetTaskEventReplayTenant(id string, tenantKeyID string, isMaster bool) ([]task.EventRecord, error) {
+	s.mu.RLock()
+	targetKey, _, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
+	if !exists {
+		// 检查是否属于其他租户以区分 403 Forbidden 与 404 Not Found
+		if !isMaster && tenantKeyID != "" {
+			for otherKey, otherTask := range s.tasks {
+				if otherTask != nil && otherTask.ID == id && otherKey.TenantID != tenantKeyID {
+					s.mu.RUnlock()
+					return nil, fmt.Errorf("%w: task %s belongs to tenant %s", ErrPermissionDenied, id, otherKey.TenantID)
+				}
+			}
+		}
+		s.mu.RUnlock()
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+
+	var rbSnapshot []task.EventRecord
+	if rb, ok := s.eventRingBuffers[targetKey]; ok && rb != nil {
+		rbSnapshot = rb.Snapshot()
+	}
+	s.mu.RUnlock()
+
+	var records []task.EventRecord
+	if er, ok := s.repo.(task.EventLogRepository); ok {
+		persisted, err := er.ReadEventLogs(targetKey)
+		if err == nil && len(persisted) > 0 {
+			records = append(records, persisted...)
+		}
+	}
+
+	if len(records) == 0 {
+		records = rbSnapshot
+	} else if len(rbSnapshot) > 0 {
+		// 合并内存中尚未刷盘的最新事件
+		seen := make(map[string]struct{}, len(records))
+		for _, r := range records {
+			if r.EventID != "" {
+				seen[r.EventID] = struct{}{}
+			}
+		}
+		for _, r := range rbSnapshot {
+			if r.EventID != "" {
+				if _, ok := seen[r.EventID]; !ok {
+					seen[r.EventID] = struct{}{}
+					records = append(records, r)
+				}
+			}
+		}
+	}
+
+	if records == nil {
+		records = []task.EventRecord{}
+	}
+
+	// 确保按会话内序号及时间戳严格单调递增排序
+	sort.SliceStable(records, func(i, j int) bool {
+		if records[i].Sequence != records[j].Sequence {
+			return records[i].Sequence < records[j].Sequence
+		}
+		return records[i].Timestamp < records[j].Timestamp
+	})
+
+	return records, nil
 }
 
 // KillTask 强制杀死指定会话关联的本地进程组，并将任务标记为终止终态。
@@ -854,40 +1063,43 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 	var toDelete []delTarget
 	var toDeleteIDs []string
 
-	if req.All {
-		// 清空当前空间全部任务（包括 running）
-		for k, t := range s.tasks {
-			if t != nil && t.BelongsTo(keyID, isMaster) {
-				delete(s.tasks, k)
-				delete(s.steerQueue, k)
-				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-				toDeleteIDs = append(toDeleteIDs, t.ID)
-			}
-		}
-	} else if len(req.IDs) > 0 {
-		// 精确删除指定 ID 列表
-		for _, targetID := range req.IDs {
-			k, t, exists := s.findTaskLocked(targetID, keyID, isMaster)
-			if exists && t != nil {
-				delete(s.tasks, k)
-				delete(s.steerQueue, k)
-				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-				toDeleteIDs = append(toDeleteIDs, t.ID)
-			}
-		}
-	} else {
-		// 默认行为：只清已完成和失败任务
-		for k, t := range s.tasks {
-			if t != nil && t.BelongsTo(keyID, isMaster) {
-				if t.Status == "completed" || t.Status == "failed" {
+		if req.All {
+			// 清空当前空间全部任务（包括 running）
+			for k, t := range s.tasks {
+				if t != nil && t.BelongsTo(keyID, isMaster) {
 					delete(s.tasks, k)
 					delete(s.steerQueue, k)
+					delete(s.eventRingBuffers, k)
 					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 					toDeleteIDs = append(toDeleteIDs, t.ID)
 				}
 			}
+		} else if len(req.IDs) > 0 {
+			// 精确删除指定 ID 列表
+			for _, targetID := range req.IDs {
+				k, t, exists := s.findTaskLocked(targetID, keyID, isMaster)
+				if exists && t != nil {
+					delete(s.tasks, k)
+					delete(s.steerQueue, k)
+					delete(s.eventRingBuffers, k)
+					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+					toDeleteIDs = append(toDeleteIDs, t.ID)
+				}
+			}
+		} else {
+			// 默认行为：只清已完成和失败任务
+			for k, t := range s.tasks {
+				if t != nil && t.BelongsTo(keyID, isMaster) {
+					if t.Status == "completed" || t.Status == "failed" {
+						delete(s.tasks, k)
+						delete(s.steerQueue, k)
+						delete(s.eventRingBuffers, k)
+						toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+						toDeleteIDs = append(toDeleteIDs, t.ID)
+					}
+				}
+			}
 		}
-	}
 	s.generation++
 	gen := s.generation
 	s.mu.Unlock()
