@@ -9,8 +9,8 @@ This document serves as the single source of truth for persistent progress track
 ## 1. Global Overview & Collaboration Rules
 
 ### 1.1 Current Global Status
-- **Active Phase**: **Phase 3: Real-Time Reliability & Product Maturity** (Phase 0 through Phase 2 fully completed & archived)
-- **Master Baseline**: Commit `97a6c08` (PR #34 merged)
+- **Active Phase**: **Phase 4: Agent & Cursor Ecosystem Expansion** (Phase 0 through Phase 3 fully completed & archived)
+- **Master Baseline**: Commit `78c4d45` (PR #43 merged, 100% E2E tests green)
 - **Quality Gate Baseline**:
   - Unit Tests & Race Detection: `go test -v -race ./...` (100% Pass, 0 Data Races)
   - Strict Local Code Review: `make review-strict` (0 `[BLOCK]` issues)
@@ -43,28 +43,27 @@ This document serves as the single source of truth for persistent progress track
 
 ---
 
-## 2. Historical Phase Archive (Phase 0 ~ Phase 2)
+## 2. Historical Phase Archive (Phase 0 ~ Phase 3)
 
 | Phase | Core Goal | Work Packages | Delivered PR | Status |
 | :--- | :--- | :--- | :--- | :---: |
 | **Phase 0** | Baseline Constraints & Fixtures | Tenant forgery, Session ID collision, and concurrency edge tests | Built into Phase 1 PRs | ✅ Archived |
 | **Phase 1** | Trusted Real-Time Pipeline | WP-1: Trusted Auth Identity Binding<br>WP-2: Composite Tenant Task Key (`TaskKey`)<br>WP-3: Ordered Persistence Command Stream & Graceful Drain<br>WP-4: SSE Snapshot Reconciliation & Trusted UI Operations<br>WP-5: Safe Kill & Process Group Control<br>WP-6: Strict HTTP & Typed Errors | [#24](https://github.com/Zelayan/agent-monitor/pull/24)<br>[#25](https://github.com/Zelayan/agent-monitor/pull/25)<br>[#26](https://github.com/Zelayan/agent-monitor/pull/26)<br>[#27](https://github.com/Zelayan/agent-monitor/pull/27)<br>[#28](https://github.com/Zelayan/agent-monitor/pull/28)<br>[#29](https://github.com/Zelayan/agent-monitor/pull/29) | ✅ Archived |
 | **Phase 2** | High-Frequency Efficiency & Ops | WP-7: `filter_repos` Repository Whitelist<br>WP-8: Decoupled Repo/Branch Schema<br>WP-9: Deep Search & Multi-Dimensional Filtering<br>WP-10 & 11: Multi-Dimensional Sorting, Views & Deep Links<br>WP-12 & 13: Health Probes, Metrics, Quarantine & Reporter Hygiene | [#30](https://github.com/Zelayan/agent-monitor/pull/30)<br>[#31](https://github.com/Zelayan/agent-monitor/pull/31)<br>[#32](https://github.com/Zelayan/agent-monitor/pull/32)<br>[#33](https://github.com/Zelayan/agent-monitor/pull/33)<br>[#34](https://github.com/Zelayan/agent-monitor/pull/34) | ✅ Archived |
+| **Phase 3** | Real-Time Reliability & Product Maturity | WP-14: Reliable SSE v2 Protocol (Monotonic IDs/Ring Buffer/Replay)<br>WP-15: Frontend Scalable Performance (Keyed DOM Patch/Tab Throttling)<br>WP-16: Accessibility, Focus & Motion (Dialogs/Focus Trap/A11y)<br>WP-17: Comprehensive I18N (Dictionary interpolation/Intl/Export)<br>WP-18: Complete PWA Lifecycle & Offline Snapshot (IndexedDB/SW update)<br>WP-19: Browser & End-to-End Testing (E2E full test suite) | [#36](https://github.com/Zelayan/agent-monitor/pull/36)<br>[#40](https://github.com/Zelayan/agent-monitor/pull/40)<br>[#37](https://github.com/Zelayan/agent-monitor/pull/37)<br>[#39](https://github.com/Zelayan/agent-monitor/pull/39)<br>[#42](https://github.com/Zelayan/agent-monitor/pull/42)<br>[#43](https://github.com/Zelayan/agent-monitor/pull/43) | ✅ Archived |
 
 ---
 
-## 3. Phase 3 Work Package Matrix (Current Phase)
+## 3. Phase 4 Work Package Matrix (Current Phase)
 
-> **Key Focus**: Recoverable real-time streams, complete accessibility, scalable frontend rendering, and resilient PWA offline capabilities.
+> **Key Focus**: Expand officially supported AI coding agents and elevate the Cursor extension out-of-the-box reliability and diagnostic tooling.
 
 | WP ID | Work Package | Directory Scope | Responsible Agent / Branch | Worktree Path | Current Status | PR Link | Quality Gate & Review Verdict |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-14** | **Reliable SSE v2 Protocol**<br>(Monotonic Event IDs / Ring Buffer / Last-Event-ID / resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `wt-wp14 (Cleaned)` | `Merged` | [#36](https://github.com/Zelayan/agent-monitor/pull/36) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-15** | **Frontend Scalable Performance**<br>(Keyed DOM Patch / Partial Status Repaint / Versioned Cache / Tab Throttling) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `wt-wp15 (Cleaned)` | `Merged` | [#40](https://github.com/Zelayan/agent-monitor/pull/40) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-16** | **Accessibility, Focus & Motion**<br>(Standard Dialog / Focus Trap / Arrow Nav / Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (Cleaned)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (Cleaned)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-18** | **Complete PWA Lifecycle & Offline Snapshot**<br>(IndexedDB Encrypted Snapshot / SW Update Prompt / Readonly Offline) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 100% tests green |
-| **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | [#43](https://github.com/Zelayan/agent-monitor/pull/43) | [PASS] 0 BLOCK, 100% tests green (comprehensive E2E / SSE / tenant / control safety) |
+| **WP-20** | **Agent Maturity Model & Official Adapters**<br>(Claude Code & Aider official tier, transcript extraction, fail-safe test fixtures) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `../agent-monitor-worktrees/wt-wp20` | `Pending` | - | Ready to start |
+| **WP-21** | **Cursor Multi-Root Workspace Hook Management**<br>(Multi-root workspace traversal, hook conflict prevention, diff preview & backup) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `../agent-monitor-worktrees/wt-wp21` | `Pending` | - | Ready to start (Parallelizable) |
+| **WP-22** | **VSIX Cross-Platform Binary Bundling**<br>(Cross-platform build pipeline, OS/Arch binary resolution, permissions & checksums) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `Pending` | - | Ready to start (Parallelizable) |
+| **WP-23** | **Extension Diagnostic Tooling & Automated Tests**<br>(Daemon output channel, health check command, TS unit & extension host tests) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `../agent-monitor-worktrees/wt-wp23` | `Pending` | - | Ready to start |
 
 ---
 
