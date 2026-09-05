@@ -110,11 +110,13 @@ func (t *Task) Sanitize() *Task {
 	}
 
 	if cp.ActiveSpans != nil {
+		sanitizedSpans := make(map[string]TraceSpan, len(cp.ActiveSpans))
 		for k, v := range cp.ActiveSpans {
 			v.Detail = SanitizeString(v.Detail)
 			v.AnomalyMsg = SanitizeString(v.AnomalyMsg)
-			cp.ActiveSpans[k] = v
+			sanitizedSpans[k] = v
 		}
+		cp.ActiveSpans = sanitizedSpans
 	}
 
 	return cp

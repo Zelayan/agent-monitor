@@ -634,6 +634,12 @@ func TestJSONRepository_ArchiveCompletedTasks(t *testing.T) {
 		t.Fatalf("expected 2 archived tasks, got %d: %v", len(archived), archived)
 	}
 
+	for _, item := range archived {
+		if item.Key.IsZero() || !strings.HasSuffix(item.ArchivePath, ".tar.gz") {
+			t.Fatalf("unexpected archive result item: %+v", item)
+		}
+	}
+
 	// 验证 running 任务和 recent 任务依然保留在磁盘
 	if _, err := os.Stat(repo.taskKeyPath(k3)); err != nil {
 		t.Fatalf("running task file must still exist: %v", err)

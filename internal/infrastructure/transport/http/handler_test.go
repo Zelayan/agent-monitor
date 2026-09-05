@@ -78,10 +78,10 @@ func (m *mockRepo) ArchiveTask(key task.TaskKey) (string, error) {
 	return "mock_archive.tar.gz", nil
 }
 
-func (m *mockRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]string, error) {
+func (m *mockRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]task.ArchiveResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return []string{"mock_archive.tar.gz"}, nil
+	return []task.ArchiveResult{{Key: task.NewTaskKey(tenantID, "sess-mock"), ArchivePath: "mock_archive.tar.gz"}}, nil
 }
 
 func (m *mockRepo) Close() error {

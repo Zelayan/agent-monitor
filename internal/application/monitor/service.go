@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -562,10 +561,11 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		}
 
 		// 检查租户并发活跃运行中任务配额
+		normTenant := task.NormalizeTenantID(p.KeyID)
 		if s.maxActiveTasksPerTenant > 0 {
 			activeCount := 0
 			for _, existing := range s.tasks {
-				if existing != nil && existing.TaskKey().TenantID == targetKey.TenantID && existing.Status == "running" {
+				if existing != nil && existing.TaskKey().TenantID == normTenant && existing.Status == "running" {
 					activeCount++
 				}
 			}
@@ -1319,29 +1319,23 @@ func (s *MonitorService) ArchiveCompletedTasksTenant(tenantKeyID string, isMaste
 		return nil, fmt.Errorf("repository is nil")
 	}
 
-	archivedPaths, err := s.repo.ArchiveCompletedTasks(targetTenant, beforeTime)
+	archivedResults, err := s.repo.ArchiveCompletedTasks(targetTenant, beforeTime)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(archivedPaths) > 0 {
+	var archivedPaths []string
+	if len(archivedResults) > 0 {
 		var evictedIDs []string
 		var evictedKeys []string
 		s.mu.Lock()
-		for _, p := range archivedPaths {
-			base := filepath.Base(p)
-			safeID := strings.TrimSuffix(base, ".tar.gz")
-			for k, t := range s.tasks {
-				if t != nil && (t.ID == safeID || persistence.SafeFilenamePrefix(t.ID) == safeID) {
-					if targetTenant == "*" || t.BelongsTo(targetTenant, isMaster) {
-						delete(s.tasks, k)
-						delete(s.eventRingBuffers, k)
-						delete(s.steerQueue, k)
-						evictedIDs = append(evictedIDs, t.ID)
-						evictedKeys = append(evictedKeys, k.String())
-					}
-				}
-			}
+		for _, item := range archivedResults {
+			archivedPaths = append(archivedPaths, item.ArchivePath)
+			delete(s.tasks, item.Key)
+			delete(s.eventRingBuffers, item.Key)
+			delete(s.steerQueue, item.Key)
+			evictedIDs = append(evictedIDs, item.Key.TaskID)
+			evictedKeys = append(evictedKeys, item.Key.String())
 		}
 		s.generation++
 		gen := s.generation

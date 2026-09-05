@@ -646,9 +646,7 @@ func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
 	if targetPath != legacyPath {
 		_ = os.Remove(legacyPath)
 	}
-	if len(eventsData) > 0 {
-		_ = os.Remove(eventsPath)
-	}
+	_ = os.Remove(eventsPath)
 
 	r.versionLock.Lock()
 	delete(r.lastVersion, keyStr)
@@ -658,7 +656,7 @@ func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
 }
 
 // ArchiveCompletedTasks 批量将符合条件的已完结/失败任务归档为 .tar.gz。
-func (r *JSONRepository) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]string, error) {
+func (r *JSONRepository) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]task.ArchiveResult, error) {
 	var searchDirs []string
 	tid := task.NormalizeTenantID(tenantID)
 	if tid == "" || tid == "*" {
@@ -713,15 +711,18 @@ func (r *JSONRepository) ArchiveCompletedTasks(tenantID string, beforeTime time.
 		})
 	}
 
-	var archivedPaths []string
+	var results []task.ArchiveResult
 	for _, key := range candidates {
 		archivePath, err := r.ArchiveTask(key)
 		if err == nil {
-			archivedPaths = append(archivedPaths, archivePath)
+			results = append(results, task.ArchiveResult{
+				Key:         key,
+				ArchivePath: archivePath,
+			})
 		}
 	}
 
-	return archivedPaths, nil
+	return results, nil
 }
 
 // Close 释放存储资源。

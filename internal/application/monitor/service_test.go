@@ -75,10 +75,10 @@ func (m *memoryRepo) ArchiveTask(key task.TaskKey) (string, error) {
 	return "mock_archive.tar.gz", nil
 }
 
-func (m *memoryRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]string, error) {
+func (m *memoryRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]task.ArchiveResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	return []string{"mock_archive.tar.gz"}, nil
+	return []task.ArchiveResult{{Key: task.NewTaskKey(tenantID, "sess-mock"), ArchivePath: "mock_archive.tar.gz"}}, nil
 }
 
 func (m *memoryRepo) Close() error {
@@ -963,6 +963,43 @@ func TestMonitorService_TenantActiveTaskQuota(t *testing.T) {
 	}, tenantA, false)
 	if err != nil || res3Retry.Action != "allow" {
 		t.Fatalf("session 3 retry should be allowed after quota released, got res=%+v, err=%v", res3Retry, err)
+	}
+
+	// 8. 验证默认租户 (空 KeyID / default) 下同样生效且租户 ID 正确规范化
+	resDef1, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-1",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 1",
+		Timestamp: 1700000008,
+	}, "", false)
+	if err != nil || resDef1.Action != "allow" {
+		t.Fatalf("default session 1 should be allowed, got res=%+v, err=%v", resDef1, err)
+	}
+
+	resDef2, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-2",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 2",
+		Timestamp: 1700000009,
+	}, "", false)
+	if err != nil || resDef2.Action != "allow" {
+		t.Fatalf("default session 2 should be allowed, got res=%+v, err=%v", resDef2, err)
+	}
+
+	resDef3, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-def-3",
+		KeyID:     "",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Start default 3",
+		Timestamp: 1700000010,
+	}, "", false)
+	if err == nil || !errors.Is(err, ErrQuotaExceeded) {
+		t.Fatalf("default session 3 should be rejected with ErrQuotaExceeded, got res=%+v, err=%v", resDef3, err)
 	}
 }
 

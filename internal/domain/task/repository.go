@@ -23,9 +23,15 @@ type TaskRepository interface {
 	// ArchiveTask 将指定任务及其事件流水账打包为 .tar.gz 冷归档，并清理原始未压缩文件
 	ArchiveTask(key TaskKey) (string, error)
 	// ArchiveCompletedTasks 批量将指定租户在截止时间前的已完结/失败任务执行冷归档
-	ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]string, error)
+	ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]ArchiveResult, error)
 	// Close 关闭或释放底层存储资源
 	Close() error
+}
+
+// ArchiveResult 封装归档成功的任务复合主键与产物路径。
+type ArchiveResult struct {
+	Key         TaskKey `json:"key"`
+	ArchivePath string  `json:"archivePath"`
 }
 
 // EventLogRepository 定义事件流水账的持久化仓储接口（领域层规范）。

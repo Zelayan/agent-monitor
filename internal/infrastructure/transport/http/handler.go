@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -717,10 +718,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 			return
 		}
+		baseName := filepath.Base(archivePath)
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":       "ok",
 			"id":           taskID,
-			"archive_path": archivePath,
+			"filename":     baseName,
+			"archive_path": baseName,
 		})
 		return
 	}
@@ -768,13 +771,14 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
 			return
 		}
-		if archives == nil {
-			archives = []string{}
+		filenames := make([]string, 0, len(archives))
+		for _, a := range archives {
+			filenames = append(filenames, filepath.Base(a))
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"status":   "ok",
-			"count":    len(archives),
-			"archives": archives,
+			"count":    len(filenames),
+			"archives": filenames,
 		})
 		return
 	}
