@@ -87,16 +87,14 @@ func (h *Hub) Run() {
 			close(ch)
 			h.mu.Unlock()
 		case msg := <-h.broadcast:
-			// 1. 存入环形缓冲区以便断线客户端无缝重放
 			event := SSEEvent{
 				ID:    msg.ID,
 				Type:  msg.Type,
 				KeyID: msg.KeyID,
 				Data:  msg.Data,
 			}
-			h.ringBuffer.Add(event)
 
-			// 2. 格式化为 SSE 协议数据帧
+			// 格式化为 SSE 协议数据帧
 			sseChunk := event.FormatSSE()
 
 			h.mu.RLock()
@@ -156,12 +154,21 @@ func (h *Hub) BroadcastTenant(keyID string, msg string) {
 	h.BroadcastEvent("task_upsert", keyID, msg)
 }
 
-// BroadcastEvent 向指定租户广播特定类型事件，自动分配全局单调递增 Sequence ID。
+// BroadcastEvent 向指定租户广播特定类型事件，自动分配全局单调递增 Sequence ID 并同步入缓冲。
 func (h *Hub) BroadcastEvent(eventType string, keyID string, msg string) {
 	if eventType == "" {
 		eventType = "task_upsert"
 	}
 	seqID := h.NextSeqID()
+	event := SSEEvent{
+		ID:    seqID,
+		Type:  eventType,
+		KeyID: keyID,
+		Data:  msg,
+	}
+	// 同步写入环形缓冲区，确保递增 Sequence ID 与环形缓冲区存储严格同步，消除时序洞
+	h.ringBuffer.Add(event)
+
 	select {
 	case h.broadcast <- HubMessage{
 		ID:    seqID,

@@ -60,14 +60,15 @@ review-strict:
 pre-pr: test review-strict
 	@echo "✓ All pre-PR checks and local AI reviews passed cleanly. Ready to create PR."
 
-# 安装可选的 git pre-push hook（推送前自动执行本地 review）
+# 安装可选的 git pre-push hook（推送前自动执行本地 review，兼容普通仓与 Git Worktree）
 install-hooks:
-	@mkdir -p .git/hooks
-	@echo '#!/bin/sh' > .git/hooks/pre-push
-	@echo 'echo "==> Running pre-push AI code review..."' >> .git/hooks/pre-push
-	@echo 'python3 scripts/ai_reviewer.py --local --strict' >> .git/hooks/pre-push
-	@chmod +x .git/hooks/pre-push
-	@echo "✓ Installed git pre-push hook at .git/hooks/pre-push"
+	@HOOKS_DIR=$$(git rev-parse --git-path hooks) && \
+	mkdir -p "$$HOOKS_DIR" && \
+	echo '#!/bin/sh' > "$$HOOKS_DIR/pre-push" && \
+	echo 'echo "==> Running pre-push AI code review..."' >> "$$HOOKS_DIR/pre-push" && \
+	echo 'python3 scripts/ai_reviewer.py --local --strict' >> "$$HOOKS_DIR/pre-push" && \
+	chmod +x "$$HOOKS_DIR/pre-push" && \
+	echo "✓ Installed git pre-push hook at $$HOOKS_DIR/pre-push"
 
 extension:
 	@echo "Building Cursor / VS Code extension..."

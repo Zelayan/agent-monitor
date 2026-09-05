@@ -41,3 +41,8 @@ type EventLogRepository interface {
 	// ReadEventLogs 读取指定任务的历史事件流水记录
 	ReadEventLogs(key TaskKey) ([]EventRecord, error)
 }
+
+// StorageMetricsProvider 定义底层存储可选暴露的统计指标接口（避免上层向具体实现向下转型）。
+type StorageMetricsProvider interface {
+	QuarantineStatsCount() int
+}
