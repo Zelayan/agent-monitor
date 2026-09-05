@@ -59,7 +59,7 @@ This document serves as the single source of truth for persistent progress track
 
 | WP ID | Work Package | Directory Scope | Responsible Agent / Branch | Worktree Path | Current Status | PR Link | Quality Gate & Review Verdict |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-14** | **Reliable SSE v2 Protocol**<br>(Monotonic Event IDs / Ring Buffer / Last-Event-ID / resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `../agent-monitor-worktrees/wt-wp14` | `Pending` | - | Ready to start |
+| **WP-14** | **Reliable SSE v2 Protocol**<br>(Monotonic Event IDs / Ring Buffer / Last-Event-ID / resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `../agent-monitor-worktrees/wt-wp14` | `Self-Healed` | Pending PR | 100% Passed & Race-Free (go test -race) |
 | **WP-15** | **Frontend Scalable Performance**<br>(Keyed DOM Patch / Partial Status Repaint / Versioned Cache / Pagination) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `../agent-monitor-worktrees/wt-wp15` | `Pending` | - | Pending (Depends on WP-14 protocol) |
 | **WP-16** | **Accessibility, Focus & Motion**<br>(Standard Dialog / Focus Trap / Arrow Nav / Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `../agent-monitor-worktrees/wt-wp16` | `Pending` | - | Ready to start (Parallelizable) |
 | **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `../agent-monitor-worktrees/wt-wp17` | `Pending` | - | Ready to start (Parallelizable) |

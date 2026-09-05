@@ -2426,6 +2426,7 @@
     let isSnapshotReconciling = false;
     let snapshotSeenTaskKeys = new Set();
     let snapshotSeenTaskIds = new Set();
+    let lastSseEventId = 0;
 
     function connect() {
       if (eventSource) {
@@ -2438,17 +2439,40 @@
       snapshotSeenTaskIds.clear();
 
       let sseUrl = '/api/stream';
+      const params = [];
       if (apiKey) {
-        sseUrl += '?token=' + encodeURIComponent(apiKey);
+        params.push('token=' + encodeURIComponent(apiKey));
+      }
+      if (lastSseEventId > 0) {
+        params.push('last_event_id=' + encodeURIComponent(lastSseEventId));
+      }
+      if (params.length > 0) {
+        sseUrl += '?' + params.join('&');
       }
       eventSource = new EventSource(sseUrl);
       eventSource.onopen = () => {
         setDaemon(true);
         setTimeout(() => { isInitialLoad = false; }, 1200);
       };
-      eventSource.onmessage = (e) => {
+
+      // 监听专用 SSE v2 事件类型与默认 message 事件
+      const handleParsedMessage = (e) => {
         try {
+          if (e.lastEventId) {
+            const parsedSeq = parseInt(e.lastEventId, 10);
+            if (!isNaN(parsedSeq) && parsedSeq > 0) {
+              lastSseEventId = parsedSeq;
+            }
+          }
           const data = JSON.parse(e.data);
+
+          // 0. 处理 resync_required 帧（缓冲区溢出或世代重置，准备接收权威全量快照）
+          if (data && data.type === 'resync_required') {
+            isSnapshotReconciling = true;
+            snapshotSeenTaskKeys.clear();
+            snapshotSeenTaskIds.clear();
+            return;
+          }
 
           // 1. 处理快照起始帧 (snapshot_start)
           if (data && data.type === 'snapshot_start') {
@@ -2545,6 +2569,13 @@
           }
         } catch (_) { /* ignore malformed frames */ }
       };
+      eventSource.onmessage = handleParsedMessage;
+      eventSource.addEventListener('task_upsert', handleParsedMessage);
+      eventSource.addEventListener('delete_tasks', handleParsedMessage);
+      eventSource.addEventListener('snapshot_start', handleParsedMessage);
+      eventSource.addEventListener('snapshot_end', handleParsedMessage);
+      eventSource.addEventListener('resync_required', handleParsedMessage);
+
       eventSource.onerror = () => {
         setDaemon(false);
         eventSource.close();

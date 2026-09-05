@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -586,8 +587,124 @@ func TestHandler_SSESnapshotReconciliationProtocol(t *testing.T) {
 	if !strings.Contains(body, `"generation"`) {
 		t.Fatalf("expected SSE stream frames to contain generation, got: %s", body)
 	}
+	if !strings.Contains(body, "event: snapshot_start") {
+		t.Fatalf("expected SSE stream to include event: snapshot_start, got: %s", body)
+	}
+	if !strings.Contains(body, "event: snapshot_end") {
+		t.Fatalf("expected SSE stream to include event: snapshot_end, got: %s", body)
+	}
 	if !strings.Contains(body, `"task-snap-1"`) || !strings.Contains(body, `"task-snap-2"`) {
 		t.Fatalf("expected SSE snapshot to include tasks, got: %s", body)
+	}
+}
+
+func TestHandler_SSEReliableV2_ReplayMissedEvents(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHubWithCapacity(10)
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok"))
+
+	// 1. 发送 3 个事件
+	for i := 1; i <= 3; i++ {
+		_, _ = svc.HandleHookEventTenant(task.EventPayload{
+			ID:        fmt.Sprintf("task-replay-%d", i),
+			Agent:     "Cursor",
+			Event:     "sessionStart",
+			Title:     fmt.Sprintf("Task Replay %d", i),
+			Timestamp: time.Now().Unix(),
+		}, "tenant-replay", false)
+	}
+
+	// 2. 模拟客户端断线重连，带 Last-Event-ID: 1 (期望重放事件 2 和 3，不需要全量 snapshot)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/stream", nil).WithContext(ctx)
+	req.Header.Set("Last-Event-ID", "1")
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 10)}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		handler.HandleStream(w, req)
+	}()
+
+	select {
+	case <-w.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for replay flush")
+	}
+	cancel()
+	wg.Wait()
+
+	body := w.Body.String()
+	// 重放时不应包含 snapshot_start，而应该直接重放 task_upsert
+	if strings.Contains(body, "event: snapshot_start") {
+		t.Fatalf("expected replay without full snapshot, got: %s", body)
+	}
+	if !strings.Contains(body, "task-replay-2") || !strings.Contains(body, "task-replay-3") {
+		t.Fatalf("expected replayed missed tasks 2 and 3, got: %s", body)
+	}
+	if strings.Contains(body, "task-replay-1") {
+		t.Fatalf("did not expect task 1 in replay because Last-Event-ID was 1, got: %s", body)
+	}
+}
+
+func TestHandler_SSEReliableV2_ExpiredLastIDTriggersResync(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	// 容量为 3 的环形缓冲区
+	hub := monitor.NewHubWithCapacity(3)
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok"))
+
+	// 写入 6 个事件，导致前面的事件被覆盖
+	for i := 1; i <= 6; i++ {
+		_, _ = svc.HandleHookEventTenant(task.EventPayload{
+			ID:        fmt.Sprintf("task-overflow-%d", i),
+			Agent:     "Cursor",
+			Event:     "sessionStart",
+			Title:     fmt.Sprintf("Task Overflow %d", i),
+			Timestamp: time.Now().Unix(),
+		}, "tenant-overflow", false)
+	}
+
+	// 模拟客户端带已过期的 Last-Event-ID (例如 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// 同时测试 URL Query 参数 ?last_event_id=1
+	req := httptest.NewRequest(http.MethodGet, "/api/stream?last_event_id=1", nil).WithContext(ctx)
+	w := &flushRecorder{ResponseRecorder: httptest.NewRecorder(), flushed: make(chan struct{}, 10)}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		handler.HandleStream(w, req)
+	}()
+
+	select {
+	case <-w.flushed:
+	case <-time.After(time.Second):
+		t.Fatal("timeout waiting for flush")
+	}
+	cancel()
+	wg.Wait()
+
+	body := w.Body.String()
+	if !strings.Contains(body, "event: resync_required") {
+		t.Fatalf("expected resync_required event for expired last-event-id, got: %s", body)
+	}
+	if !strings.Contains(body, "buffer_overflow") {
+		t.Fatalf("expected buffer_overflow reason in resync payload, got: %s", body)
+	}
+	if !strings.Contains(body, "event: snapshot_start") || !strings.Contains(body, "event: snapshot_end") {
+		t.Fatalf("expected full authoritative snapshot following resync_required, got: %s", body)
 	}
 }
 
