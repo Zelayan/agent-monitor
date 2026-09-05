@@ -999,6 +999,14 @@
 
     const tasksMap = new Map();
     const searchIndexCache = new Map(); // map[taskId] -> { version, text }
+    const columnCardCache = {
+      running: new Map(),   // taskId -> { version, subagentKey, isSelected, isSelectMode, el }
+      completed: new Map(),
+      failed: new Map()
+    };
+    const lastRenderedBucketSignatures = { running: '', completed: '', failed: '' };
+    let lastRenderedStatsSignature = '';
+    let drawerRenderedVersion = null; // taskId:version of drawer's last render
     let query = '';
     let agentFilter = 'all';
     let statusFilter = 'all';
@@ -1180,6 +1188,11 @@
       updateBatchUI();
       setDaemon(isOnline);
       lastFilterSignature = '';
+      lastRenderedBucketSignatures.running = '';
+      lastRenderedBucketSignatures.completed = '';
+      lastRenderedBucketSignatures.failed = '';
+      lastRenderedStatsSignature = '';
+      drawerRenderedVersion = null;
       if (selectedId) refreshDrawer();
       render();
     }
@@ -1343,11 +1356,16 @@
       document.getElementById('agent-filters').innerHTML = allBtn + agentBtns;
     }
 
+    function getTaskVersionKey(tObj) {
+      if (!tObj) return '0';
+      const runCount = (tObj.runs || tObj.turns || []).length;
+      return (tObj.version ?? tObj.generation) ?? `v:${runCount}:${tObj.endTime || tObj.startTime || 0}:${tObj.lastHook || ''}:${tObj.controlState || ''}:${tObj.status || ''}`;
+    }
+
     function getTaskSearchText(tObj) {
       if (!tObj) return '';
       const cached = searchIndexCache.get(tObj.id);
-      const runCount = (tObj.runs || tObj.turns || []).length;
-      const curVersion = (tObj.version ?? tObj.generation) ?? `run:${runCount}:${tObj.endTime || tObj.startTime || 0}:${tObj.lastHook || ''}`;
+      const curVersion = getTaskVersionKey(tObj);
       if (cached && cached.version === curVersion) {
         return cached.text;
       }
@@ -1651,6 +1669,107 @@
         </article>`;
     }
 
+    function createCardElement(html) {
+      const template = document.createElement('template');
+      template.innerHTML = html.trim();
+      return template.content.firstElementChild;
+    }
+
+    // WP-15: 高性能 Keyed DOM Patching & 列隔离渲染机制
+    function patchColumn(columnId, status, nodes) {
+      const colEl = document.getElementById(columnId);
+      if (!colEl) return;
+      const cache = columnCardCache[status];
+
+      if (!nodes || nodes.length === 0) {
+        cache.clear();
+        const emptyMsg = status === 'running' ? t('noRunning') : (status === 'completed' ? t('noCompleted') : '');
+        const targetEmptyHTML = (status === 'failed' && !nodes.length) ? '' : emptyState(emptyMsg);
+        if (colEl.innerHTML !== targetEmptyHTML) {
+          colEl.innerHTML = targetEmptyHTML;
+        }
+        return;
+      }
+
+      // 如果当前列内包含 emptyState 占位符，先清空它
+      const firstChild = colEl.firstElementChild;
+      if (firstChild && !firstChild.hasAttribute('data-task-id')) {
+        colEl.innerHTML = '';
+        cache.clear();
+      }
+
+      const activeTaskIds = new Set();
+      const currentChildren = Array.from(colEl.children);
+      const currentOrderIds = [];
+
+      nodes.forEach((node) => {
+        const tObj = node.task;
+        const children = node.children || [];
+        const taskId = tObj.id;
+        activeTaskIds.add(taskId);
+        currentOrderIds.push(taskId);
+
+        const curVersion = getTaskVersionKey(tObj);
+        const subagentKey = children.map(c => `${c.id}:${getTaskVersionKey(c)}`).join('|');
+        const isSelected = selectedTaskIds.has(taskId);
+
+        const cached = cache.get(taskId);
+        let cardEl = cached ? cached.el : colEl.querySelector(`[data-task-id="${CSS.escape(taskId)}"]`);
+
+        const needsFullRebuild = !cardEl || !cached ||
+          cached.version !== curVersion ||
+          cached.subagentKey !== subagentKey ||
+          cached.isSelected !== isSelected ||
+          cached.isSelectMode !== isSelectMode;
+
+        if (needsFullRebuild) {
+          const freshHTML = cardHTML(tObj, children);
+          const freshEl = createCardElement(freshHTML);
+          if (cardEl && cardEl.parentNode === colEl) {
+            colEl.replaceChild(freshEl, cardEl);
+          }
+          cardEl = freshEl;
+          cache.set(taskId, {
+            version: curVersion,
+            subagentKey,
+            isSelected,
+            isSelectMode,
+            el: freshEl
+          });
+        }
+      });
+
+      // 清理当前列中已不再属于该列或被移除的任务 DOM 节点
+      for (const [id, entry] of cache.entries()) {
+        if (!activeTaskIds.has(id)) {
+          if (entry.el && entry.el.parentNode === colEl) {
+            colEl.removeChild(entry.el);
+          }
+          cache.delete(id);
+        }
+      }
+
+      // 针对非 cache 遗留的幽灵卡片节点执行安全兜底清理
+      Array.from(colEl.children).forEach(child => {
+        const childId = child.getAttribute('data-task-id');
+        if (childId && !activeTaskIds.has(childId)) {
+          colEl.removeChild(child);
+        }
+      });
+
+      // 确保卡片在列内的顺序与计算后的排布一致（利用 appendChild 重新排序现有元素，0 重建代价）
+      for (let i = 0; i < currentOrderIds.length; i++) {
+        const id = currentOrderIds[i];
+        const entry = cache.get(id);
+        if (entry && entry.el) {
+          const currentAtI = colEl.children[i];
+          if (currentAtI !== entry.el) {
+            colEl.insertBefore(entry.el, currentAtI || null);
+          }
+        }
+      }
+    }
+
     let renderPending = false;
     function scheduleRender() {
       if (renderPending) return;
@@ -1732,13 +1851,27 @@
         buckets[status].push(node);
       });
 
-      // 方案一：保持主看板每列卡片规整干净的高级网格形态，彻底告别破坏对齐的纵向大折线
-      document.getElementById('col-running').innerHTML = buckets.running.length
-        ? buckets.running.map(node => cardHTML(node.task, node.children)).join('')
-        : emptyState(t('noRunning'));
-      document.getElementById('col-completed').innerHTML = buckets.completed.length
-        ? buckets.completed.map(node => cardHTML(node.task, node.children)).join('')
-        : emptyState(t('noCompleted'));
+      // WP-15: 高性能列隔离渲染与签名检查（仅在列内卡片序列/版本/选中态发生变更时执行 Keyed DOM Patching）
+      function getColumnSignature(bucket) {
+        return bucket.map(n => {
+          const isSel = selectedTaskIds.has(n.task.id) ? 1 : 0;
+          const childSig = (n.children || []).map(c => `${c.id}:${getTaskVersionKey(c)}`).join(',');
+          return `${n.task.id}:${getTaskVersionKey(n.task)}:${isSel}:${childSig}`;
+        }).join(';') + `|sm:${isSelectMode}`;
+      }
+
+      const runSig = getColumnSignature(buckets.running);
+      if (runSig !== lastRenderedBucketSignatures.running) {
+        lastRenderedBucketSignatures.running = runSig;
+        patchColumn('col-running', 'running', buckets.running);
+      }
+
+      const compSig = getColumnSignature(buckets.completed);
+      if (compSig !== lastRenderedBucketSignatures.completed) {
+        lastRenderedBucketSignatures.completed = compSig;
+        patchColumn('col-completed', 'completed', buckets.completed);
+      }
+
       const hasFailed = buckets.failed.length > 0;
       const failedSection = document.getElementById('section-failed');
       const boardGrid = document.getElementById('board-grid');
@@ -1746,22 +1879,30 @@
       failedSection.classList.toggle('hidden', !hasFailed);
       failedSection.setAttribute('aria-hidden', hasFailed ? 'false' : 'true');
       boardGrid.classList.toggle('has-failed', hasFailed);
-      document.getElementById('col-failed').innerHTML = hasFailed
-        ? buckets.failed.map(node => cardHTML(node.task, node.children)).join('')
-        : '';
+
+      const failSig = getColumnSignature(buckets.failed);
+      if (failSig !== lastRenderedBucketSignatures.failed) {
+        lastRenderedBucketSignatures.failed = failSig;
+        patchColumn('col-failed', 'failed', buckets.failed);
+      }
 
       const runningN = allTasks.filter((tObj) => tObj.status === 'running').length;
       const done = allTasks.filter((tObj) => tObj.status === 'completed');
       const lifetimes = allTasks.map(t => (t.totalLifetime || 0)).filter(n => n > 0);
       const avg = lifetimes.length ? lifetimes.reduce((a, b) => a + b, 0) / lifetimes.length : 0;
 
-      document.getElementById('stat-running').textContent = runningN;
-      document.getElementById('stat-completed').textContent = done.length;
-      document.getElementById('stat-avg').textContent = formatSec(avg);
-      document.getElementById('count-running').textContent = buckets.running.length;
-      document.getElementById('count-completed').textContent = buckets.completed.length;
-      document.getElementById('count-failed').textContent = buckets.failed.length;
+      const statsSig = `${runningN}|${done.length}|${avg}|${buckets.running.length}|${buckets.completed.length}|${buckets.failed.length}`;
+      if (statsSig !== lastRenderedStatsSignature) {
+        lastRenderedStatsSignature = statsSig;
+        document.getElementById('stat-running').textContent = runningN;
+        document.getElementById('stat-completed').textContent = done.length;
+        document.getElementById('stat-avg').textContent = formatSec(avg);
+        document.getElementById('count-running').textContent = buckets.running.length;
+        document.getElementById('count-completed').textContent = buckets.completed.length;
+        document.getElementById('count-failed').textContent = buckets.failed.length;
+      }
 
+      // 仅在已选中且有需要时刷新抽屉（有单独的选中/子任务变化感知检测）
       if (selectedId) refreshDrawer();
     }
 
@@ -2265,9 +2406,19 @@
       `;
     }
 
-    function refreshDrawer() {
+    function refreshDrawer(force = false) {
       const task = tasksMap.get(selectedId);
       if (!task) { closeDrawer(); return; }
+
+      // WP-15: 抽屉局部按需渲染机制：只在选中 Task 或其直接子任务发生实质变化时重绘
+      const childTasks = Array.from(tasksMap.values()).filter(t => t.parentId === task.id);
+      const childSignature = childTasks.map(c => `${c.id}:${getTaskVersionKey(c)}:${c.status}`).join('|');
+      const drawerSignature = `${task.id}:${getTaskVersionKey(task)}:${task.status}:${childSignature}:${selectedRunId}:${isFollowLatest}:${activeTraceSubagentFilter || ''}:${currentLang}`;
+
+      if (!force && drawerRenderedVersion === drawerSignature) {
+        return;
+      }
+      drawerRenderedVersion = drawerSignature;
 
       renderDrawerWaterfall(task);
 
@@ -3738,7 +3889,22 @@
       restoreURLState();
     });
 
-    setInterval(tickTimers, 1000);
+    // WP-15: 后台标签页节流机制 (Background Tab Throttling)
+    // 当文档不可见 (document.hidden) 时，暂停非关键秒表 DOM 频繁刷写，回到前台立刻补偿刷新一次
+    let timerIntervalId = null;
+    function resetTimerInterval() {
+      if (timerIntervalId) clearInterval(timerIntervalId);
+      const delay = document.hidden ? 10000 : 1000;
+      timerIntervalId = setInterval(tickTimers, delay);
+    }
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) {
+        tickTimers();
+      }
+      resetTimerInterval();
+    });
+
+    resetTimerInterval();
     applyLanguageUI();
     connect();
 

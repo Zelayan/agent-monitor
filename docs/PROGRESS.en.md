@@ -60,9 +60,9 @@ This document serves as the single source of truth for persistent progress track
 | WP ID | Work Package | Directory Scope | Responsible Agent / Branch | Worktree Path | Current Status | PR Link | Quality Gate & Review Verdict |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | **WP-14** | **Reliable SSE v2 Protocol**<br>(Monotonic Event IDs / Ring Buffer / Last-Event-ID / resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `wt-wp14 (Cleaned)` | `Merged` | [#36](https://github.com/Zelayan/agent-monitor/pull/36) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-15** | **Frontend Scalable Performance**<br>(Keyed DOM Patch / Partial Status Repaint / Versioned Cache / Pagination) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `../agent-monitor-worktrees/wt-wp15` | `Pending` | - | Pending (Depends on WP-14 protocol ready) |
+| **WP-15** | **Frontend Scalable Performance**<br>(Keyed DOM Patch / Partial Status Repaint / Versioned Cache / Tab Throttling) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `../agent-monitor-worktrees/wt-wp15` | `Self-Healed` | Ready for PR | [PASS] 0 BLOCK, 100% tests green |
 | **WP-16** | **Accessibility, Focus & Motion**<br>(Standard Dialog / Focus Trap / Arrow Nav / Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (Cleaned)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 100% tests green |
-| **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `../agent-monitor-worktrees/wt-wp17` | `Self-Healed` | Ready for PR | [PASS] 0 BLOCK, 100% tests green |
+| **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (Cleaned)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 100% tests green |
 | **WP-18** | **Complete PWA Lifecycle & Offline Snapshot**<br>(IndexedDB Encrypted Snapshot / SW Update Prompt / Readonly Offline) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `Pending` | - | Pending |
 | **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `Pending` | - | Pending |
 
@@ -77,6 +77,8 @@ This document serves as the single source of truth for persistent progress track
 | 2026-09-05 | WP-12 & 13 | Local Review | None | Compliant with DDD boundaries, 0 external dependencies & Fail-Safe | Strictly used LimitReader and TTL eviction | `go test -race` 100% green, AI Review Pass | ✅ Archived |
 | 2026-09-05 | WP-14 | CI & AI Review | None | Thread-safe ring buffer and expired resync protocol | Monotonic sequence IDs & Last-Event-ID replay | `go test -race` 100% green, AI Review Pass (PR #36) | ✅ Archived |
 | 2026-09-05 | WP-16 | CI & AI Review | None | ARIA standard dialogs, focus restore & reduced motion | CSS motion adaptation, focus trap & arrow navigation | `go test -race` 100% green, AI Review Pass (PR #37) | ✅ Archived |
+| 2026-09-05 | WP-17 | CI & AI Review | None | Dynamic run/event dictionary coverage & Intl formatting | Full dictionary internationalization & localized export | `go test -race` 100% green, AI Review Pass (PR #39) | ✅ Archived |
+| 2026-09-05 | WP-15 | CI AI Review | Batch selection state omitted from column signature causing unrendered checkbox changes | Column signature `runSig`/`compSig`/`failSig` compared version and children without `selectedTaskIds.has(id)` | Incorporated `selectedTaskIds.has(id)` into `getColumnSignature` so selection changes trigger DOM patch | CI AI Review re-verified, `go test -race` 100% green | ✅ Self-Healed |
 
 ---
 
