@@ -9,8 +9,8 @@
 ## 1. 全局概览与协作总则
 
 ### 1.1 当前全局状态
-- **当前活跃阶段**: **Phase 3：实时可靠性与产品成熟度** (Phase 0 ~ Phase 2 已全面收官)
-- **主干最新基线**: Commit `97a6c08` (PR #34 已合入)
+- **当前活跃阶段**: **Phase 4：Agent 与 Cursor 生态扩展** (Phase 0 ~ Phase 3 已全面收官归档)
+- **主干最新基线**: Commit `78c4d45` (PR #43 已合入，端到端测试全绿)
 - **质量门禁基线**:
   - 单元测试与竞态检测: `go test -v -race ./...` (必须 100% 通过且 0 Race)
   - 本地严格审查: `make review-strict` (必须 0 `[BLOCK]` 阻断项)
@@ -43,28 +43,27 @@
 
 ---
 
-## 2. 历史阶段归档 (Phase 0 ~ Phase 2)
+## 2. 历史阶段归档 (Phase 0 ~ Phase 3)
 
 | 阶段 | 核心目标 | 涉及 Work Package | 交付 PR | 状态 |
 | :--- | :--- | :--- | :--- | :---: |
 | **Phase 0** | 基线约束与测试夹具 | 租户伪造、Session ID 冲突与并发边界测试 | 内置在 Phase 1 各 PR | ✅ 已归档 |
 | **Phase 1** | 可信实时链路 | WP-1: 可信鉴权身份绑定<br>WP-2: 租户复合任务键 (`TaskKey`)<br>WP-3: 有序持久化命令流与优雅停机<br>WP-4: SSE 快照对账与前端可信操作<br>WP-5: 安全 Kill 与真实进程组控制<br>WP-6: 严格 HTTP 与类型化错误 | [#24](https://github.com/Zelayan/agent-monitor/pull/24)<br>[#25](https://github.com/Zelayan/agent-monitor/pull/25)<br>[#26](https://github.com/Zelayan/agent-monitor/pull/26)<br>[#27](https://github.com/Zelayan/agent-monitor/pull/27)<br>[#28](https://github.com/Zelayan/agent-monitor/pull/28)<br>[#29](https://github.com/Zelayan/agent-monitor/pull/29) | ✅ 已归档 |
 | **Phase 2** | 高频效率与可运营性 | WP-7: `filter_repos` 仓库白名单<br>WP-8: Repo/Branch Schema 独立解耦<br>WP-9: 全量深度搜索与复合状态筛选<br>WP-10 & 11: 多维排序/持久视图/深链接<br>WP-12 & 13: 探针/指标/隔离/Reporter卫生 | [#30](https://github.com/Zelayan/agent-monitor/pull/30)<br>[#31](https://github.com/Zelayan/agent-monitor/pull/31)<br>[#32](https://github.com/Zelayan/agent-monitor/pull/32)<br>[#33](https://github.com/Zelayan/agent-monitor/pull/33)<br>[#34](https://github.com/Zelayan/agent-monitor/pull/34) | ✅ 已归档 |
+| **Phase 3** | 实时可靠性与产品成熟度 | WP-14: 可靠 SSE v2 协议 (单调ID/环形缓冲/Last-Event-ID)<br>WP-15: 前端规模化性能 (Keyed DOM Patch/局部重绘/节流)<br>WP-16: 无障碍、焦点管理与动效偏好 (Dialog/Focus Trap/A11y)<br>WP-17: 国际化全量完备化 (字典插值/Intl 格式化/对称导出)<br>WP-18: 完整 PWA 生命周期与离线快照 (IndexedDB/SW更新)<br>WP-19: 浏览器级端到端测试 (E2E 集成/断线重连全覆盖) | [#36](https://github.com/Zelayan/agent-monitor/pull/36)<br>[#40](https://github.com/Zelayan/agent-monitor/pull/40)<br>[#37](https://github.com/Zelayan/agent-monitor/pull/37)<br>[#39](https://github.com/Zelayan/agent-monitor/pull/39)<br>[#42](https://github.com/Zelayan/agent-monitor/pull/42)<br>[#43](https://github.com/Zelayan/agent-monitor/pull/43) | ✅ 已归档 |
 
 ---
 
-## 3. Phase 3 工作包矩阵 (当前执行阶段)
+## 3. Phase 4 工作包矩阵 (当前执行阶段)
 
-> **本阶段重点**：提供可恢复的实时流、完整无障碍体验、规模化前端性能与稳定的 PWA 离线能力。
+> **本阶段重点**：扩大可正式支持的 Agent 类型并提升 Cursor 插件开箱即用与诊断能力。
 
 | WP 编号 | 任务名称 | 架构目录 | 负责 Agent / 分支 | 隔离 Worktree | 当前状态 | PR 链接 | 质量门禁与审查结论 |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-14** | **可靠 SSE v2 协议**<br>(单调递增事件ID/环形缓冲/Last-Event-ID/resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `wt-wp14 (已清理)` | `Merged` | [#36](https://github.com/Zelayan/agent-monitor/pull/36) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-15** | **前端规模化性能**<br>(Keyed DOM Patch/局部状态列重绘/按版本缓存/后台节流) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `wt-wp15 (已清理)` | `Merged` | [#40](https://github.com/Zelayan/agent-monitor/pull/40) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-16** | **无障碍、焦点管理与动效偏好**<br>(标准Dialog/Focus Trap/方向键导航/Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (已清理)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-17** | **国际化全量完备化**<br>(动态Run/事件/操作全量字典化/Intl 本地化格式) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (已清理)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-18** | **完整 PWA 生命周期与离线快照**<br>(IndexedDB 加密快照/SW升级提示/脱机只读) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-19** | **浏览器级端到端测试**<br>(端到端快照对账/无障碍/重连断线覆盖) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | [#43](https://github.com/Zelayan/agent-monitor/pull/43) | [PASS] 0 BLOCK, 测试 100% 绿灯 (端到端/SSE/租户/控制安全全量覆盖) |
+| **WP-20** | **Agent 适配成熟度模型与正式化**<br>(Claude Code / Aider 正式支持、Transcript 解析、Fail-Safe 自动化测试) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `../agent-monitor-worktrees/wt-wp20` | `Pending` | - | 待启动 |
+| **WP-21** | **Cursor 多根工作区 Hook 管理**<br>(多根工作区遍历配置、Hook 冲突检测、无损 Diff 与撤销备份) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `../agent-monitor-worktrees/wt-wp21` | `Pending` | - | 待启动 (可并发) |
+| **WP-22** | **VSIX 跨平台内置二进制与分发**<br>(全平台交叉编译分发、按 OS/Arch 智能选择、执行权限与校验和) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `Pending` | - | 待启动 (可并发) |
+| **WP-23** | **扩展自诊断与自动化测试**<br>(Output Channel、自诊断健康命令、端口/版本/SSE 检测与自动化测试) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `../agent-monitor-worktrees/wt-wp23` | `Pending` | - | 待启动 |
 
 ---
 
