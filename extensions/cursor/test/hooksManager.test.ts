@@ -304,3 +304,26 @@ test('HooksManager: single workspace folder configure and diff cancellation', as
   }
 });
 
+test('HooksManager: undo on newly created hooks removes file cleanly', async () => {
+  const dir = makeTempDir('undo-new-root');
+  try {
+    mockVscode.resetMock();
+    const folder: mockVscode.MockWorkspaceFolder = { uri: { fsPath: dir }, name: 'UndoWorkspace', index: 0 };
+    mockVscode.workspace.workspaceFolders = [folder];
+
+    const mockDaemonManager: any = {
+      resolveBinaryPath: (_name: string) => '/usr/local/bin/agent-reporter',
+    };
+
+    const manager = new HooksManager(mockDaemonManager);
+    mockVscode.window.infoMessageSelection = 'Undo (Remove Created Hooks)';
+
+    await manager.configureSingleFolder(folder as any, '/usr/local/bin/agent-reporter', false);
+    const hooksPath = path.join(dir, '.cursor', 'hooks.json');
+    assert.strictEqual(fs.existsSync(hooksPath), false, 'Hooks file should be deleted on undo of new configuration');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+

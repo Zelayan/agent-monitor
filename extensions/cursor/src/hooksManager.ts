@@ -422,6 +422,7 @@ export class HooksManager {
   public async configureAllFolders(folders: readonly vscode.WorkspaceFolder[], reporterCmd: string): Promise<void> {
     let configuredCount = 0;
     let totalCustomPreserved = 0;
+    const createdNewHooksFiles: string[] = [];
 
     for (const folder of folders) {
       const folderPath = folder.uri.fsPath;
@@ -434,11 +435,14 @@ export class HooksManager {
         }
 
         let existingConfig: CursorHooksConfig | null = null;
-        if (fs.existsSync(hooksFilePath)) {
+        const fileExisted = fs.existsSync(hooksFilePath);
+        if (fileExisted) {
           createBackupFile(hooksFilePath);
           try {
             existingConfig = JSON.parse(fs.readFileSync(hooksFilePath, 'utf-8'));
           } catch (_) {}
+        } else {
+          createdNewHooksFiles.push(hooksFilePath);
         }
 
         const mergeResult = mergeHooks(existingConfig, reporterCmd);
@@ -453,11 +457,18 @@ export class HooksManager {
     const note = totalCustomPreserved > 0 ? ` (${totalCustomPreserved} custom hooks preserved)` : '';
     const choice = await vscode.window.showInformationMessage(
       `✓ Successfully updated Cursor hooks across ${configuredCount} workspace folder(s)${note}! Backups saved as .cursor/hooks.json.bak.`,
-      'Undo All (Restore Backups)'
+      'Undo All'
     );
 
-    if (choice === 'Undo All (Restore Backups)') {
+    if (choice === 'Undo All') {
       await this.restoreWorkspaceHooksBackup();
+      for (const newlyCreated of createdNewHooksFiles) {
+        try {
+          if (fs.existsSync(newlyCreated)) {
+            fs.unlinkSync(newlyCreated);
+          }
+        } catch (_) {}
+      }
     }
   }
 
@@ -543,14 +554,29 @@ export class HooksManager {
         : '';
       const backupNote = fileExisted ? ' (Backup created at .cursor/hooks.json.bak)' : '';
 
+      const undoActionLabel = fileExisted ? 'Undo (Restore Backup)' : 'Undo (Remove Created Hooks)';
       const userAction = await vscode.window.showInformationMessage(
         `✓ Successfully updated Cursor hooks at ${folder.name}/.cursor/hooks.json!${customNote}${backupNote}`,
-        'Undo (Restore Backup)'
+        undoActionLabel
       );
 
-      if (userAction === 'Undo (Restore Backup)') {
-        restoreBackupFile(hooksFilePath);
-        vscode.window.showInformationMessage(`✓ Restored hooks from backup for "${folder.name}".`);
+      if (userAction === undoActionLabel) {
+        if (fileExisted) {
+          if (restoreBackupFile(hooksFilePath)) {
+            vscode.window.showInformationMessage(`✓ Restored hooks from backup for "${folder.name}".`);
+          } else {
+            vscode.window.showErrorMessage(`Failed to restore backup: backup file not found.`);
+          }
+        } else {
+          try {
+            if (fs.existsSync(hooksFilePath)) {
+              fs.unlinkSync(hooksFilePath);
+              vscode.window.showInformationMessage(`✓ Undone: removed newly created .cursor/hooks.json for "${folder.name}".`);
+            }
+          } catch (err) {
+            vscode.window.showErrorMessage(`Failed to remove .cursor/hooks.json: ${err}`);
+          }
+        }
       }
 
       return true;

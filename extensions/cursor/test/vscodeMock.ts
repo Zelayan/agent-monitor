@@ -23,15 +23,15 @@ export const window = {
     if (window.infoMessageSelection && items.includes(window.infoMessageSelection)) {
       return window.infoMessageSelection;
     }
-    return items[0];
+    return undefined;
   },
   showWarningMessage: async (msg: string, ...items: string[]): Promise<string | undefined> => {
     window.warningMessages.push(msg);
-    return items[0];
+    return undefined;
   },
   showErrorMessage: async (msg: string, ...items: string[]): Promise<string | undefined> => {
     window.errorMessages.push(msg);
-    return items[0];
+    return undefined;
   },
   showQuickPick: async (items: any[], _options?: any): Promise<any> => {
     if (window.quickPickSelection !== null) {
