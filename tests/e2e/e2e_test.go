@@ -887,15 +887,15 @@ func TestE2E_Safe_InversionOfControl(t *testing.T) {
 	// 4.3 强杀安全机制 (Kill Safety Check): 拒绝向 HostID/BootID 不匹配的异地任务发送本机 Kill
 	sessionRemote := "sess-ioc-kill-remote"
 	postHookEvent(t, inst.URL, "", task.EventPayload{
-		ID:      sessionRemote,
-		Agent:   "ZCode",
-		Event:   "sessionStart",
-		Detail:  "Remote session from another host",
-		Prompt:  "Cloud runner task",
-			HostID:  "remote-cloud-runner-node-99",
-			BootID:  "boot-guid-11223344",
-			PID:     99999,
-			PGID:    99999,
+		ID:     sessionRemote,
+		Agent:  "ZCode",
+		Event:  "sessionStart",
+		Detail: "Remote session from another host",
+		Prompt: "Cloud runner task",
+		HostID: "remote-cloud-runner-node-99",
+		BootID: "boot-guid-11223344",
+		PID:    99999,
+		PGID:   99999,
 	})
 
 	reqKill, _ := http.NewRequest(http.MethodPost, inst.URL+"/api/tasks/"+sessionRemote+"/kill", nil)

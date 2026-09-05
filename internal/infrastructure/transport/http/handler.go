@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -247,6 +249,10 @@ func (h *Handler) HandleEvent(w http.ResponseWriter, r *http.Request) {
 			WriteJSONError(w, http.StatusForbidden, "FORBIDDEN", "Forbidden: "+err.Error())
 			return
 		}
+		if errors.Is(err, monitor.ErrQuotaExceeded) || strings.Contains(err.Error(), "quota exceeded") {
+			WriteJSONError(w, http.StatusTooManyRequests, "QUOTA_EXCEEDED", err.Error())
+			return
+		}
 		WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "Internal server error: "+err.Error())
 		return
 	}
@@ -468,6 +474,11 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tasks := h.svc.GetAllTasksTenant(authCtx.KeyID, authCtx.IsMaster)
+	if r.URL.Query().Get("sanitize") == "true" || r.URL.Query().Get("sanitize") == "1" {
+		for i := range tasks {
+			tasks[i] = tasks[i].Sanitize()
+		}
+	}
 	json.NewEncoder(w).Encode(tasks)
 }
 
@@ -683,6 +694,107 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1.6 /api/tasks/{id}/archive 单任务冷归档 (.tar.gz)
+	if len(parts) == 2 && parts[1] == "archive" {
+		if r.Method != http.MethodPost {
+			MethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
+		archivePath, err := h.svc.ArchiveTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+		if err != nil {
+			if errors.Is(err, monitor.ErrPermissionDenied) {
+				WriteJSONError(w, http.StatusForbidden, "FORBIDDEN", err.Error())
+				return
+			}
+			if os.IsNotExist(err) || strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "does not exist") {
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			if strings.Contains(err.Error(), "running") {
+				WriteJSONError(w, http.StatusBadRequest, "BAD_REQUEST", err.Error())
+				return
+			}
+			WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":       "ok",
+			"id":           taskID,
+			"archive_path": archivePath,
+		})
+		return
+	}
+
+	// 1.7 /api/tasks/{id}/export 单任务脱敏审计导出
+	if len(parts) == 2 && parts[1] == "export" {
+		if r.Method != http.MethodGet {
+			MethodNotAllowed(w, "GET, OPTIONS")
+			return
+		}
+		t := h.svc.GetTaskTenant(taskID, authCtx.KeyID, authCtx.IsMaster)
+		if t == nil {
+			WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", "Task not found: "+taskID)
+			return
+		}
+		if r.URL.Query().Get("sanitize") != "false" {
+			t = t.Sanitize()
+		}
+		json.NewEncoder(w).Encode(t)
+		return
+	}
+
+	// 1.8 /api/tasks/archive 批量冷归档
+	if len(parts) == 1 && parts[0] == "archive" {
+		if r.Method != http.MethodPost {
+			MethodNotAllowed(w, "POST, OPTIONS")
+			return
+		}
+		tenant := r.URL.Query().Get("tenant")
+		if !authCtx.IsMaster {
+			tenant = authCtx.KeyID
+		} else if tenant == "" {
+			tenant = "*"
+		}
+		var beforeTime time.Time
+		if b := r.URL.Query().Get("before"); b != "" {
+			if t, err := time.Parse(time.RFC3339, b); err == nil {
+				beforeTime = t
+			} else if sec, err := strconv.ParseInt(b, 10, 64); err == nil {
+				beforeTime = time.Unix(sec, 0)
+			}
+		}
+		archives, err := h.svc.ArchiveCompletedTasksTenant(tenant, authCtx.IsMaster, beforeTime)
+		if err != nil {
+			WriteJSONError(w, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+			return
+		}
+		if archives == nil {
+			archives = []string{}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"status":   "ok",
+			"count":    len(archives),
+			"archives": archives,
+		})
+		return
+	}
+
+	// 1.9 /api/tasks/export 全量脱敏审计导出
+	if len(parts) == 1 && parts[0] == "export" {
+		if r.Method != http.MethodGet {
+			MethodNotAllowed(w, "GET, OPTIONS")
+			return
+		}
+		tasks := h.svc.GetAllTasksTenant(authCtx.KeyID, authCtx.IsMaster)
+		if r.URL.Query().Get("sanitize") != "false" {
+			for i := range tasks {
+				tasks[i] = tasks[i].Sanitize()
+			}
+		}
+		json.NewEncoder(w).Encode(tasks)
+		return
+	}
+
 	// 2. /api/tasks/{id} 单任务查询与删除
 	if len(parts) == 1 {
 		switch r.Method {
@@ -691,6 +803,9 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 			if t == nil {
 				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", "Task not found: "+taskID)
 				return
+			}
+			if r.URL.Query().Get("sanitize") == "true" || r.URL.Query().Get("sanitize") == "1" {
+				t = t.Sanitize()
 			}
 			json.NewEncoder(w).Encode(t)
 			return

@@ -70,6 +70,20 @@ func (m *mockRepo) DeleteKeyVersioned(key task.TaskKey, version uint64) error {
 	return m.DeleteKey(key)
 }
 
+func (m *mockRepo) ArchiveTask(key task.TaskKey) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tasks, key.TaskID)
+	delete(m.tasks, key.String())
+	return "mock_archive.tar.gz", nil
+}
+
+func (m *mockRepo) ArchiveCompletedTasks(tenantID string, beforeTime time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return []string{"mock_archive.tar.gz"}, nil
+}
+
 func (m *mockRepo) Close() error {
 	return nil
 }
@@ -1035,5 +1049,201 @@ func (f *flushRecorder) Flush() {
 	select {
 	case f.flushed <- struct{}{}:
 	default:
+	}
+}
+
+func TestHandler_TenantQuotaEnforcement(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	svc := monitor.NewMonitorService(repo, nil).WithTenantQuota(1)
+	t.Cleanup(svc.Close)
+
+	handler := NewHandler(svc, nil, nil).WithProjectKeys("tenant-a=key-a,tenant-b=key-b")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. 租户 A 发起第 1 个活跃会话 -> 200 OK
+	body1 := `{"id":"sess-q-1","event":"sessionStart","prompt":"Task 1","agent":"TestAgent"}`
+	req1 := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewBufferString(body1))
+	req1.Header.Set("X-API-Key", "key-a")
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	mux.ServeHTTP(w1, req1)
+	if w1.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for session 1, got %d: %s", w1.Code, w1.Body.String())
+	}
+
+	// 2. 租户 A 发起第 2 个活跃会话 (超出配额 1) -> 429 Too Many Requests
+	body2 := `{"id":"sess-q-2","event":"sessionStart","prompt":"Task 2","agent":"TestAgent"}`
+	req2 := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewBufferString(body2))
+	req2.Header.Set("X-API-Key", "key-a")
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	mux.ServeHTTP(w2, req2)
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 Too Many Requests when quota exceeded, got %d: %s", w2.Code, w2.Body.String())
+	}
+	if !strings.Contains(w2.Body.String(), "QUOTA_EXCEEDED") {
+		t.Fatalf("expected QUOTA_EXCEEDED error code in response, got: %s", w2.Body.String())
+	}
+
+	// 3. 租户 B 发起会话不受租户 A 影响 -> 200 OK
+	bodyB := `{"id":"sess-qb-1","event":"sessionStart","prompt":"Task B","agent":"TestAgent"}`
+	reqB := httptest.NewRequest(http.MethodPost, "/api/event", bytes.NewBufferString(bodyB))
+	reqB.Header.Set("X-API-Key", "key-b")
+	reqB.Header.Set("Content-Type", "application/json")
+	wB := httptest.NewRecorder()
+	mux.ServeHTTP(wB, reqB)
+	if wB.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for tenant B, got %d: %s", wB.Code, wB.Body.String())
+	}
+}
+
+func TestHandler_TaskArchivalEndpoints(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	svc := monitor.NewMonitorService(repo, nil)
+	t.Cleanup(svc.Close)
+
+	handler := NewHandler(svc, nil, nil).WithProjectKeys("tenant-a=key-a,tenant-b=key-b")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. 创建租户 A 的任务 sess-arch-1
+	_, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-arch-1",
+		KeyID:     "tenant-a",
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Archival test session",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. 运行中的任务尝试归档 -> 400 Bad Request
+	reqRunning := httptest.NewRequest(http.MethodPost, "/api/tasks/sess-arch-1/archive", nil)
+	reqRunning.Header.Set("X-API-Key", "key-a")
+	wRunning := httptest.NewRecorder()
+	mux.ServeHTTP(wRunning, reqRunning)
+	if wRunning.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request archiving running task, got %d: %s", wRunning.Code, wRunning.Body.String())
+	}
+
+	// 3. 完结任务
+	_, err = svc.HandleHookEventTenant(task.EventPayload{
+		ID:        "sess-arch-1",
+		KeyID:     "tenant-a",
+		Event:     "agentCompletion",
+		Timestamp: time.Now().Unix(),
+	}, "tenant-a", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 4. 租户 B 越权尝试归档租户 A 的任务 -> 403 Forbidden
+	reqCross := httptest.NewRequest(http.MethodPost, "/api/tasks/sess-arch-1/archive", nil)
+	reqCross.Header.Set("X-API-Key", "key-b")
+	wCross := httptest.NewRecorder()
+	mux.ServeHTTP(wCross, reqCross)
+	if wCross.Code != http.StatusForbidden {
+		t.Fatalf("expected 403 Forbidden for cross-tenant archive, got %d: %s", wCross.Code, wCross.Body.String())
+	}
+
+	// 5. 租户 A 合法归档任务 -> 200 OK
+	reqOk := httptest.NewRequest(http.MethodPost, "/api/tasks/sess-arch-1/archive", nil)
+	reqOk.Header.Set("X-API-Key", "key-a")
+	wOk := httptest.NewRecorder()
+	mux.ServeHTTP(wOk, reqOk)
+	if wOk.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK archiving completed task, got %d: %s", wOk.Code, wOk.Body.String())
+	}
+	var respMap map[string]interface{}
+	if err := json.Unmarshal(wOk.Body.Bytes(), &respMap); err != nil {
+		t.Fatalf("failed to decode response json: %v", err)
+	}
+	if respMap["status"] != "ok" || respMap["archive_path"] == "" {
+		t.Fatalf("unexpected archive response: %+v", respMap)
+	}
+
+	// 6. 批量归档测试: POST /api/tasks/archive
+	reqBatch := httptest.NewRequest(http.MethodPost, "/api/tasks/archive?tenant=tenant-a", nil)
+	reqBatch.Header.Set("X-API-Key", "key-a")
+	wBatch := httptest.NewRecorder()
+	mux.ServeHTTP(wBatch, reqBatch)
+	if wBatch.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for batch archive, got %d: %s", wBatch.Code, wBatch.Body.String())
+	}
+	var batchResp map[string]interface{}
+	if err := json.Unmarshal(wBatch.Body.Bytes(), &batchResp); err != nil {
+		t.Fatalf("failed to decode batch response: %v", err)
+	}
+	if batchResp["status"] != "ok" {
+		t.Fatalf("expected status ok in batch response: %+v", batchResp)
+	}
+}
+
+func TestHandler_SanitizedExportEndpoints(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	svc := monitor.NewMonitorService(repo, nil)
+	t.Cleanup(svc.Close)
+
+	handler := NewHandler(svc, nil, nil).WithProjectKeys("tenant-exp=key-exp")
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 创建含有敏感 Token 和本地路径的任务
+	taskID := "sess-secret-export"
+	tenantID := "tenant-exp"
+	_, err := svc.HandleHookEventTenant(task.EventPayload{
+		ID:        taskID,
+		KeyID:     tenantID,
+		Event:     "sessionStart",
+		Agent:     "TestAgent",
+		Prompt:    "Connect with token: sk-proj-111122223333444455556666 and password = 'secretpass123' in /Users/developer/app",
+		Timestamp: time.Now().Unix(),
+	}, tenantID, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. GET /api/tasks/{id}/export?sanitize=true 单任务导出
+	reqExport := httptest.NewRequest(http.MethodGet, "/api/tasks/"+taskID+"/export?sanitize=true", nil)
+	reqExport.Header.Set("X-API-Key", "key-exp")
+	wExport := httptest.NewRecorder()
+	mux.ServeHTTP(wExport, reqExport)
+	if wExport.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/tasks/{id}/export, got %d: %s", wExport.Code, wExport.Body.String())
+	}
+	bodyStr := wExport.Body.String()
+	if strings.Contains(bodyStr, "sk-proj-") || strings.Contains(bodyStr, "secretpass123") || strings.Contains(bodyStr, "/developer/") {
+		t.Fatalf("exported task leaked sensitive secret or user path: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "[REDACTED_SECRET]") || !strings.Contains(bodyStr, "***USER***") {
+		t.Fatalf("exported task missing REDACTED_SECRET or USER marker: %s", bodyStr)
+	}
+
+	// 2. GET /api/tasks/export?sanitize=true 批量导出
+	reqBatchExport := httptest.NewRequest(http.MethodGet, "/api/tasks/export?sanitize=true", nil)
+	reqBatchExport.Header.Set("X-API-Key", "key-exp")
+	wBatchExport := httptest.NewRecorder()
+	mux.ServeHTTP(wBatchExport, reqBatchExport)
+	if wBatchExport.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/tasks/export, got %d: %s", wBatchExport.Code, wBatchExport.Body.String())
+	}
+	batchStr := wBatchExport.Body.String()
+	if strings.Contains(batchStr, "sk-proj-") || strings.Contains(batchStr, "secretpass123") {
+		t.Fatalf("batch exported tasks leaked sensitive secrets: %s", batchStr)
+	}
+
+	// 3. GET /api/tasks?sanitize=true 全量任务脱敏查询
+	reqSanitizeQuery := httptest.NewRequest(http.MethodGet, "/api/tasks?sanitize=true", nil)
+	reqSanitizeQuery.Header.Set("X-API-Key", "key-exp")
+	wSanitizeQuery := httptest.NewRecorder()
+	mux.ServeHTTP(wSanitizeQuery, reqSanitizeQuery)
+	if wSanitizeQuery.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK for /api/tasks?sanitize=true, got %d", wSanitizeQuery.Code)
+	}
+	if strings.Contains(wSanitizeQuery.Body.String(), "sk-proj-") {
+		t.Fatalf("leaked secret in /api/tasks?sanitize=true: %s", wSanitizeQuery.Body.String())
 	}
 }
