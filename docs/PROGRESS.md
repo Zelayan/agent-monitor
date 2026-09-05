@@ -62,8 +62,8 @@
 
 | WP 编号 | 任务名称 | 架构目录 | 负责 Agent / 分支 | 隔离 Worktree | 当前状态 | PR 链接 | 质量门禁与审查结论 |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-24** | **幂等 Event Log 与会话时序重放引擎**<br>(事件唯一键生成、幂等上报去重、单会话离线时序重放 API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Pending` | - | 待启动 (并发) |
-| **WP-25** | **Reporter 乱序检测与 Trace Span 耗时卡点诊断**<br>(事件时间戳倒流校正、工具调用细粒度 Span 计算、卡死卡点启发式告警) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `Pending` | - | 待启动 (并发) |
+| **WP-24** | **幂等 Event Log 与会话时序重放引擎**<br>(事件唯一键生成、幂等上报去重、单会话离线时序重放 API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Merged` | [#49](https://github.com/Zelayan/agent-monitor/pull/49) | `go test -race` 100% 全绿，CI AI Review [PASS]，0 BLOCK，已自动合入 master |
+| **WP-25** | **Reporter 乱序检测与 Trace Span 耗时卡点诊断**<br>(事件时间戳倒流校正、工具调用细粒度 Span 计算、卡死卡点启发式告警) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `In Progress` | - | 正在执行开发与自测 |
 | **WP-26** | **多租户会话配额、历史归档与敏感日志脱敏审计**<br>(租户空间任务配额超限保护、历史完成会话冷归档压缩、Prompt/Token 脱敏导出) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `Pending` | - | 待启动 (并发) |
 
 ---
@@ -84,6 +84,7 @@
 | 2026-09-05 | WP-20 | CI AI Review | `NormalizeAgentName` 对 `codex-desktop` 匹配缺失导致误识别为 CLI；复合规格对象 `HookTypes` 切片未做深拷贝，外部修改存在数据竞争隐患 | `strings.Contains` 别名优先级漏洞及引用类型浅拷贝 | 1. 扩展别名覆盖 `codex-desktop`/`codex_desktop`/`codex.app`；2. 为 `AgentMaturitySpec` 引入 `Clone()` 完全深拷贝切片；3. 增加并发与隔离性测试断言 | CI AI Review 重新复核给出 [PASS]，`go test -race` 100% 绿灯，PR #46 已合入 | ✅ 已自愈合入 |
 | 2026-09-05 | WP-22 | CI & AI Review | 无阻断项 | 跨平台二进制交叉编译与动态解析优先级 | 多层级降级、0o755 权限修复与 SHA-256 校验清单 | `go test -race` 全绿，`npm test` 18/18 全绿，AI Review [PASS]，PR #47 已合入 | ✅ 已合入 |
 | 2026-09-05 | WP-23 | CI & AI Review | 无阻断项 | 全链路自诊断工具套件与 OutputChannel 结构化分级日志 | 二进制校验、探针探测、SSE流协议协商与工作区钩子检测 | `go test -race` 全绿，`npm test` 20/20 全绿，AI Review [PASS]，PR #48 已合入 | ✅ 已合入 |
+| 2026-09-05 | WP-24 | CI & AI Review | 无阻断项 | 幂等全局指纹计算、环形内存缓冲区防重放、文件流水账追加与多租户隔离重放 API | 基于 SHA-256 提取确定性指纹，EventLogRingBuffer 维护单调自增序号，单 worker 管道持久化 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #49 已合入 | ✅ 已合入 |
 
 ---
 
