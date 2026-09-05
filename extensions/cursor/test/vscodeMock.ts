@@ -39,6 +39,15 @@ export const window = {
     }
     return items[0];
   },
+  createOutputChannel: (name: string) => ({
+    name,
+    append: (_value: string) => {},
+    appendLine: (_value: string) => {},
+    clear: () => {},
+    show: () => {},
+    hide: () => {},
+    dispose: () => {},
+  }),
 };
 
 export const commands = {

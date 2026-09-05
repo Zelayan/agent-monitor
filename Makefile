@@ -1,4 +1,4 @@
-.PHONY: all build build-monitor build-reporter build-all test clean
+.PHONY: all build build-monitor build-reporter build-all test clean extension bundle-extension-binaries vsix
 
 BIN_DIR := bin
 DIST_DIR := dist
@@ -74,13 +74,15 @@ extension:
 	cd extensions/cursor && npm run build
 	@echo "✓ Extension bundled successfully in extensions/cursor/dist/"
 
-vsix: build extension
-	@echo "Packaging VSIX archive with embedded binaries..."
-	mkdir -p $(DIST_DIR) extensions/cursor/bin
-	cp $(BIN_DIR)/agent-monitor extensions/cursor/bin/
-	cp $(BIN_DIR)/agent-reporter extensions/cursor/bin/
-	cd extensions/cursor && npx --yes @vscode/vsce package --no-dependencies --out $(CURDIR)/$(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix
-	@echo "✓ VSIX package generated at $(DIST_DIR)/agent-monitor-cursor-1.0.0.vsix"
+bundle-extension-binaries:
+	@echo "Bundling cross-platform binaries into extensions/cursor/bin/..."
+	bash scripts/bundle_cursor_binaries.sh
+
+vsix: bundle-extension-binaries extension
+	@echo "Packaging cross-platform VSIX archive..."
+	mkdir -p $(DIST_DIR)
+	cd extensions/cursor && npx --yes @vscode/vsce package --no-dependencies --out $(CURDIR)/$(DIST_DIR)/agent-monitor-cursor-$(shell node -p "require('./extensions/cursor/package.json').version").vsix
+	@echo "✓ VSIX package generated in $(DIST_DIR)/"
 
 clean:
 	rm -rf $(BIN_DIR) $(DIST_DIR) extensions/cursor/dist extensions/cursor/bin extensions/cursor/node_modules

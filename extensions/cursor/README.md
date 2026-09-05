@@ -33,3 +33,30 @@ Leave `llmBaseUrl` or `llmModel` empty to keep heuristic titles and make **no** 
 If this extension started the backend, changing these settings (or `serverUrl` / `apiKey`) restarts that daemon automatically. If you already run `agent-monitor` via systemd or another process, run **Agent Monitor: Restart Backend Daemon**, or stop the external service first so the extension can launch it with the new env.
 
 Ollama example: `llmBaseUrl` = `http://127.0.0.1:11434/v1`, `llmModel` = `qwen2.5:7b`, `llmApiKey` empty.
+
+## Cross-Platform Embedded Binaries & Architecture Support
+
+The VSIX distribution packages pre-compiled, self-contained binaries for the following platforms:
+
+- **macOS Apple Silicon** (`darwin-arm64`)
+- **macOS Intel** (`darwin-x64`)
+- **Linux x86_64** (`linux-x64`)
+- **Linux ARM64** (`linux-arm64`)
+- **Windows x86_64** (`win32-x64`)
+
+### Resolution Order & Fallbacks
+When starting the background daemon or configuring workspace hooks, the extension dynamically resolves binaries using the following priority:
+
+1. **Embedded Platform Binaries**: `bin/<platform-arch>/` inside the extension with execution permission verification (`chmod +x`) and SHA-256 integrity checks.
+2. **Embedded Legacy Binaries**: `bin/` root inside the extension.
+3. **Local Workspace / Repository Binaries**: `bin/` in your repository or open workspace root.
+4. **System PATH**: Installed globally or placed in standard directories (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, `~/go/bin`, etc.).
+
+### Other Operating Systems
+If running on an architecture not listed above (e.g. FreeBSD, Windows ARM64, or Linux s390x), install the binaries from source:
+```bash
+go install github.com/Zelayan/agent-monitor@latest
+go install github.com/Zelayan/agent-monitor/cmd/reporter@latest
+```
+Ensure they are available in your system `PATH`, and the extension will automatically discover and use them.
+

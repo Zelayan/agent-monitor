@@ -3,6 +3,12 @@ import * as http from 'http';
 import * as path from 'path';
 import * as fs from 'fs';
 import { spawn, ChildProcess } from 'child_process';
+import {
+  resolveBinary,
+  getPlatformArchKey,
+  getResolutionFailureMessage,
+  isPlatformSupported,
+} from './binaryResolver';
 
 export class DaemonManager {
   private childProcess: ChildProcess | null = null;
@@ -162,30 +168,27 @@ export class DaemonManager {
   }
 
   public resolveBinaryPath(name: string): string | null {
-    const ext = process.platform === 'win32' ? '.exe' : '';
-    const binName = name + ext;
+    const wsRoots = vscode.workspace.workspaceFolders?.map((f) => f.uri.fsPath);
+    const resolved = resolveBinary(name, {
+      extensionPath: this.context.extensionPath,
+      workspaceRoots: wsRoots,
+    });
 
-    // 1. 检查扩展自带的 bin 目录
-    const localBin = path.join(this.context.extensionPath, 'bin', binName);
-    if (fs.existsSync(localBin)) {
-      return localBin;
+    if (resolved) {
+      this.outputChannel.appendLine(
+        `[DaemonManager] Resolved binary '${name}' to: ${resolved.path} (source=${resolved.source}, platform=${resolved.platformKey}${
+          resolved.checksumVerified !== undefined ? `, checksumVerified=${resolved.checksumVerified}` : ''
+        })`
+      );
+      return resolved.path;
     }
 
-    // 2. 检查常见系统路径
-    const systemPaths = [
-      '/usr/local/bin',
-      '/usr/bin',
-      path.join(process.env.HOME || '', '.local', 'bin'),
-      path.join(process.env.HOME || '', 'go', 'bin'),
-    ];
-
-    for (const p of systemPaths) {
-      const full = path.join(p, binName);
-      if (fs.existsSync(full)) {
-        return full;
-      }
+    const platformKey = getPlatformArchKey();
+    const failureMsg = getResolutionFailureMessage(name, platformKey);
+    this.outputChannel.appendLine(`[DaemonManager] ${failureMsg}`);
+    if (!isPlatformSupported(platformKey)) {
+      void vscode.window.showWarningMessage(failureMsg);
     }
-
     return null;
   }
 

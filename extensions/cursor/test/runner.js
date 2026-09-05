@@ -19,9 +19,23 @@ async function runTests() {
     },
   };
 
+  const testFiles = fs
+    .readdirSync(__dirname)
+    .filter((f) => f.endsWith('.test.ts'))
+    .sort()
+    .map((f) => path.join(__dirname, f));
+
+  const stdinContents = testFiles
+    .map((f) => `require(${JSON.stringify(f)});`)
+    .join('\n');
+
   try {
     await esbuild.build({
-      entryPoints: [path.join(__dirname, 'hooksManager.test.ts')],
+      stdin: {
+        contents: stdinContents,
+        resolveDir: __dirname,
+        loader: 'ts',
+      },
       bundle: true,
       format: 'cjs',
       platform: 'node',

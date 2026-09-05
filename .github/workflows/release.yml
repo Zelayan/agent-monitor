@@ -48,10 +48,8 @@ jobs:
 
       - name: Build Cursor Extension VSIX
         run: |
-          mkdir -p release-assets extensions/cursor/bin
-          # 优先将标准 linux/amd64 与通用二进制编译进内置 bin
-          CGO_ENABLED=0 go build -ldflags="-s -w" -o extensions/cursor/bin/agent-monitor main.go
-          CGO_ENABLED=0 go build -ldflags="-s -w" -o extensions/cursor/bin/agent-reporter cmd/reporter/main.go
+          mkdir -p release-assets
+          bash scripts/bundle_cursor_binaries.sh
           cd extensions/cursor
           npm ci
           npm run build
