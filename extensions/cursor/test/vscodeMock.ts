@@ -39,15 +39,25 @@ export const window = {
     }
     return items[0];
   },
-  createOutputChannel: (name: string) => ({
-    name,
-    append: (_value: string) => {},
-    appendLine: (_value: string) => {},
-    clear: () => {},
-    show: () => {},
-    hide: () => {},
-    dispose: () => {},
-  }),
+  createOutputChannel: (name: string) => {
+    const lines: string[] = [];
+    return {
+      name,
+      lines,
+      append: (value: string) => {
+        lines.push(value);
+      },
+      appendLine: (value: string) => {
+        lines.push(value);
+      },
+      clear: () => {
+        lines.length = 0;
+      },
+      show: () => {},
+      hide: () => {},
+      dispose: () => {},
+    };
+  },
 };
 
 export const commands = {
