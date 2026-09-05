@@ -64,7 +64,7 @@ This document serves as the single source of truth for persistent progress track
 | **WP-16** | **Accessibility, Focus & Motion**<br>(Standard Dialog / Focus Trap / Arrow Nav / Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (Cleaned)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 100% tests green |
 | **WP-17** | **Comprehensive Internationalization**<br>(Complete Dictionary for Dynamic Runs/Events / Intl Formatters) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (Cleaned)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 100% tests green |
 | **WP-18** | **Complete PWA Lifecycle & Offline Snapshot**<br>(IndexedDB Encrypted Snapshot / SW Update Prompt / Readonly Offline) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 100% tests green |
-| **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | Pending | [PASS] 0 BLOCK, 100% tests green (comprehensive E2E / SSE / tenant / control safety) |
+| **WP-19** | **Browser End-to-End Testing**<br>(End-to-End Snapshot Reconciliation / A11y / Disconnect & Reconnect) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `PR Created` | [#43](https://github.com/Zelayan/agent-monitor/pull/43) | [PASS] 0 BLOCK, 100% tests green (comprehensive E2E / SSE / tenant / control safety) |
 
 ---
 
