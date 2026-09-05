@@ -277,22 +277,26 @@ func llmTestServer(t *testing.T, hits *atomic.Int32, goalHits *atomic.Int32) *ht
 	}))
 }
 
+var promptSeq int64 = 1700000000
+
 func settlePrompt(t *testing.T, svc *MonitorService, id, prompt, event string) {
 	t.Helper()
+	ts1 := atomic.AddInt64(&promptSeq, 1)
 	if _, err := svc.HandleHookEvent(task.EventPayload{
 		ID:        id,
 		Agent:     "ZCode",
 		Event:     "UserPromptSubmit",
 		Prompt:    prompt,
-		Timestamp: time.Now().Unix(),
+		Timestamp: ts1,
 	}); err != nil {
 		t.Fatal(err)
 	}
+	ts2 := atomic.AddInt64(&promptSeq, 1)
 	if _, err := svc.HandleHookEvent(task.EventPayload{
 		ID:         id,
 		Event:      event,
 		AIResponse: "done",
-		Timestamp:  time.Now().Unix(),
+		Timestamp:  ts2,
 	}); err != nil {
 		t.Fatal(err)
 	}

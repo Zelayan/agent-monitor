@@ -502,6 +502,8 @@ func (r *JSONRepository) ReadEventLogs(key task.TaskKey) ([]task.EventRecord, er
 	if key.IsZero() {
 		return nil, fmt.Errorf("invalid task key")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	eventLogFile := r.eventLogPath(key)
 	data, err := os.ReadFile(eventLogFile)

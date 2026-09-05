@@ -927,14 +927,14 @@ func TestHandler_ReplayEndpoint(t *testing.T) {
 		t.Fatalf("expected 404 Not Found, got %d", wNotFound.Code)
 	}
 
-	// 7. /api/tasks/replay 缺少 id 参数返回 400 Bad Request
-	reqMissingID := httptest.NewRequest(http.MethodGet, "/api/tasks/replay", nil)
-	reqMissingID.Header.Set("Authorization", "Bearer token-alpha")
-	wMissingID := httptest.NewRecorder()
-	mux.ServeHTTP(wMissingID, reqMissingID)
-	if wMissingID.Code != http.StatusBadRequest {
-		t.Fatalf("expected 400 Bad Request when id is missing, got %d", wMissingID.Code)
-	}
+		// 7. /api/tasks/replay 缺少 id 参数返回 400 Bad Request
+		reqMissingID := httptest.NewRequest(http.MethodGet, "/api/tasks/replay?id=", nil)
+		reqMissingID.Header.Set("Authorization", "Bearer token-alpha")
+		wMissingID := httptest.NewRecorder()
+		mux.ServeHTTP(wMissingID, reqMissingID)
+		if wMissingID.Code != http.StatusBadRequest {
+			t.Fatalf("expected 400 Bad Request when id is missing, got %d", wMissingID.Code)
+		}
 
 	// 8. 非 GET 方法返回 405 Method Not Allowed
 	reqMethodNotAllowed := httptest.NewRequest(http.MethodPost, "/api/tasks/"+taskID+"/replay", nil)

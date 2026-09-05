@@ -25,6 +25,18 @@ type EventRecord struct {
 	PayloadSummary map[string]interface{} `json:"payloadSummary,omitempty"` // 关键元数据
 }
 
+// Clone 返回 EventRecord 的只读深拷贝副本，隔离 PayloadSummary map 引用以确保并发安全。
+func (rec EventRecord) Clone() EventRecord {
+	cloned := rec
+	if rec.PayloadSummary != nil {
+		cloned.PayloadSummary = make(map[string]interface{}, len(rec.PayloadSummary))
+		for k, v := range rec.PayloadSummary {
+			cloned.PayloadSummary[k] = v
+		}
+	}
+	return cloned
+}
+
 // ComputeEventFingerprint 计算事件的确定性幂等指纹哈希。
 // 格式: key_id:session_id:event:timestamp:detail:turn_index:prompt
 func ComputeEventFingerprint(p EventPayload) string {
@@ -119,7 +131,9 @@ func (rb *EventLogRingBuffer) Snapshot() []EventRecord {
 	rb.mu.RLock()
 	defer rb.mu.RUnlock()
 	out := make([]EventRecord, len(rb.records))
-	copy(out, rb.records)
+	for i, r := range rb.records {
+		out[i] = r.Clone()
+	}
 	return out
 }
 

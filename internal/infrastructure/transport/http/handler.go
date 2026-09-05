@@ -620,12 +620,12 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 1.3 /api/tasks/replay?id={id} 查询参数形式事件流时序回放
-	if len(parts) == 1 && parts[0] == "replay" {
-		if r.Method != http.MethodGet {
-			MethodNotAllowed(w, "GET, OPTIONS")
-			return
-		}
+		// 1.3 /api/tasks/replay?id={id} 查询参数形式事件流时序回放
+		if len(parts) == 1 && parts[0] == "replay" && r.URL.Query().Has("id") {
+			if r.Method != http.MethodGet {
+				MethodNotAllowed(w, "GET, OPTIONS")
+				return
+			}
 		targetID := strings.TrimSpace(r.URL.Query().Get("id"))
 		if targetID == "" {
 			WriteJSONError(w, http.StatusBadRequest, "BAD_REQUEST", "Missing id query parameter")

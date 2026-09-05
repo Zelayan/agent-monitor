@@ -464,8 +464,41 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		p.Timestamp = time.Now().Unix()
 	}
 
+	if p.EventID == "" {
+		p.EventID = task.ComputeEventFingerprint(p)
+	}
+
 	nowMs := p.Timestamp * 1000
 	nowStr := time.Unix(p.Timestamp, 0).Format("15:04:05")
+
+	summary := make(map[string]interface{})
+	if p.Agent != "" {
+		summary["agent"] = p.Agent
+	}
+	if p.Repo != "" {
+		summary["repo"] = p.Repo
+	}
+	if p.Branch != "" {
+		summary["branch"] = p.Branch
+	}
+	if p.SubagentID != "" {
+		summary["subagentId"] = p.SubagentID
+	}
+	if p.SubagentType != "" {
+		summary["subagentType"] = p.SubagentType
+	}
+
+	rec := task.EventRecord{
+		EventID:        p.EventID,
+		Timestamp:      p.Timestamp,
+		ReceivedAt:     nowMs,
+		Event:          p.Event,
+		TurnIndex:      p.TurnIndex,
+		Detail:         p.Detail,
+		Prompt:         p.Prompt,
+		AIResponse:     p.AIResponse,
+		PayloadSummary: summary,
+	}
 
 	targetKey := task.NewTaskKey(p.KeyID, p.ID)
 
@@ -508,52 +541,8 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 		s.tasks[targetKey] = t
 	}
 
-	if p.EventID == "" {
-		if exists && t != nil && p.TurnIndex <= 0 {
-			if t.ShouldStartNewTurn(p) {
-				p.TurnIndex = t.TotalRuns + 1
-			} else if t.TotalRuns > 0 {
-				p.TurnIndex = t.TotalRuns
-			} else {
-				p.TurnIndex = 1
-			}
-		} else if !exists && p.TurnIndex <= 0 {
-			p.TurnIndex = 1
-		}
-		p.EventID = task.ComputeEventFingerprint(p)
-	}
-
 	// 幂等去重检查与事件流水准备
 	rb := s.getOrCreateEventRingBufferLocked(targetKey)
-
-	summary := make(map[string]interface{})
-	if p.Agent != "" {
-		summary["agent"] = p.Agent
-	}
-	if p.Repo != "" {
-		summary["repo"] = p.Repo
-	}
-	if p.Branch != "" {
-		summary["branch"] = p.Branch
-	}
-	if p.SubagentID != "" {
-		summary["subagentId"] = p.SubagentID
-	}
-	if p.SubagentType != "" {
-		summary["subagentType"] = p.SubagentType
-	}
-
-	rec := task.EventRecord{
-		EventID:        p.EventID,
-		Timestamp:      p.Timestamp,
-		ReceivedAt:     nowMs,
-		Event:          p.Event,
-		TurnIndex:      p.TurnIndex,
-		Detail:         p.Detail,
-		Prompt:         p.Prompt,
-		AIResponse:     p.AIResponse,
-		PayloadSummary: summary,
-	}
 
 	isNew, seq := rb.AppendIfNew(rec)
 	if !isNew {
