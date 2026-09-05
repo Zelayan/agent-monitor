@@ -62,7 +62,7 @@
 | **WP-14** | **可靠 SSE v2 协议**<br>(单调递增事件ID/环形缓冲/Last-Event-ID/resync_required) | `internal/domain`<br>`transport/http` | PR-Subagent-14<br>`feat/reliable-sse-v2` | `wt-wp14 (已清理)` | `Merged` | [#36](https://github.com/Zelayan/agent-monitor/pull/36) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-15** | **前端规模化性能**<br>(Keyed DOM Patch/局部状态列重绘/按版本缓存/分页) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `../agent-monitor-worktrees/wt-wp15` | `Pending` | - | 待启动 (依赖 WP-14 协议已就绪) |
 | **WP-16** | **无障碍、焦点管理与动效偏好**<br>(标准Dialog/Focus Trap/方向键导航/Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (已清理)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-17** | **国际化全量完备化**<br>(动态Run/事件/操作全量字典化/Intl 本地化格式) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `../agent-monitor-worktrees/wt-wp17` | `Pending` | - | 待启动 (可并发) |
+| **WP-17** | **国际化全量完备化**<br>(动态Run/事件/操作全量字典化/Intl 本地化格式) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `../agent-monitor-worktrees/wt-wp17` | `Self-Healed` | 准备提 PR | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-18** | **完整 PWA 生命周期与离线快照**<br>(IndexedDB 加密快照/SW升级提示/脱机只读) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `Pending` | - | 待启动 |
 | **WP-19** | **浏览器级端到端测试**<br>(端到端快照对账/无障碍/重连断线覆盖) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `Pending` | - | 待启动 |
 
