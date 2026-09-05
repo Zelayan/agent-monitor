@@ -8,11 +8,14 @@ import (
 
 // TimelineItem 记录任务时间轴上的单条事件（值对象）。
 type TimelineItem struct {
-	Time         string `json:"time"`                   // 事件时间，格式 HH:MM:SS
-	Event        string `json:"event"`                  // hook 事件名
-	Desc         string `json:"desc"`                   // 事件描述
-	SubagentType string `json:"subagentType,omitempty"` // 子智能体角色类型 (如 Explore / judge / general)
-	SubagentID   string `json:"subagentId,omitempty"`   // 子智能体 ID
+	Time              string `json:"time"`                        // 事件时间，格式 HH:MM:SS
+	Event             string `json:"event"`                       // hook 事件名
+	Desc              string `json:"desc"`                        // 事件描述
+	SubagentType      string `json:"subagentType,omitempty"`      // 子智能体角色类型 (如 Explore / judge / general)
+	SubagentID        string `json:"subagentId,omitempty"`        // 子智能体 ID
+	Timestamp         int64  `json:"timestamp,omitempty"`         // 事件单调毫秒时间戳
+	ClockSkewAdjusted bool   `json:"clockSkewAdjusted,omitempty"`  // 是否经过时钟回拨/乱序修正
+	SpanID            string `json:"spanId,omitempty"`            // 关联的 TraceSpan 跨度 ID
 }
 
 // Turn 表示单个会话内的独立一轮执行周期（Run 实体）。
@@ -28,6 +31,7 @@ type Turn struct {
 	Detail     string         `json:"detail,omitempty"`     // 当轮最新操作描述
 	LastHook   string         `json:"lastHook,omitempty"`   // 当轮最后一次 Hook 事件
 	Timeline   []TimelineItem `json:"timeline"`             // 当轮独立 Hook 轨迹
+	TraceSpans []TraceSpan    `json:"traceSpans,omitempty"` // 当轮工具 Trace Spans
 }
 
 // Task 表示 Monitor 上的一个 Agent 会话容器（聚合根 Workflow）。
@@ -65,10 +69,14 @@ type Task struct {
 	ProcessStartTime int64          `json:"processStartTime,omitempty"` // 进程启动时间戳 (Unix毫秒)
 	KeyID            string         `json:"keyId,omitempty"`            // 归属的项目/租户空间标识
 	ParentID         string         `json:"parentId,omitempty"`         // 父任务 ID (若当前为子代理会话)
-	SubagentCount    int            `json:"subagentCount,omitempty"`    // 当前任务派发或关联的子智能体总数
-	Version          uint64         `json:"version,omitempty"`          // 状态单调递增版本号（防磁盘乱序覆写）
-	Generation       uint64         `json:"generation,omitempty"`       // 全局/租户状态世代，供前端权威对账
-}
+		SubagentCount         int                  `json:"subagentCount,omitempty"`         // 当前任务派发或关联的子智能体总数
+		Version               uint64               `json:"version,omitempty"`               // 状态单调递增版本号（防磁盘乱序覆写）
+		Generation            uint64               `json:"generation,omitempty"`            // 全局/租户状态世代，供前端权威对账
+		LastTimelineTimestamp int64                `json:"lastTimelineTimestamp,omitempty"` // 最近时间线事件的单调时间戳 (毫秒)
+		ClockSkewCount        int                  `json:"clockSkewCount,omitempty"`        // 累计时钟回拨/乱序单调调整次数
+		TraceSpans            []TraceSpan          `json:"traceSpans,omitempty"`            // 会话级全量工具 Span 列表
+		ActiveSpans           map[string]TraceSpan `json:"activeSpans,omitempty"`           // 当前正在运行中的活跃工具 Span 集合
+	}
 
 // EventPayload 是 Hook 上报的数据传输对象 (DTO)。
 type EventPayload struct {
@@ -93,6 +101,10 @@ type EventPayload struct {
 	ProcessStartTime int64  `json:"process_start_time,omitempty"` // 上报来源进程启动时间戳（可选）
 	KeyID            string `json:"key_id,omitempty"`             // 归属的项目/租户空间标识（可选）
 	EventID          string `json:"event_id,omitempty"`           // 幂等唯一指纹或客户端指定ID（可选）
+	SpanID           string `json:"span_id,omitempty"`           // 工具 Trace Span ID（可选）
+	ParentSpanID     string `json:"parent_span_id,omitempty"`     // 父 Trace Span ID（可选）
+	ToolName         string `json:"tool_name,omitempty"`         // 工具名称（可选）
+	Sequence         uint64 `json:"sequence,omitempty"`          // 客户端上报单调序号（可选）
 }
 
 // BelongsTo 检查该任务是否属于指定租户/Key空间（当 targetKey 为空或 isMaster 为 true 时放行）。
@@ -154,14 +166,15 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 	}
 
 	firstTurn := Turn{
-		Index:     1,
-		Prompt:    p.Prompt,
-		Title:     title,
-		Status:    "running",
-		StartTime: nowMs,
-		Detail:    p.Detail,
-		LastHook:  p.Event,
-		Timeline:  make([]TimelineItem, 0),
+		Index:      1,
+		Prompt:     p.Prompt,
+		Title:      title,
+		Status:     "running",
+		StartTime:  nowMs,
+		Detail:     p.Detail,
+		LastHook:   p.Event,
+		Timeline:   make([]TimelineItem, 0),
+		TraceSpans: make([]TraceSpan, 0),
 	}
 
 	subCount := 0
@@ -169,30 +182,40 @@ func NewTask(p EventPayload, nowMs int64) *Task {
 		subCount = 1
 	}
 
+	initialEventMs := p.Timestamp
+	if initialEventMs > 0 && initialEventMs < 1e11 {
+		initialEventMs *= 1000
+	} else if initialEventMs == 0 {
+		initialEventMs = nowMs
+	}
+
 	task := &Task{
-		ID:               p.ID,
-		ParentID:         p.ParentID,
-		SubagentCount:    subCount,
-		Agent:            p.Agent,
-		Repo:             repo,
-		Branch:           branch,
-		RootGoal:         rootGoal,
-		Title:            title,
-		Prompt:           p.Prompt,
-		Status:           "running",
-		StartTime:        nowMs,
-		ActiveRunStart:   nowMs,
-		ActiveRunIndex:   1,
-		TotalRuns:        1,
-		Runs:             []Turn{firstTurn},
-		LastHook:         p.Event,
-		Detail:           p.Detail,
-		PID:              p.PID,
-		PGID:             p.PGID,
-		HostID:           p.HostID,
-		BootID:           p.BootID,
-		ProcessStartTime: p.ProcessStartTime,
-		KeyID:            p.KeyID,
+		ID:                    p.ID,
+		ParentID:              p.ParentID,
+		SubagentCount:         subCount,
+		Agent:                 p.Agent,
+		Repo:                  repo,
+		Branch:                branch,
+		RootGoal:              rootGoal,
+		Title:                 title,
+		Prompt:                p.Prompt,
+		Status:                "running",
+		StartTime:             nowMs,
+		ActiveRunStart:        nowMs,
+		ActiveRunIndex:        1,
+		TotalRuns:             1,
+		Runs:                  []Turn{firstTurn},
+		LastHook:              p.Event,
+		Detail:                p.Detail,
+		PID:                   p.PID,
+		PGID:                  p.PGID,
+		HostID:                p.HostID,
+		BootID:                p.BootID,
+		ProcessStartTime:      p.ProcessStartTime,
+		KeyID:                 p.KeyID,
+		LastTimelineTimestamp: initialEventMs,
+		TraceSpans:            make([]TraceSpan, 0),
+		ActiveSpans:           make(map[string]TraceSpan),
 	}
 
 	return task
@@ -524,24 +547,25 @@ func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
 		}
 	}
 
-	newTurn := Turn{
-		Index:     newIdx,
-		Prompt:    p.Prompt,
-		Title:     newTitle,
-		Status:    "running",
-		StartTime: nowMs,
-		Detail:    p.Detail,
-		LastHook:  p.Event,
-		Timeline:  make([]TimelineItem, 0),
-	}
+		newTurn := Turn{
+			Index:      newIdx,
+			Prompt:     p.Prompt,
+			Title:      newTitle,
+			Status:     "running",
+			StartTime:  nowMs,
+			Detail:     p.Detail,
+			LastHook:   p.Event,
+			Timeline:   make([]TimelineItem, 0),
+			TraceSpans: make([]TraceSpan, 0),
+		}
 
-	t.Runs = append(t.Runs, newTurn)
-	t.TotalRuns = newIdx
-	t.ActiveRunIndex = newIdx
-	t.ActiveRunStart = nowMs
-	t.Status = "running"
-	t.refreshHeuristicTitle(newTitle)
-}
+		t.Runs = append(t.Runs, newTurn)
+		t.TotalRuns = newIdx
+		t.ActiveRunIndex = newIdx
+		t.ActiveRunStart = nowMs
+		t.Status = "running"
+		t.refreshHeuristicTitle(newTitle)
+	}
 
 // ApplyEvent 将 Hook 上报事件应用到当前 Task 聚合根并更新状态机。
 func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
@@ -550,8 +574,59 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.StartNewTurn(p, nowMs, nowStr)
 	}
 
+	if t.ActiveSpans == nil {
+		t.ActiveSpans = make(map[string]TraceSpan)
+	}
+	if t.TraceSpans == nil {
+		t.TraceSpans = make([]TraceSpan, 0)
+	}
+
+	// 1. 单调时间戳计算与时钟回拨/乱序修正
+	isClockSkew := false
+	if p.Timestamp > 0 {
+		var clientTsMs int64
+		if p.Timestamp < 1e11 {
+			clientTsMs = p.Timestamp * 1000
+		} else {
+			clientTsMs = p.Timestamp
+		}
+		if t.LastTimelineTimestamp > 0 && clientTsMs < t.LastTimelineTimestamp {
+			isClockSkew = true
+		}
+	}
+
+	eventTimeMs := nowMs
+	if eventTimeMs == 0 && p.Timestamp > 0 {
+		if p.Timestamp < 1e11 {
+			eventTimeMs = p.Timestamp * 1000
+		} else {
+			eventTimeMs = p.Timestamp
+		}
+	}
+
+	if t.LastTimelineTimestamp > 0 && eventTimeMs < t.LastTimelineTimestamp {
+		isClockSkew = true
+		eventTimeMs = t.LastTimelineTimestamp
+	}
+
+	if isClockSkew {
+		t.ClockSkewCount++
+	}
+
+	if eventTimeMs > t.LastTimelineTimestamp {
+		t.LastTimelineTimestamp = eventTimeMs
+	}
+
+	itemTimeStr := nowStr
+	if isClockSkew || itemTimeStr == "" {
+		itemTimeStr = time.Unix(eventTimeMs/1000, 0).Format("15:04:05")
+	}
+
 	curRunIdx := len(t.Runs) - 1
 	curRun := &t.Runs[curRunIdx]
+	if curRun.TraceSpans == nil {
+		curRun.TraceSpans = make([]TraceSpan, 0)
+	}
 
 	curRun.LastHook = p.Event
 	curRun.Detail = p.Detail
@@ -588,6 +663,28 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.ParentID = p.ParentID
 	}
 
+	// 2. TraceSpan 生命周期流转与耗时度量
+	var spanID string
+	if IsToolStartHook(p.Event) {
+		span := t.StartTraceSpan(p, eventTimeMs)
+		if span != nil {
+			spanID = span.SpanID
+		}
+	} else if IsToolEndHook(p.Event) {
+		span := t.CompleteTraceSpan(p, eventTimeMs, false)
+		if span != nil {
+			spanID = span.SpanID
+		}
+	} else if IsToolFailureHook(p.Event) {
+		span := t.CompleteTraceSpan(p, eventTimeMs, true)
+		if span != nil {
+			spanID = span.SpanID
+		}
+	} else if IsTerminalHook(p.Event) {
+		isFailed := (p.Event == "failed" || p.Event == "error" || t.IsAbortRequested())
+		t.CloseLingeringSpans(eventTimeMs, isFailed)
+	}
+
 	// 时间线防抖去重：连续相同说明不追加。
 	// Cursor 会在同一秒连打 afterAgentResponse 与 stop（映射为 agentCompletion），两边 desc 都是同一句「AI 回复」。
 	shouldAppend := true
@@ -603,11 +700,14 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 			t.SubagentCount++
 		}
 		curRun.Timeline = append(curRun.Timeline, TimelineItem{
-			Time:         nowStr,
-			Event:        p.Event,
-			Desc:         p.Detail,
-			SubagentType: p.SubagentType,
-			SubagentID:   p.SubagentID,
+			Time:              itemTimeStr,
+			Event:             p.Event,
+			Desc:              p.Detail,
+			SubagentType:      p.SubagentType,
+			SubagentID:        p.SubagentID,
+			Timestamp:         eventTimeMs,
+			ClockSkewAdjusted: isClockSkew,
+			SpanID:            spanID,
 		})
 	}
 
@@ -693,6 +793,10 @@ func (t *Task) Clone() *Task {
 				runCp.Timeline = make([]TimelineItem, len(run.Timeline))
 				copy(runCp.Timeline, run.Timeline)
 			}
+			if run.TraceSpans != nil {
+				runCp.TraceSpans = make([]TraceSpan, len(run.TraceSpans))
+				copy(runCp.TraceSpans, run.TraceSpans)
+			}
 			cp.Runs[i] = runCp
 		}
 		cp.Turns = cp.Runs
@@ -701,6 +805,18 @@ func (t *Task) Clone() *Task {
 	if t.Timeline != nil {
 		cp.Timeline = make([]TimelineItem, len(t.Timeline))
 		copy(cp.Timeline, t.Timeline)
+	}
+
+	if t.TraceSpans != nil {
+		cp.TraceSpans = make([]TraceSpan, len(t.TraceSpans))
+		copy(cp.TraceSpans, t.TraceSpans)
+	}
+
+	if t.ActiveSpans != nil {
+		cp.ActiveSpans = make(map[string]TraceSpan, len(t.ActiveSpans))
+		for k, v := range t.ActiveSpans {
+			cp.ActiveSpans[k] = v
+		}
 	}
 
 	return &cp

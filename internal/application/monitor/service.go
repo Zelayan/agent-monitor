@@ -894,7 +894,51 @@ func (s *MonitorService) GetTaskEventReplayTenant(id string, tenantKeyID string,
 		return records[i].Timestamp < records[j].Timestamp
 	})
 
-	return records, nil
+		return records, nil
+	}
+
+// GetTaskTraceSpansTenant 查询指定会话的 TraceSpan 追踪跨度列表与活跃跨度。
+func (s *MonitorService) GetTaskTraceSpansTenant(id string, tenantKeyID string, isMaster bool, nowMs int64) ([]task.TraceSpan, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, targetTask, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
+	if !exists {
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+	if nowMs <= 0 {
+		nowMs = time.Now().UnixMilli()
+	}
+	allSpans := make([]task.TraceSpan, len(targetTask.TraceSpans))
+	copy(allSpans, targetTask.TraceSpans)
+	activeSpans := targetTask.GetActiveTraceSpans(nowMs)
+	for _, active := range activeSpans {
+		found := false
+		for i, existing := range allSpans {
+			if existing.SpanID == active.SpanID {
+				allSpans[i] = active
+				found = true
+				break
+			}
+		}
+		if !found {
+			allSpans = append(allSpans, active)
+		}
+	}
+	return allSpans, nil
+}
+
+// DetectTaskAnomaliesTenant 执行指定会话的工具卡死与超时异常诊断。
+func (s *MonitorService) DetectTaskAnomaliesTenant(id string, tenantKeyID string, isMaster bool, nowMs int64) ([]task.AnomalyInfo, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, targetTask, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
+	if !exists {
+		return nil, fmt.Errorf("task not found: %s", id)
+	}
+	if nowMs <= 0 {
+		nowMs = time.Now().UnixMilli()
+	}
+	return targetTask.DetectAnomalies(nowMs), nil
 }
 
 // KillTask 强制杀死指定会话关联的本地进程组，并将任务标记为终止终态。

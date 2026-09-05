@@ -697,8 +697,117 @@ func TestSubagentRecognition(t *testing.T) {
 	}
 
 	// 5. extractParentID 提取
-	parentID := extractParentID(p)
-	if parentID != "parent-sess-001" {
-		t.Errorf("expected parent_id parent-sess-001, got %s", parentID)
+		parentID := extractParentID(p)
+		if parentID != "parent-sess-001" {
+			t.Errorf("expected parent_id parent-sess-001, got %s", parentID)
+		}
+	}
+
+func TestReporter_SequenceAndSpanTracking(t *testing.T) {
+	sessionID := fmt.Sprintf("test-seq-span-%d", time.Now().UnixNano())
+	defer func() {
+		_ = os.Remove(safeSessionFilename(sessionID, "agent-monitor-seq", ""))
+		_ = os.Remove(safeSessionFilename(sessionID, "agent-monitor-span-"+cleanToolName("Bash"), ".json"))
+	}()
+
+	// 1. 测试会话内单调递增序号
+	seq1 := NextSessionSequence(sessionID)
+	if seq1 != 1 {
+		t.Fatalf("expected initial sequence 1, got %d", seq1)
+	}
+	seq2 := NextSessionSequence(sessionID)
+	if seq2 != 2 {
+		t.Fatalf("expected next sequence 2, got %d", seq2)
+	}
+	seq3 := NextSessionSequence(sessionID)
+	if seq3 != 3 {
+		t.Fatalf("expected next sequence 3, got %d", seq3)
+	}
+
+	// 2. 测试工具 span 缓存与弹出
+	saveActiveToolSpan(sessionID, "Bash", "span-bash-test-1", 1000)
+	spanID, startMs := popActiveToolSpan(sessionID, "Bash")
+	if spanID != "span-bash-test-1" {
+		t.Errorf("expected spanId span-bash-test-1, got %s", spanID)
+	}
+	if startMs != 1000 {
+		t.Errorf("expected startMs 1000, got %d", startMs)
+	}
+
+	// 再次弹出应为空
+	emptySpan, _ := popActiveToolSpan(sessionID, "Bash")
+	if emptySpan != "" {
+		t.Errorf("expected empty spanId after pop, got %s", emptySpan)
+	}
+
+	// 3. 测试工具名称清理防护
+	dirtyTool := "Tool:Special/Name*1"
+	cleaned := cleanToolName(dirtyTool)
+	if strings.ContainsAny(cleaned, ":/*") {
+		t.Errorf("cleanToolName failed to sanitize: %s", cleaned)
+	}
+}
+
+func TestReporter_ToolSpanCorrelation_InRun(t *testing.T) {
+	origExit := exitFunc
+	exitFunc = func(code int) {}
+	defer func() { exitFunc = origExit }()
+
+	sessionID := fmt.Sprintf("test-run-span-%d", time.Now().UnixNano())
+	defer func() {
+		_ = os.Remove(safeSessionFilename(sessionID, "agent-monitor-seq", ""))
+		_ = os.Remove(safeSessionFilename(sessionID, "agent-monitor-span-"+cleanToolName("Bash"), ".json"))
+		_ = os.Remove(safeSessionFilename(sessionID, "agent-monitor-tracked", ""))
+	}()
+
+	var receivedReports []EventReport
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var rep EventReport
+		if err := json.NewDecoder(r.Body).Decode(&rep); err == nil {
+			receivedReports = append(receivedReports, rep)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(ServerControlResponse{Status: "ok", Action: "allow"})
+	}))
+	defer srv.Close()
+
+	// 1. 发送 PreToolUse
+	prePayload := fmt.Sprintf(`{"session_id":"%s","tool_name":"Bash","command":"go version"}`, sessionID)
+	Run(Config{
+		Event:     "beforeShellExecution",
+		ServerURL: srv.URL + "/api/event",
+	}, strings.NewReader(prePayload))
+
+	if len(receivedReports) != 1 {
+		t.Fatalf("expected 1 report received, got %d", len(receivedReports))
+	}
+	preReport := receivedReports[0]
+	if preReport.SpanID == "" {
+		t.Fatalf("expected non-empty SpanID in pre tool use report")
+	}
+	if preReport.Sequence != 1 {
+		t.Errorf("expected sequence 1, got %d", preReport.Sequence)
+	}
+	if preReport.ToolName != "Bash" {
+		t.Errorf("expected toolName Bash, got %s", preReport.ToolName)
+	}
+
+	// 2. 发送 PostToolUse
+	postPayload := fmt.Sprintf(`{"session_id":"%s","tool_name":"Bash","status":"completed"}`, sessionID)
+	Run(Config{
+		Event:     "afterShellExecution",
+		ServerURL: srv.URL + "/api/event",
+	}, strings.NewReader(postPayload))
+
+	if len(receivedReports) != 2 {
+		t.Fatalf("expected 2 reports received, got %d", len(receivedReports))
+	}
+	postReport := receivedReports[1]
+	// 关联相同的 SpanID！
+	if postReport.SpanID != preReport.SpanID {
+		t.Errorf("expected correlated SpanID %s, got %s", preReport.SpanID, postReport.SpanID)
+	}
+	if postReport.Sequence != 2 {
+		t.Errorf("expected sequence 2, got %d", postReport.Sequence)
 	}
 }

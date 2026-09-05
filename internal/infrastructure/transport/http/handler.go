@@ -643,11 +643,47 @@ func (h *Handler) HandleTaskDetail(w http.ResponseWriter, r *http.Request) {
 		if records == nil {
 			records = []task.EventRecord{}
 		}
-		_ = json.NewEncoder(w).Encode(records)
-		return
-	}
+			_ = json.NewEncoder(w).Encode(records)
+			return
+		}
 
-	// 2. /api/tasks/{id} 单任务查询与删除
+		// 1.4 /api/tasks/{id}/spans 查询 TraceSpans 细粒度工具调用跨度
+		if len(parts) == 2 && parts[1] == "spans" {
+			if r.Method != http.MethodGet {
+				MethodNotAllowed(w, "GET, OPTIONS")
+				return
+			}
+			spans, err := h.svc.GetTaskTraceSpansTenant(taskID, authCtx.KeyID, authCtx.IsMaster, time.Now().UnixMilli())
+			if err != nil {
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			if spans == nil {
+				spans = []task.TraceSpan{}
+			}
+			_ = json.NewEncoder(w).Encode(spans)
+			return
+		}
+
+		// 1.5 /api/tasks/{id}/anomalies 工具卡顿/未闭合子进程异常诊断
+		if len(parts) == 2 && parts[1] == "anomalies" {
+			if r.Method != http.MethodGet {
+				MethodNotAllowed(w, "GET, OPTIONS")
+				return
+			}
+			anomalies, err := h.svc.DetectTaskAnomaliesTenant(taskID, authCtx.KeyID, authCtx.IsMaster, time.Now().UnixMilli())
+			if err != nil {
+				WriteJSONError(w, http.StatusNotFound, "NOT_FOUND", err.Error())
+				return
+			}
+			if anomalies == nil {
+				anomalies = []task.AnomalyInfo{}
+			}
+			_ = json.NewEncoder(w).Encode(anomalies)
+			return
+		}
+
+		// 2. /api/tasks/{id} 单任务查询与删除
 	if len(parts) == 1 {
 		switch r.Method {
 		case http.MethodGet:
