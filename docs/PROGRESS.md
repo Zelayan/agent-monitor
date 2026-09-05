@@ -44,7 +44,7 @@
 
 ---
 
-## 2. 历史阶段归档 (Phase 0 ~ Phase 3)
+## 2. 历史阶段归档 (Phase 0 ~ Phase 5)
 
 | 阶段 | 核心目标 | 涉及 Work Package | 交付 PR | 状态 |
 | :--- | :--- | :--- | :--- | :---: |
@@ -53,6 +53,7 @@
 | **Phase 2** | 高频效率与可运营性 | WP-7: `filter_repos` 仓库白名单<br>WP-8: Repo/Branch Schema 独立解耦<br>WP-9: 全量深度搜索与复合状态筛选<br>WP-10 & 11: 多维排序/持久视图/深链接<br>WP-12 & 13: 探针/指标/隔离/Reporter卫生 | [#30](https://github.com/Zelayan/agent-monitor/pull/30)<br>[#31](https://github.com/Zelayan/agent-monitor/pull/31)<br>[#32](https://github.com/Zelayan/agent-monitor/pull/32)<br>[#33](https://github.com/Zelayan/agent-monitor/pull/33)<br>[#34](https://github.com/Zelayan/agent-monitor/pull/34) | ✅ 已归档 |
 | **Phase 3** | 实时可靠性与产品成熟度 | WP-14: 可靠 SSE v2 协议 (单调ID/环形缓冲/Last-Event-ID)<br>WP-15: 前端规模化性能 (Keyed DOM Patch/局部重绘/节流)<br>WP-16: 无障碍、焦点管理与动效偏好 (Dialog/Focus Trap/A11y)<br>WP-17: 国际化全量完备化 (字典插值/Intl 格式化/对称导出)<br>WP-18: 完整 PWA 生命周期与离线快照 (IndexedDB/SW更新)<br>WP-19: 浏览器级端到端测试 (E2E 集成/断线重连全覆盖) | [#36](https://github.com/Zelayan/agent-monitor/pull/36)<br>[#40](https://github.com/Zelayan/agent-monitor/pull/40)<br>[#37](https://github.com/Zelayan/agent-monitor/pull/37)<br>[#39](https://github.com/Zelayan/agent-monitor/pull/39)<br>[#42](https://github.com/Zelayan/agent-monitor/pull/42)<br>[#43](https://github.com/Zelayan/agent-monitor/pull/43) | ✅ 已归档 |
 | **Phase 4** | 多 Agent 生态与 Cursor 扩展 | WP-20: Agent 成熟度模型与 Claude Code / Aider 正式支持<br>WP-21: Cursor 多根工作区 Hook 自动化管理<br>WP-22: VSIX 跨平台内置二进制与分发构建<br>WP-23: 扩展自诊断 Output Channel 与自动化测试 | [#46](https://github.com/Zelayan/agent-monitor/pull/46)<br>[#45](https://github.com/Zelayan/agent-monitor/pull/45)<br>[#47](https://github.com/Zelayan/agent-monitor/pull/47)<br>[#48](https://github.com/Zelayan/agent-monitor/pull/48) | ✅ 已归档 |
+| **Phase 5** | Agent APM 平台化 | WP-24: 幂等 Event Log 与会话时序重放引擎<br>WP-25: Reporter 乱序检测与 Trace Span 耗时卡点诊断<br>WP-26: 多租户会话配额、历史归档与敏感日志脱敏审计 | [#49](https://github.com/Zelayan/agent-monitor/pull/49)<br>[#50](https://github.com/Zelayan/agent-monitor/pull/50)<br>[#51](https://github.com/Zelayan/agent-monitor/pull/51) | ✅ 已归档 |
 
 ---
 
@@ -64,7 +65,7 @@
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | **WP-24** | **幂等 Event Log 与会话时序重放引擎**<br>(事件唯一键生成、幂等上报去重、单会话离线时序重放 API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Merged` | [#49](https://github.com/Zelayan/agent-monitor/pull/49) | `go test -race` 100% 全绿，CI AI Review [PASS]，0 BLOCK，已自动合入 master |
 | **WP-25** | **Reporter 乱序检测与 Trace Span 耗时卡点诊断**<br>(事件时间戳倒流校正、工具调用细粒度 Span 计算、卡死卡点启发式告警) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `Merged` | [#50](https://github.com/Zelayan/agent-monitor/pull/50) | `go test -race` 100% 全绿，CI AI Review [PASS]，0 BLOCK，已自动合入 master |
-| **WP-26** | **多租户会话配额、历史归档与敏感日志脱敏审计**<br>(租户空间任务配额超限保护、历史完成会话冷归档压缩、Prompt/Token 脱敏导出) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `In Progress` | - | 正在执行开发与自测 |
+| **WP-26** | **多租户会话配额、历史归档与敏感日志脱敏审计**<br>(租户空间任务配额超限保护、历史完成会话冷归档压缩、Prompt/Token 脱敏导出) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `Merged` | [#51](https://github.com/Zelayan/agent-monitor/pull/51) | `go test -race` 100% 全绿，CI AI Review [PASS]，0 BLOCK，已自动合入 master |
 
 ---
 
@@ -86,6 +87,7 @@
 | 2026-09-05 | WP-23 | CI & AI Review | 无阻断项 | 全链路自诊断工具套件与 OutputChannel 结构化分级日志 | 二进制校验、探针探测、SSE流协议协商与工作区钩子检测 | `go test -race` 全绿，`npm test` 20/20 全绿，AI Review [PASS]，PR #48 已合入 | ✅ 已合入 |
 | 2026-09-05 | WP-24 | CI & AI Review | 无阻断项 | 幂等全局指纹计算、环形内存缓冲区防重放、文件流水账追加与多租户隔离重放 API | 基于 SHA-256 提取确定性指纹，EventLogRingBuffer 维护单调自增序号，单 worker 管道持久化 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #49 已合入 | ✅ 已合入 |
 | 2026-09-05 | WP-25 | CI & AI Review | 无阻断项 | 时钟回拨单调递增校正、细粒度工具 TraceSpan 生命周期与超时挂起卡点启发式告警 | 自动检测并拉平时间戳回拨，跨工具生命周期计算精确耗时与 Span 快照，提供只读超时告警端点 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #50 已合入 | ✅ 已合入 |
+| 2026-09-05 | WP-26 | CI & AI Review | 无阻断项 | 多租户活跃任务上限限流 (HTTP 429)、历史会话 gzip/tar 冷归档与密钥路径脱敏导出 | 限制单租户活跃任务容量与僵尸过滤，0依赖流式打包 tar.gz，正则深拷贝安全脱敏导出 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #51 已合入 | ✅ 已合入 |
 
 ---
 

@@ -44,7 +44,7 @@ This document serves as the single source of truth for persistent progress track
 
 ---
 
-## 2. Historical Phase Archive (Phase 0 ~ Phase 4)
+## 2. Historical Phase Archive (Phase 0 ~ Phase 5)
 
 | Phase | Core Goal | Work Packages | Delivered PR | Status |
 | :--- | :--- | :--- | :--- | :---: |
@@ -53,6 +53,7 @@ This document serves as the single source of truth for persistent progress track
 | **Phase 2** | High-Frequency Efficiency & Ops | WP-7: `filter_repos` Repository Whitelist<br>WP-8: Decoupled Repo/Branch Schema<br>WP-9: Deep Search & Multi-Dimensional Filtering<br>WP-10 & 11: Multi-Dimensional Sorting, Views & Deep Links<br>WP-12 & 13: Health Probes, Metrics, Quarantine & Reporter Hygiene | [#30](https://github.com/Zelayan/agent-monitor/pull/30)<br>[#31](https://github.com/Zelayan/agent-monitor/pull/31)<br>[#32](https://github.com/Zelayan/agent-monitor/pull/32)<br>[#33](https://github.com/Zelayan/agent-monitor/pull/33)<br>[#34](https://github.com/Zelayan/agent-monitor/pull/34) | ✅ Archived |
 | **Phase 3** | Real-Time Reliability & Product Maturity | WP-14: Reliable SSE v2 Protocol (Monotonic IDs/Ring Buffer/Replay)<br>WP-15: Frontend Scalable Performance (Keyed DOM Patch/Tab Throttling)<br>WP-16: Accessibility, Focus & Motion (Dialogs/Focus Trap/A11y)<br>WP-17: Comprehensive I18N (Dictionary interpolation/Intl/Export)<br>WP-18: Complete PWA Lifecycle & Offline Snapshot (IndexedDB/SW update)<br>WP-19: Browser & End-to-End Testing (E2E full test suite) | [#36](https://github.com/Zelayan/agent-monitor/pull/36)<br>[#40](https://github.com/Zelayan/agent-monitor/pull/40)<br>[#37](https://github.com/Zelayan/agent-monitor/pull/37)<br>[#39](https://github.com/Zelayan/agent-monitor/pull/39)<br>[#42](https://github.com/Zelayan/agent-monitor/pull/42)<br>[#43](https://github.com/Zelayan/agent-monitor/pull/43) | ✅ Archived |
 | **Phase 4** | Agent & Cursor Ecosystem Expansion | WP-20: Agent Maturity Model & Claude Code / Aider Official Support<br>WP-21: Cursor Multi-Root Workspace Hook Management<br>WP-22: VSIX Cross-Platform Binary Bundling & Packaging<br>WP-23: Extension Diagnostic Tooling & Automated Tests | [#46](https://github.com/Zelayan/agent-monitor/pull/46)<br>[#45](https://github.com/Zelayan/agent-monitor/pull/45)<br>[#47](https://github.com/Zelayan/agent-monitor/pull/47)<br>[#48](https://github.com/Zelayan/agent-monitor/pull/48) | ✅ Archived |
+| **Phase 5** | Agent APM Platformization | WP-24: Idempotent Event Log & Temporal Session Replay Engine<br>WP-25: Reporter Out-of-Order Detection & Trace Span Latency Diagnosis<br>WP-26: Multi-Tenant Quotas, Cold Archival & Sanitized Audit Exports | [#49](https://github.com/Zelayan/agent-monitor/pull/49)<br>[#50](https://github.com/Zelayan/agent-monitor/pull/50)<br>[#51](https://github.com/Zelayan/agent-monitor/pull/51) | ✅ Archived |
 
 ---
 
@@ -64,7 +65,7 @@ This document serves as the single source of truth for persistent progress track
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | **WP-24** | **Idempotent Event Log & Temporal Session Replay Engine**<br>(Event unique keys, idempotent deduplication, offline session replay API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Merged` | [#49](https://github.com/Zelayan/agent-monitor/pull/49) | `go test -race` 100% green, CI AI Review [PASS], 0 BLOCK, merged into master |
 | **WP-25** | **Reporter Out-of-Order Detection & Trace Span Latency Diagnosis**<br>(Event clock-skew adjustment, fine-grained tool call duration spans, heuristic stuck alerts) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `Merged` | [#50](https://github.com/Zelayan/agent-monitor/pull/50) | `go test -race` 100% green, CI AI Review [PASS], 0 BLOCK, merged into master |
-| **WP-26** | **Multi-Tenant Quotas, Cold Archival & Sanitized Audit Exports**<br>(Per-tenant task capacity limits, completed task cold compression archival, Prompt/Token redaction) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `In Progress` | - | In active implementation and testing |
+| **WP-26** | **Multi-Tenant Quotas, Cold Archival & Sanitized Audit Exports**<br>(Per-tenant task capacity limits, completed task cold compression archival, Prompt/Token redaction) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `Merged` | [#51](https://github.com/Zelayan/agent-monitor/pull/51) | `go test -race` 100% green, CI AI Review [PASS], 0 BLOCK, merged into master |
 
 ---
 
@@ -86,6 +87,7 @@ This document serves as the single source of truth for persistent progress track
 | 2026-09-05 | WP-23 | CI & AI Review | None | Full-link diagnostic tooling suite and OutputChannel structured hierarchical logging | Binary verification, health probe checks, SSE protocol negotiation, and workspace hook inspection | `go test -race` 100% green, `npm test` 20/20 green, AI Review [PASS], PR #48 Merged | ✅ Merged |
 | 2026-09-05 | WP-24 | CI & AI Review | None | Idempotent event hashing, memory ring-buffer replay defense, append-only journal persistence and tenant-isolated replay API | SHA-256 fingerprinting, EventLogRingBuffer monotonic sequence, single-worker pipeline append | `go test -race` 100% green, CI AI Review [PASS], PR #49 Merged | ✅ Merged |
 | 2026-09-05 | WP-25 | CI & AI Review | None | Clock skew monotonic leveling, fine-grained tool TraceSpan lifecycles and heuristic timeout hanging alerts | Automated skew adjustment, cross-tool execution duration tracking and read-only timeout anomaly endpoints | `go test -race` 100% green, CI AI Review [PASS], PR #50 Merged | ✅ Merged |
+| 2026-09-05 | WP-26 | CI & AI Review | None | Multi-tenant active session rate-limiting (HTTP 429), cold gzip/tar archiving and regex-based credential/path redaction | Configurable tenant active task quotas, 0-dependency streaming tar.gz packaging, deep-cloned safe sanitization | `go test -race` 100% green, CI AI Review [PASS], PR #51 Merged | ✅ Merged |
 
 ---
 
