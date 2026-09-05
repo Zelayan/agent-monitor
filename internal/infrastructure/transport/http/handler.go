@@ -299,45 +299,48 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	clientChan := h.hub.SubscribeTenant(authCtx.KeyID, authCtx.IsMaster)
 	defer h.hub.Unsubscribe(clientChan)
 
-	// 1. 新连接发送权威快照（包含 snapshot_start / 全量 task_upsert / snapshot_end 与 generation）
-	tasks, gen := h.svc.GetSnapshotWithGeneration(authCtx.KeyID, authCtx.IsMaster)
-
-	tenantScope := authCtx.KeyID
-	if authCtx.IsMaster {
-		tenantScope = "*"
+	// 解析客户端传递的 Last-Event-ID（优先取 HTTP Header，兜底支持 URL Query ?last_event_id=）
+	rawLastID := strings.TrimSpace(r.Header.Get("Last-Event-ID"))
+	if rawLastID == "" {
+		rawLastID = strings.TrimSpace(r.URL.Query().Get("last_event_id"))
 	}
 
-	// 下发 snapshot_start
-	startFrame, _ := json.Marshal(map[string]interface{}{
-		"type":       "snapshot_start",
-		"generation": gen,
-		"tenant":     tenantScope,
-		"isMaster":   authCtx.IsMaster,
-		"count":      len(tasks),
-	})
-	fmt.Fprintf(w, "data: %s\n\n", string(startFrame))
-
-	taskIDs := make([]string, 0, len(tasks))
-	taskKeys := make([]string, 0, len(tasks))
-	for _, t := range tasks {
-		taskIDs = append(taskIDs, t.ID)
-		taskKeys = append(taskKeys, t.TaskKey().String())
-		tData, _ := json.Marshal(t)
-		fmt.Fprintf(w, "data: %s\n\n", string(tData))
+	shouldSnapshot := true
+	if rawLastID != "" {
+		var lastSeq int64
+		if _, err := fmt.Sscanf(rawLastID, "%d", &lastSeq); err == nil && lastSeq > 0 {
+			// 尝试从 Hub 环形缓冲区重放错过的事件
+			missedEvents, canReplay := h.hub.ReplayMissedEvents(lastSeq, authCtx.KeyID, authCtx.IsMaster)
+			if canReplay {
+				// 成功重放，不需要做全量快照
+				shouldSnapshot = false
+				for _, ev := range missedEvents {
+					fmt.Fprint(w, ev.FormatSSE())
+				}
+				flusher.Flush()
+			} else {
+				// 错过的事件已超出环形缓冲区容量，通知客户端执行 resync_required
+				resyncFrame, _ := json.Marshal(map[string]interface{}{
+					"type":          "resync_required",
+					"reason":        "buffer_overflow",
+					"last_event_id": lastSeq,
+				})
+				seq := h.hub.CurrentSeqID()
+				resyncEv := monitor.SSEEvent{
+					ID:   seq,
+					Type: "resync_required",
+					Data: string(resyncFrame),
+				}
+				fmt.Fprint(w, resyncEv.FormatSSE())
+				flusher.Flush()
+				shouldSnapshot = true
+			}
+		}
 	}
 
-	// 下发 snapshot_end，携带权威全量 ID 与 Key 集合
-	endFrame, _ := json.Marshal(map[string]interface{}{
-		"type":       "snapshot_end",
-		"generation": gen,
-		"tenant":     tenantScope,
-		"isMaster":   authCtx.IsMaster,
-		"taskIds":    taskIDs,
-		"taskKeys":   taskKeys,
-		"count":      len(tasks),
-	})
-	fmt.Fprintf(w, "data: %s\n\n", string(endFrame))
-	flusher.Flush()
+	if shouldSnapshot {
+		h.writeSnapshot(w, flusher, authCtx)
+	}
 
 	// 2. 15s 心跳 Ticker，防止云代理/反向代理（Nginx/Caddy/ALB）在无事件时空闲超时中断连接
 	ticker := time.NewTicker(15 * time.Second)
@@ -355,10 +358,69 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
-			fmt.Fprintf(w, "data: %s\n\n", msg)
+			// msg 已经是由 Hub 格式化的完整 SSE 帧（含 id, event, data）
+			fmt.Fprint(w, msg)
 			flusher.Flush()
 		}
 	}
+}
+
+// writeSnapshot 向 SSE 客户端写入权威快照序列：snapshot_start -> task_upserts -> snapshot_end
+func (h *Handler) writeSnapshot(w http.ResponseWriter, flusher http.Flusher, authCtx AuthContext) {
+	tasks, gen := h.svc.GetSnapshotWithGeneration(authCtx.KeyID, authCtx.IsMaster)
+	currentSeq := h.hub.CurrentSeqID()
+
+	tenantScope := authCtx.KeyID
+	if authCtx.IsMaster {
+		tenantScope = "*"
+	}
+
+	// 下发 snapshot_start
+	startFrame, _ := json.Marshal(map[string]interface{}{
+		"type":       "snapshot_start",
+		"generation": gen,
+		"tenant":     tenantScope,
+		"isMaster":   authCtx.IsMaster,
+		"count":      len(tasks),
+	})
+	startEv := monitor.SSEEvent{
+		ID:   currentSeq,
+		Type: "snapshot_start",
+		Data: string(startFrame),
+	}
+	fmt.Fprint(w, startEv.FormatSSE())
+
+	taskIDs := make([]string, 0, len(tasks))
+	taskKeys := make([]string, 0, len(tasks))
+	for _, t := range tasks {
+		taskIDs = append(taskIDs, t.ID)
+		taskKeys = append(taskKeys, t.TaskKey().String())
+		tData, _ := json.Marshal(t)
+		upsertEv := monitor.SSEEvent{
+			ID:   currentSeq,
+			Type: "task_upsert",
+			Data: string(tData),
+		}
+		fmt.Fprint(w, upsertEv.FormatSSE())
+	}
+
+	// 下发 snapshot_end，携带权威全量 ID 与 Key 集合
+	endFrame, _ := json.Marshal(map[string]interface{}{
+		"type":       "snapshot_end",
+		"generation": gen,
+		"tenant":     tenantScope,
+		"isMaster":   authCtx.IsMaster,
+		"taskIds":    taskIDs,
+		"taskKeys":   taskKeys,
+		"count":      len(tasks),
+	})
+	endEv := monitor.SSEEvent{
+		ID:   currentSeq,
+		Type: "snapshot_end",
+		Data: string(endFrame),
+	}
+	fmt.Fprint(w, endEv.FormatSSE())
+	flusher.Flush()
 }
 
 // HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。

@@ -75,6 +75,7 @@ type ServiceMetrics struct {
 	ActiveTasksCount     int    `json:"active_tasks_count"`
 	TenantsCount         int    `json:"tenants_count"`
 	SSEClientsCount      int    `json:"sse_clients_count"`
+	SSEDroppedTotal      uint64 `json:"sse_dropped_total"`
 	QuarantineFilesCount int    `json:"quarantine_files_count"`
 }
 
@@ -771,8 +772,10 @@ func (s *MonitorService) Metrics() ServiceMetrics {
 	s.mu.RUnlock()
 
 	var sseCount int
+	var sseDropped uint64
 	if s.hub != nil {
 		sseCount = s.hub.ClientCount()
+		sseDropped = s.hub.DroppedEvents()
 	}
 
 	var quarantineCount int
@@ -790,6 +793,7 @@ func (s *MonitorService) Metrics() ServiceMetrics {
 		ActiveTasksCount:     tasksCount,
 		TenantsCount:         tenantsCount,
 		SSEClientsCount:      sseCount,
+		SSEDroppedTotal:      sseDropped,
 		QuarantineFilesCount: quarantineCount,
 	}
 }
@@ -908,7 +912,7 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(keyID, string(msgJSON))
+			s.hub.BroadcastEvent("delete_tasks", keyID, string(msgJSON))
 		}
 	}
 
@@ -934,7 +938,7 @@ func (s *MonitorService) forgetTask(key task.TaskKey, version uint64) {
 			"generation":  gen,
 		}
 		if msgJSON, err := json.Marshal(delEvent); err == nil {
-			s.hub.BroadcastTenant(key.TenantID, string(msgJSON))
+			s.hub.BroadcastEvent("delete_tasks", key.TenantID, string(msgJSON))
 		}
 	}
 }

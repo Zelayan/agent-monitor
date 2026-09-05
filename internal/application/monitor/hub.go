@@ -1,6 +1,9 @@
 package monitor
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // ClientSubscription 记录客户端订阅的租户空间与权限模式。
 type ClientSubscription struct {
@@ -9,29 +12,65 @@ type ClientSubscription struct {
 	IsMaster bool   // 是否拥有全局 Master 视图
 }
 
-// HubMessage 封装广播消息与其所属的项目空间。
+// HubMessage 封装广播消息与其所属的项目空间与元数据。
 type HubMessage struct {
-	KeyID string
-	Data  string
+	ID    int64  // 单调递增事件序列 ID
+	Type  string // 事件类型 (如 task_upsert, delete_tasks)
+	KeyID string // 所属租户空间
+	Data  string // JSON 载荷
 }
 
-// Hub 负责 SSE 客户端连接生命周期管理与事件广播（支持多项目多租户隔离）。
+// Hub 负责 SSE 客户端连接生命周期管理、单调自增 ID 分配、环形缓冲区缓存与事件广播（支持多项目多租户隔离）。
 type Hub struct {
-	mu        sync.RWMutex
-	clients   map[chan string]ClientSubscription
-	addClient chan ClientSubscription
-	rmClient  chan chan string
-	broadcast chan HubMessage
+	mu            sync.RWMutex
+	clients       map[chan string]ClientSubscription
+	addClient     chan ClientSubscription
+	rmClient      chan chan string
+	broadcast     chan HubMessage
+	seqCounter    int64
+	ringBuffer    *RingBuffer
+	ringCap       int
+	droppedEvents uint64
 }
 
-// NewHub 创建一个广播中心。
+// NewHub 创建一个广播中心，默认环形缓冲容量为 512。
 func NewHub() *Hub {
-	return &Hub{
-		clients:   make(map[chan string]ClientSubscription),
-		addClient: make(chan ClientSubscription),
-		rmClient:  make(chan chan string),
-		broadcast: make(chan HubMessage, 100),
+	return NewHubWithCapacity(512)
+}
+
+// NewHubWithCapacity 创建指定环形缓冲区容量的广播中心。
+func NewHubWithCapacity(capacity int) *Hub {
+	if capacity <= 0 {
+		capacity = 512
 	}
+	return &Hub{
+		clients:    make(map[chan string]ClientSubscription),
+		addClient:  make(chan ClientSubscription),
+		rmClient:   make(chan chan string),
+		broadcast:  make(chan HubMessage, 200),
+		ringBuffer: NewRingBuffer(capacity),
+		ringCap:    capacity,
+	}
+}
+
+// NextSeqID 分配下一个全局单调递增事件 ID。
+func (h *Hub) NextSeqID() int64 {
+	return atomic.AddInt64(&h.seqCounter, 1)
+}
+
+// CurrentSeqID 返回当前最新的事件 ID。
+func (h *Hub) CurrentSeqID() int64 {
+	return atomic.LoadInt64(&h.seqCounter)
+}
+
+// DroppedEvents 返回因客户端通道满而被非阻塞丢弃的消息总数。
+func (h *Hub) DroppedEvents() uint64 {
+	return atomic.LoadUint64(&h.droppedEvents)
+}
+
+// RingBuffer 获取底层的环形缓冲区。
+func (h *Hub) RingBuffer() *RingBuffer {
+	return h.ringBuffer
 }
 
 // Run 启动广播中心事件循环，在独立 goroutine 中运行。
@@ -48,6 +87,18 @@ func (h *Hub) Run() {
 			close(ch)
 			h.mu.Unlock()
 		case msg := <-h.broadcast:
+			// 1. 存入环形缓冲区以便断线客户端无缝重放
+			event := SSEEvent{
+				ID:    msg.ID,
+				Type:  msg.Type,
+				KeyID: msg.KeyID,
+				Data:  msg.Data,
+			}
+			h.ringBuffer.Add(event)
+
+			// 2. 格式化为 SSE 协议数据帧
+			sseChunk := event.FormatSSE()
+
 			h.mu.RLock()
 			for ch, sub := range h.clients {
 				// 租户空间隔离：
@@ -56,8 +107,9 @@ func (h *Hub) Run() {
 				// 3. 普通租户客户端仅接收与其 KeyID 匹配的消息
 				if sub.IsMaster || sub.KeyID == "*" || msg.KeyID == "" || sub.KeyID == msg.KeyID {
 					select {
-					case ch <- msg.Data: // 非阻塞发送，避免慢客户端阻塞广播
+					case ch <- sseChunk: // 非阻塞发送，避免慢客户端阻塞广播
 					default:
+						atomic.AddUint64(&h.droppedEvents, 1)
 					}
 				}
 			}
@@ -73,7 +125,7 @@ func (h *Hub) Subscribe() chan string {
 
 // SubscribeTenant 注册一个绑定特定 KeyID 空间的 SSE 客户端通道。
 func (h *Hub) SubscribeTenant(keyID string, isMaster bool) chan string {
-	ch := make(chan string, 20)
+	ch := make(chan string, 50)
 	h.addClient <- ClientSubscription{
 		Ch:       ch,
 		KeyID:    keyID,
@@ -94,15 +146,49 @@ func (h *Hub) Unsubscribe(ch chan string) {
 	h.rmClient <- ch
 }
 
-// Broadcast 向所有客户端广播全局消息。
+// Broadcast 向所有客户端广播全局消息（默认使用 task_upsert 类型并自动生成单调 ID）。
 func (h *Hub) Broadcast(msg string) {
 	h.BroadcastTenant("", msg)
 }
 
-// BroadcastTenant 向指定租户/Key空间客户端广播消息（同时抄送 Master 客户端）。
+// BroadcastTenant 向指定租户/Key空间客户端广播消息（使用 task_upsert 类型并自动分配单调 ID）。
 func (h *Hub) BroadcastTenant(keyID string, msg string) {
-	select {
-	case h.broadcast <- HubMessage{KeyID: keyID, Data: msg}:
-	default:
+	h.BroadcastEvent("task_upsert", keyID, msg)
+}
+
+// BroadcastEvent 向指定租户广播特定类型事件，自动分配全局单调递增 Sequence ID。
+func (h *Hub) BroadcastEvent(eventType string, keyID string, msg string) {
+	if eventType == "" {
+		eventType = "task_upsert"
 	}
+	seqID := h.NextSeqID()
+	select {
+	case h.broadcast <- HubMessage{
+		ID:    seqID,
+		Type:  eventType,
+		KeyID: keyID,
+		Data:  msg,
+	}:
+	default:
+		atomic.AddUint64(&h.droppedEvents, 1)
+	}
+}
+
+// ReplayMissedEvents 为重连客户端拉取错过的事件流。
+// 如果 canReplay 为 true，返回当前租户匹配的待重放事件切片。
+// 如果 canReplay 为 false，表示错过事件已超出环形缓冲范围，客户端必须做 resync。
+func (h *Hub) ReplayMissedEvents(sinceID int64, keyID string, isMaster bool) ([]SSEEvent, bool) {
+	allMissed, ok := h.ringBuffer.EventsSince(sinceID)
+	if !ok {
+		return nil, false
+	}
+
+	// 针对当前租户过滤事件
+	var filtered []SSEEvent
+	for _, ev := range allMissed {
+		if isMaster || keyID == "*" || ev.KeyID == "" || ev.KeyID == keyID {
+			filtered = append(filtered, ev)
+		}
+	}
+	return filtered, true
 }
