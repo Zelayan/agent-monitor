@@ -62,7 +62,7 @@
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | **WP-20** | **Agent 适配成熟度模型与正式化**<br>(Claude Code / Aider 正式支持、Transcript 解析、Fail-Safe 自动化测试) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `wt-wp20` (已清理) | `Merged` | [#46](https://github.com/Zelayan/agent-monitor/pull/46) | 审查 [BLOCK] 已就地自愈，深拷贝隔离与别名覆盖验证通过，100% 绿灯 |
 | **WP-21** | **Cursor 多根工作区 Hook 管理**<br>(多根工作区遍历配置、Hook 冲突检测、无损 Diff 与撤销备份) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `wt-wp21` (已清理) | `Merged` | [#45](https://github.com/Zelayan/agent-monitor/pull/45) | `go test -race` 100% 绿灯，`npm test` 9/9 绿灯，AI Review [PASS]，0 BLOCK |
-| **WP-22** | **VSIX 跨平台内置二进制与分发**<br>(全平台交叉编译分发、按 OS/Arch 智能选择、执行权限与校验和) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `Pending` | - | 待启动 (可并发) |
+| **WP-22** | **VSIX 跨平台内置二进制与分发**<br>(全平台交叉编译分发、按 OS/Arch 智能选择、执行权限与校验和) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `In Review` | 待创建 | `go test -race` 100% 绿灯，`npm test` 18/18 绿灯，全平台 VSIX 打包与权限/校验和验证通过 |
 | **WP-23** | **扩展自诊断与自动化测试**<br>(Output Channel、自诊断健康命令、端口/版本/SSE 检测与自动化测试) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `../agent-monitor-worktrees/wt-wp23` | `Pending` | - | 待启动 |
 
 ---

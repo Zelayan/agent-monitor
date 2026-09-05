@@ -3,6 +3,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
 import { DaemonManager } from './daemonManager';
+export * from './binaryResolver';
 
 export const STANDARD_CURSOR_EVENTS = [
   'sessionStart',
