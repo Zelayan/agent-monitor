@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
-	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
 )
 
 var (
@@ -1076,8 +1075,8 @@ func (s *MonitorService) Metrics() ServiceMetrics {
 	}
 
 	var quarantineCount int
-	if jsonRepo, ok := s.repo.(*persistence.JSONRepository); ok && jsonRepo != nil {
-		quarantineCount = jsonRepo.QuarantineStats().Count
+	if provider, ok := s.repo.(task.StorageMetricsProvider); ok && provider != nil {
+		quarantineCount = provider.QuarantineStatsCount()
 	}
 
 	return ServiceMetrics{
@@ -1102,7 +1101,14 @@ func (s *MonitorService) IsReady() bool {
 		return false
 	default:
 	}
-	return s.repo != nil
+	if s.repo == nil {
+		return false
+	}
+	// 管道满时视为非 Ready，为上游切流提供真实状态
+	if cap(s.persistChan) > 0 && len(s.persistChan) >= cap(s.persistChan) {
+		return false
+	}
+	return true
 }
 
 // GetAllTasks 返回当前所有任务的独立只读深拷贝副本。

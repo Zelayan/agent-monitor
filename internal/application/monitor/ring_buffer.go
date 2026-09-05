@@ -53,7 +53,7 @@ func (rb *RingBuffer) EventsSince(sinceID int64) ([]SSEEvent, bool) {
 	if rb.count == 0 {
 		// 环形缓冲尚无任何事件
 		if sinceID <= 0 {
-			return nil, true
+			return []SSEEvent{}, true
 		}
 		// 客户端带有 sinceID 但服务端空缓冲，说明服务端重启或 epoch 变更，必须全量对账
 		return nil, false
@@ -62,6 +62,21 @@ func (rb *RingBuffer) EventsSince(sinceID int64) ([]SSEEvent, bool) {
 	// 客户端已是最新
 	if sinceID >= rb.lastID {
 		return []SSEEvent{}, true
+	}
+
+	// 全新连接（sinceID <= 0）且缓冲未被覆盖（firstID <= 1），可直接全量重放
+	if sinceID <= 0 {
+		if rb.firstID <= 1 {
+			result := make([]SSEEvent, 0, rb.count)
+			startIdx := (rb.head - rb.count + rb.capacity) % rb.capacity
+			for i := 0; i < rb.count; i++ {
+				idx := (startIdx + i) % rb.capacity
+				result = append(result, rb.events[idx])
+			}
+			return result, true
+		}
+		// 缓冲区已发生过淘汰溢出，且客户端传入 sinceID <= 0，必须全量对账
+		return nil, false
 	}
 
 	// 客户端要求从 sinceID 开始，如果 sinceID 比最早能衔接的 ID 还老，无法重放

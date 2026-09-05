@@ -109,9 +109,11 @@ def get_local_git_diff(base: str = "origin/master", staged_only: bool = False) -
     diff_text = diff_res.stdout
 
     if not staged_only:
+        cached_diff = subprocess.run(["git", "diff", "--cached"], capture_output=True, text=True).stdout
         wt_diff = subprocess.run(["git", "diff"], capture_output=True, text=True).stdout
-        if wt_diff.strip():
-            diff_text += "\n" + wt_diff
+        extra_diff = (cached_diff + "\n" + wt_diff).strip()
+        if extra_diff:
+            diff_text += "\n" + extra_diff
 
     log_cmd = ["git", "log", "-n", "5", "--oneline"]
     log_res = subprocess.run(log_cmd, capture_output=True, text=True)

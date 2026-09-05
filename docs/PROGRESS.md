@@ -88,6 +88,7 @@
 | 2026-09-05 | WP-24 | CI & AI Review | 无阻断项 | 幂等全局指纹计算、环形内存缓冲区防重放、文件流水账追加与多租户隔离重放 API | 基于 SHA-256 提取确定性指纹，EventLogRingBuffer 维护单调自增序号，单 worker 管道持久化 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #49 已合入 | ✅ 已合入 |
 | 2026-09-05 | WP-25 | CI & AI Review | 无阻断项 | 时钟回拨单调递增校正、细粒度工具 TraceSpan 生命周期与超时挂起卡点启发式告警 | 自动检测并拉平时间戳回拨，跨工具生命周期计算精确耗时与 Span 快照，提供只读超时告警端点 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #50 已合入 | ✅ 已合入 |
 | 2026-09-05 | WP-26 | CI & AI Review | 无阻断项 | 多租户活跃任务上限限流 (HTTP 429)、历史会话 gzip/tar 冷归档与密钥路径脱敏导出 | 限制单租户活跃任务容量与僵尸过滤，0依赖流式打包 tar.gz，正则深拷贝安全脱敏导出 | `go test -race` 100% 全绿，CI AI Review [PASS]，PR #51 已合入 | ✅ 已合入 |
+| 2026-09-05 | Fix-Blockers | 全量历史审计自愈 | 修复历史 PR 审查留存建议与阻断项：PR #34（Application 反向 import persistence、隔离重命名错误处理、饱和度探针）、PR #36（Hub 广播入环并发时序、前端显式事件名兼容、RingBuffer sinceID 语义）、PR #39（英文 Markdown 导出重复标点、导出按钮字典绑定、特殊字符正则替换防护）、PR #18（Worktree hooks 目录识别与暂存区 diff 捕获） | 1. 引入 `task.StorageMetricsProvider` 领域度量接口解除反向依赖；2. 校验文件隔离重命名结果；3. `IsReady` 纳 persistent 通道饱水度；4. `BroadcastEvent` 同步写入环形缓冲消除时序洞；5. 前端优先读取 `e.type` 与解构任务包；6. 拆分 `mdRunItem` 消除 `#` 重复；7. `t()` 使用替换函数防止 `$` 特殊语义；8. `Makefile` 动态解析 git hooks 路径 | `go test -count=1 -race ./...` 100% 绿灯，`npm test` 20/20 绿灯，本地与云端审查全面消除历史遗留 Block | ✅ 已自愈 |
 
 ---
 

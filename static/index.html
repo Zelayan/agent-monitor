@@ -465,14 +465,14 @@
             <button type="button" id="btn-export-md" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-zinc-800 text-zinc-300 text-left transition-colors">
               <span class="text-amber-400 font-bold">M↓</span>
               <div class="flex flex-col">
-                <span class="text-[11px]">Markdown</span>
+                <span id="lbl-export-md-title" class="text-[11px]">Markdown</span>
                 <span id="lbl-export-md-desc" class="text-[9px] text-zinc-500">.md 文档报告</span>
               </div>
             </button>
             <button type="button" id="btn-export-json" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-zinc-800 text-zinc-300 text-left transition-colors">
               <span class="text-indigo-400 font-bold">{ }</span>
               <div class="flex flex-col">
-                <span class="text-[11px]">JSON</span>
+                <span id="lbl-export-json-title" class="text-[11px]">JSON</span>
                 <span id="lbl-export-json-desc" class="text-[9px] text-zinc-500">.json 原始快照</span>
               </div>
             </button>
@@ -899,6 +899,7 @@
         mdRootObjective: '原始总目标',
         mdRunHistory: '历史轮次',
         mdRunCol: '轮次',
+        mdRunItem: '轮次 #{idx}',
         mdStatusCol: '状态',
         mdDurationCol: '耗时',
         mdObjectiveCol: '执行目标',
@@ -1065,6 +1066,7 @@
         mdRootObjective: 'Original Root Objective',
         mdRunHistory: 'Run History',
         mdRunCol: 'Run #',
+        mdRunItem: 'Run #{idx}',
         mdStatusCol: 'Status',
         mdDurationCol: 'Duration',
         mdObjectiveCol: 'Objective',
@@ -1126,7 +1128,7 @@
       let str = (I18N[currentLang] && I18N[currentLang][key]) || (I18N.en && I18N.en[key]) || (I18N.zh && I18N.zh[key]) || key;
       if (params && typeof params === 'object') {
         Object.keys(params).forEach(k => {
-          str = str.replace(new RegExp('\\{' + k + '\\}', 'g'), params[k]);
+          str = str.replace(new RegExp('\\{' + k + '\\}', 'g'), () => String(params[k]));
         });
       }
       return str;
@@ -1283,8 +1285,12 @@
         lblFollowLatest.textContent = isFollowLatest ? t('btnFollowLatest') : t('followPaused');
         btnFollowLatest.title = isFollowLatest ? t('followingLatest') : t('followPaused');
       }
+      const lblMdTitle = document.getElementById('lbl-export-md-title');
+      if (lblMdTitle) lblMdTitle.textContent = t('btnExportMd');
       const lblMdDesc = document.getElementById('lbl-export-md-desc');
       if (lblMdDesc) lblMdDesc.textContent = t('exportMdDesc');
+      const lblJsonTitle = document.getElementById('lbl-export-json-title');
+      if (lblJsonTitle) lblJsonTitle.textContent = t('btnExportJson');
       const lblJsonDesc = document.getElementById('lbl-export-json-desc');
       if (lblJsonDesc) lblJsonDesc.textContent = t('exportJsonDesc');
       const pwaBtn = document.getElementById('btn-pwa-install');
@@ -3267,9 +3273,10 @@
             }
           }
           const data = JSON.parse(e.data);
+          const eventType = e.type || (data && data.type);
 
           // 0. 处理 resync_required 帧（缓冲区溢出或世代重置，准备接收权威全量快照）
-          if (data && data.type === 'resync_required') {
+          if (eventType === 'resync_required' || (data && data.type === 'resync_required')) {
             isSnapshotReconciling = true;
             snapshotSeenTaskKeys.clear();
             snapshotSeenTaskIds.clear();
@@ -3277,7 +3284,7 @@
           }
 
           // 1. 处理快照起始帧 (snapshot_start)
-          if (data && data.type === 'snapshot_start') {
+          if (eventType === 'snapshot_start' || (data && data.type === 'snapshot_start')) {
             isSnapshotReconciling = true;
             currentSseGeneration = data.generation || 0;
             snapshotSeenTaskKeys.clear();
@@ -3286,7 +3293,7 @@
           }
 
           // 2. 处理快照收口对账帧 (snapshot_end)
-          if (data && data.type === 'snapshot_end') {
+          if (eventType === 'snapshot_end' || (data && data.type === 'snapshot_end')) {
             isSnapshotReconciling = false;
             currentSseGeneration = data.generation || currentSseGeneration;
             const validIds = new Set(data.taskIds || []);
@@ -3320,7 +3327,7 @@
           }
 
           // 3. 处理后端 SSE 广播的删除事件 (delete_tasks)
-          if (data && data.type === 'delete_tasks' && Array.isArray(data.deletedIds)) {
+          if ((eventType === 'delete_tasks' || (data && data.type === 'delete_tasks')) && data && Array.isArray(data.deletedIds)) {
             if (data.generation && currentSseGeneration && data.generation < currentSseGeneration) {
               return; // 丢弃网络乱序延迟到达的旧世代删除事件
             }
@@ -3339,34 +3346,35 @@
             return;
           }
 
-          // 4. 普通任务增量更新或全量快照帧
-          if (data && data.id) {
+          // 4. 普通任务增量更新或全量快照帧 (task_upsert 或直接 data 包含 task 实体)
+          if (data && (data.id || (data.task && data.task.id))) {
+            const taskItem = data.id ? data : data.task;
             if (isSnapshotReconciling) {
-              snapshotSeenTaskIds.add(data.id);
-              if (data.keyId) snapshotSeenTaskKeys.add((data.keyId || 'default') + ':' + data.id);
-            } else if (data.generation && currentSseGeneration && data.generation < currentSseGeneration) {
+              snapshotSeenTaskIds.add(taskItem.id);
+              if (taskItem.keyId) snapshotSeenTaskKeys.add((taskItem.keyId || 'default') + ':' + taskItem.id);
+            } else if (taskItem.generation && currentSseGeneration && taskItem.generation < currentSseGeneration) {
               return; // 丢弃过期事件，杜绝乱序快照倒流
             }
-            if (data.generation && data.generation > currentSseGeneration) {
-              currentSseGeneration = data.generation;
+            if (taskItem.generation && taskItem.generation > currentSseGeneration) {
+              currentSseGeneration = taskItem.generation;
             }
-            const oldTask = tasksMap.get(data.id);
-            tasksMap.set(data.id, data);
-            if (data.keyId && !currentTenant) {
-              currentTenant = data.keyId;
+            const oldTask = tasksMap.get(taskItem.id);
+            tasksMap.set(taskItem.id, taskItem);
+            if (taskItem.keyId && !currentTenant) {
+              currentTenant = taskItem.keyId;
               updateAuthButtonUI();
             }
-            if (selectedId === data.id && isFollowLatest) {
-              const runs = getTaskRuns(data);
+            if (selectedId === taskItem.id && isFollowLatest) {
+              const runs = getTaskRuns(taskItem);
               selectedRunId = runs[runs.length - 1].index || runs.length;
               if (selectedId) refreshDrawer();
               syncURLState(false);
             }
             if (!isInitialLoad && oldTask && oldTask.status === 'running') {
-              if (data.status === 'completed') {
-                notifyTaskEvent(data, 'completed');
-              } else if (data.status === 'failed') {
-                notifyTaskEvent(data, 'failed');
+              if (taskItem.status === 'completed') {
+                notifyTaskEvent(taskItem, 'completed');
+              } else if (taskItem.status === 'failed') {
+                notifyTaskEvent(taskItem, 'failed');
               }
             }
             scheduleRender();
@@ -3851,14 +3859,14 @@
         const idx = r.index || r.runId || 1;
         const dur = typeof r.duration === 'number' ? formatSec(r.duration) : (r.duration || '-');
         const promptPreview = (r.prompt || r.title || '-').replace(/[\r\n]+/g, ' ').slice(0, 60);
-        md += `| **${t('mdRunCol')} #${idx}** | \`${(r.status || 'completed').toUpperCase()}\` | ${dur} | ${promptPreview} |\n`;
+        md += `| **${t('mdRunItem', { idx })}** | \`${(r.status || 'completed').toUpperCase()}\` | ${dur} | ${promptPreview} |\n`;
       });
       md += `\n---\n\n## 🔍 ${t('mdDetailedRuns')}\n\n`;
 
       runs.forEach(r => {
         const idx = r.index || r.runId || 1;
         const dur = typeof r.duration === 'number' ? formatSec(r.duration) : (r.duration || '-');
-        md += `### ${t('mdRunCol')} #${idx}: ${(r.status || 'COMPLETED').toUpperCase()} (${dur})\n\n`;
+        md += `### ${t('mdRunItem', { idx })}: ${(r.status || 'COMPLETED').toUpperCase()} (${dur})\n\n`;
 
         if (r.prompt || r.title) {
           md += `#### 🎯 ${t('mdPromptObjective')}\n\`\`\`text\n${r.prompt || r.title}\n\`\`\`\n\n`;

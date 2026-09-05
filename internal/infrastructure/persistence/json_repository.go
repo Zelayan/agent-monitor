@@ -84,11 +84,21 @@ func (r *JSONRepository) QuarantineStats() QuarantineStats {
 	return r.quarantineStat
 }
 
+// QuarantineStatsCount 满足 task.StorageMetricsProvider 接口，解耦 Application 层。
+func (r *JSONRepository) QuarantineStatsCount() int {
+	r.versionLock.RLock()
+	defer r.versionLock.RUnlock()
+	return r.quarantineStat.Count
+}
+
 // quarantineCorruptedFile 将损坏 JSON 移动到隔离目录，防止阻断服务启动。
 func (r *JSONRepository) quarantineCorruptedFile(path string, parseErr error) {
 	base := filepath.Base(path)
 	target := filepath.Join(r.quarantineDir, fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
-	_ = os.Rename(path, target)
+	if err := os.Rename(path, target); err != nil {
+		log.Printf("[Persistence] Error: failed to quarantine corrupted file %s to %s: %v", path, target, err)
+		return
+	}
 
 	r.versionLock.Lock()
 	r.quarantineStat.Count++
