@@ -92,6 +92,9 @@ var ErrHostMismatch = errors.New("host or boot mismatch: direct kill only permit
 const (
 	// DefaultMaxActiveTasksPerTenant 默认每个租户最大并发运行中的任务数
 	DefaultMaxActiveTasksPerTenant = 100
+
+	// ActiveTaskStaleThresholdMs 活跃任务无任何更新的判定超时阈值 (2小时)，防止僵死会话永久泄漏配额
+	ActiveTaskStaleThresholdMs int64 = 2 * 3600 * 1000
 )
 
 // PersistenceOp 表示持久化操作类型。
@@ -560,12 +563,22 @@ func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID 
 			return HookEventResult{Action: "allow"}, nil
 		}
 
-		// 检查租户并发活跃运行中任务配额
+		// 检查租户并发活跃运行中任务配额 (O(1) key 字段访问 + 僵死超时过滤防泄漏)
 		normTenant := task.NormalizeTenantID(p.KeyID)
 		if s.maxActiveTasksPerTenant > 0 {
 			activeCount := 0
-			for _, existing := range s.tasks {
-				if existing != nil && existing.TaskKey().TenantID == normTenant && existing.Status == "running" {
+			for k, existing := range s.tasks {
+				if existing != nil && k.TenantID == normTenant && existing.Status == "running" {
+					lastActive := existing.LastTimelineTimestamp
+					if lastActive == 0 {
+						lastActive = existing.ActiveRunStart
+					}
+					if lastActive == 0 {
+						lastActive = existing.StartTime
+					}
+					if lastActive > 0 && (nowMs-lastActive) > ActiveTaskStaleThresholdMs {
+						continue // 超过超时阈值未活跃的会话视为孤儿僵尸任务，不阻塞新会话接入
+					}
 					activeCount++
 				}
 			}
@@ -1245,6 +1258,8 @@ func (s *MonitorService) ArchiveTask(id string) (string, error) {
 func (s *MonitorService) ArchiveTaskTenant(id string, tenantKeyID string, isMaster bool) (string, error) {
 	s.mu.Lock()
 	targetKey, t, exists := s.findTaskLocked(id, tenantKeyID, isMaster)
+	var taskVer uint64
+	var latestSnapshot []byte
 	if exists {
 		if !isMaster && t.KeyID != "" && t.KeyID != tenantKeyID {
 			s.mu.Unlock()
@@ -1254,6 +1269,8 @@ func (s *MonitorService) ArchiveTaskTenant(id string, tenantKeyID string, isMast
 			s.mu.Unlock()
 			return "", fmt.Errorf("task %s is currently running; only completed or failed tasks can be archived", id)
 		}
+		taskVer = t.Version
+		latestSnapshot, _ = json.MarshalIndent(t, "", "  ")
 	} else {
 		if !isMaster {
 			normTenant := task.NormalizeTenantID(tenantKeyID)
@@ -1272,10 +1289,19 @@ func (s *MonitorService) ArchiveTaskTenant(id string, tenantKeyID string, isMast
 		return "", fmt.Errorf("repository is nil")
 	}
 
+	// 1. 同步预刷盘：若内存中存在最新状态，立即同步刷盘以保证打包数据绝对新鲜，消除与 persistChan 的时序竞态
+	if len(latestSnapshot) > 0 {
+		_ = s.repo.SaveRawKey(targetKey, latestSnapshot)
+	}
+
+	// 2. 执行打包并删除 raw 磁盘文件
 	archivePath, err := s.repo.ArchiveTask(targetKey)
 	if err != nil {
 		return "", err
 	}
+
+	// 3. 写入墓碑：压制并作废 persistChan 中可能正在排队写入的旧版本 Save 命令，杜绝已归档任务被滞后写“死而复生”
+	_ = s.repo.DeleteKeyVersioned(targetKey, taskVer+1)
 
 	s.mu.Lock()
 	delete(s.tasks, targetKey)

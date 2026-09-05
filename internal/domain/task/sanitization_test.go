@@ -62,6 +62,16 @@ func TestSanitizeString(t *testing.T) {
 			expected: `TOKEN='[REDACTED_SECRET]'`,
 		},
 		{
+			name:     "macOS home path normalization without trailing slash",
+			input:    "Working directory is /Users/developer",
+			expected: "Working directory is /Users/***USER***",
+		},
+		{
+			name:     "Linux home path normalization without trailing slash",
+			input:    "Current home is /home/ubuntu at end",
+			expected: "Current home is /home/***USER*** at end",
+		},
+		{
 			name:     "macOS home path normalization",
 			input:    "Read file at /Users/developer/code/project/config.yaml",
 			expected: "Read file at /Users/***USER***/code/project/config.yaml",
@@ -198,5 +208,33 @@ func TestTask_Sanitize_DeepCopySafety(t *testing.T) {
 	var nilTask *Task
 	if nilTask.Sanitize() != nil {
 		t.Fatalf("nilTask.Sanitize() must return nil")
+	}
+}
+
+func TestTask_Sanitize_TurnsCompatibility(t *testing.T) {
+	// 针对仅反序列化出 Turns 而 Runs 为 nil 的历史对象测试脱敏
+	legacyTask := &Task{
+		ID: "sess-legacy-turns",
+		Turns: []Turn{
+			{
+				Index:  1,
+				Prompt: "Inspect secret api_key: sk-proj-1234567890abcdef1234567890 in /Users/johndoe",
+				Title:  "Turn title password=123456",
+			},
+		},
+	}
+
+	sanitized := legacyTask.Sanitize()
+	if sanitized.Runs == nil || len(sanitized.Runs) != 1 {
+		t.Fatalf("expected Runs to be aligned with Turns")
+	}
+	if strings.Contains(sanitized.Runs[0].Prompt, "sk-proj-") || strings.Contains(sanitized.Runs[0].Prompt, "johndoe") {
+		t.Fatalf("legacy Turns prompt not sanitized: %s", sanitized.Runs[0].Prompt)
+	}
+	if !strings.Contains(sanitized.Runs[0].Prompt, RedactedSecret) || !strings.Contains(sanitized.Runs[0].Prompt, "***USER***") {
+		t.Fatalf("legacy Turns missing redacted secret or user marker: %s", sanitized.Runs[0].Prompt)
+	}
+	if strings.Contains(sanitized.Runs[0].Title, "123456") {
+		t.Fatalf("legacy Turns title not sanitized: %s", sanitized.Runs[0].Title)
 	}
 }

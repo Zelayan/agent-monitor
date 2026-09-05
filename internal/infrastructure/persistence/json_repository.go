@@ -649,6 +649,10 @@ func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
 	_ = os.Remove(eventsPath)
 
 	r.versionLock.Lock()
+	r.tombstones[keyStr] = tombstoneItem{
+		version:   ^uint64(0) / 2, // 极大版本号墓碑，彻底压制并作废异步管道中滞后的 opSave
+		expiresAt: time.Now().Add(60 * time.Second),
+	}
 	delete(r.lastVersion, keyStr)
 	r.versionLock.Unlock()
 

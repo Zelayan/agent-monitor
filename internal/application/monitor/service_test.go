@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -1065,16 +1066,13 @@ func TestMonitorService_ArchiveTaskOrchestration(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 等待持久化队列排空
-	time.Sleep(50 * time.Millisecond)
-
 	// 4. 越权归档校验：非 Master 跨租户归档应拒绝
 	_, err = svc.ArchiveTaskTenant("sess-comp", "other-tenant", false)
 	if err == nil || !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected ErrPermissionDenied when other tenant attempts to archive, got: %v", err)
 	}
 
-	// 5. 合法归档 sess-comp
+	// 5. 合法归档 sess-comp (立即触发归档，检验与异步管道的竞态防御与墓碑压制)
 	archivePath, err := svc.ArchiveTaskTenant("sess-comp", tenantID, false)
 	if err != nil {
 		t.Fatalf("ArchiveTaskTenant failed: %v", err)
@@ -1082,6 +1080,17 @@ func TestMonitorService_ArchiveTaskOrchestration(t *testing.T) {
 	if !strings.HasSuffix(archivePath, ".tar.gz") {
 		t.Fatalf("expected .tar.gz archive path, got: %s", archivePath)
 	}
+
+	// 等待持久化队列充分排空
+	time.Sleep(100 * time.Millisecond)
+
+	// 验证已归档任务不会被排队的异步 opSave 滞后覆写复活
+	_ = filepath.Walk(tmpDir, func(p string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() && strings.HasSuffix(info.Name(), ".json") && strings.Contains(info.Name(), "sess-comp") {
+			t.Fatalf("archived task raw file revived by lagging persist: %s", p)
+		}
+		return nil
+	})
 
 	// 6. 验证任务已从内存 tasks map 中清除
 	if tObj := svc.GetTaskTenant("sess-comp", tenantID, false); tObj != nil {

@@ -23,11 +23,11 @@ var (
 	// regexBearer 匹配 HTTP Authorization Bearer Token
 	regexBearer = regexp.MustCompile(`(?i)\b(bearer\s+)[A-Za-z0-9\-_.]+\b`)
 
-	// regexMacUserPath 规范化 macOS 本机用户绝对路径 /Users/<user>/
-	regexMacUserPath = regexp.MustCompile(`(/Users/)[a-zA-Z0-9._-]+(/)`)
+	// regexMacUserPath 规范化 macOS 本机用户绝对路径 /Users/<user>/ 或 /Users/<user>
+	regexMacUserPath = regexp.MustCompile(`(/Users/)[a-zA-Z0-9._-]+(/|\b)`)
 
-	// regexLinuxUserPath 规范化 Linux 本机用户绝对路径 /home/<user>/
-	regexLinuxUserPath = regexp.MustCompile(`(/home/)[a-zA-Z0-9._-]+(/)`)
+	// regexLinuxUserPath 规范化 Linux 本机用户绝对路径 /home/<user>/ 或 /home/<user>
+	regexLinuxUserPath = regexp.MustCompile(`(/home/)[a-zA-Z0-9._-]+(/|\b)`)
 )
 
 // SanitizeString 对输入字符串执行敏感凭证、API 密钥及本地路径的脱敏清洗。
@@ -72,6 +72,10 @@ func (t *Task) Sanitize() *Task {
 	cp.Prompt = SanitizeString(cp.Prompt)
 	cp.Detail = SanitizeString(cp.Detail)
 	cp.AbortReason = SanitizeString(cp.AbortReason)
+
+	if cp.Runs == nil && cp.Turns != nil {
+		cp.Runs = cp.Turns
+	}
 
 	if cp.Runs != nil {
 		for i := range cp.Runs {
