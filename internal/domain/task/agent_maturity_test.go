@@ -42,6 +42,9 @@ func TestNormalizeAgentName(t *testing.T) {
 		{"zcode_cli", "ZCode", MaturityOfficial},
 		{"codex", "Codex CLI", MaturityOfficial},
 		{"codex desktop", "Codex Desktop", MaturityOfficial},
+		{"codex-desktop", "Codex Desktop", MaturityOfficial},
+		{"codex_desktop", "Codex Desktop", MaturityOfficial},
+		{"codex.app", "Codex Desktop", MaturityOfficial},
 		{"continue.dev", "Continue", MaturityBeta},
 		{"windsurf-cascade", "Windsurf", MaturityBeta},
 		{"trae_ide", "Trae", MaturityBeta},
@@ -60,19 +63,44 @@ func TestNormalizeAgentName(t *testing.T) {
 	}
 }
 
-func TestListAgentsByTier(t *testing.T) {
-	officials := ListAgentsByTier(MaturityOfficial)
-	if len(officials) < 5 {
-		t.Errorf("expected at least 5 Official agents (Cursor, ZCode, Codex CLI, Codex Desktop, Claude Code, Aider), got %d", len(officials))
+func TestAgentMaturitySpec_CloneIsolation(t *testing.T) {
+	// 验证 Clone 深拷贝切片，外部修改不会污染全局 defaultCatalog
+	spec1 := GetAgentSpec("Claude Code")
+	if len(spec1.HookTypes) == 0 {
+		t.Fatalf("expected non-empty HookTypes for Claude Code")
 	}
 
-	betas := ListAgentsByTier(MaturityBeta)
-	if len(betas) < 3 {
-		t.Errorf("expected at least 3 Beta agents (Continue, Windsurf, Trae), got %d", len(betas))
+	origHook := spec1.HookTypes[0]
+	spec1.HookTypes[0] = "MODIFIED_HOOK"
+
+	spec2 := GetAgentSpec("Claude Code")
+	if spec2.HookTypes[0] != origHook {
+		t.Errorf("expected spec2 to retain original hook %q, got %q (data race / state pollution detected)", origHook, spec2.HookTypes[0])
 	}
 
-	experimentals := ListAgentsByTier(MaturityExperimental)
-	if len(experimentals) < 1 {
-		t.Errorf("expected at least 1 Experimental agent, got %d", len(experimentals))
+		catalog := GetMaturityCatalog()
+		for _, s := range catalog {
+			if s.Name == "Claude Code" {
+				if s.HookTypes[0] != origHook {
+					t.Errorf("defaultCatalog was mutated! expected %q, got %q", origHook, s.HookTypes[0])
+				}
+			}
+		}
 	}
-}
+
+	func TestListAgentsByTier(t *testing.T) {
+		officials := ListAgentsByTier(MaturityOfficial)
+		if len(officials) < 5 {
+			t.Errorf("expected at least 5 Official agents (Cursor, ZCode, Codex CLI, Codex Desktop, Claude Code, Aider), got %d", len(officials))
+		}
+
+		betas := ListAgentsByTier(MaturityBeta)
+		if len(betas) < 3 {
+			t.Errorf("expected at least 3 Beta agents (Continue, Windsurf, Trae), got %d", len(betas))
+		}
+
+		experimentals := ListAgentsByTier(MaturityExperimental)
+		if len(experimentals) < 1 {
+			t.Errorf("expected at least 1 Experimental agent, got %d", len(experimentals))
+		}
+	}

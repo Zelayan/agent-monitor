@@ -25,11 +25,21 @@ type AgentMaturitySpec struct {
 	HasToolFailure bool         `json:"hasToolFailure"`
 	HasMultiTurn   bool         `json:"hasMultiTurn"`
 	HasTranscript  bool         `json:"hasTranscript"`
-	HasFailSafe    bool         `json:"hasFailSafe"`
-	HookTypes      []string     `json:"hookTypes"`
-}
+		HasFailSafe    bool         `json:"hasFailSafe"`
+		HookTypes      []string     `json:"hookTypes"`
+	}
 
-// defaultCatalog 是 Agent Monitor 权威认证的 Agent 成熟度目录。
+	// Clone 返回 AgentMaturitySpec 的深拷贝副本，杜绝底层切片数据竞争与状态污染
+	func (s AgentMaturitySpec) Clone() AgentMaturitySpec {
+		cloned := s
+		if s.HookTypes != nil {
+			cloned.HookTypes = make([]string, len(s.HookTypes))
+			copy(cloned.HookTypes, s.HookTypes)
+		}
+		return cloned
+	}
+
+	// defaultCatalog 是 Agent Monitor 权威认证的 Agent 成熟度目录。
 var defaultCatalog = []AgentMaturitySpec{
 	// --- Official Agents ---
 	{
@@ -168,10 +178,12 @@ var defaultCatalog = []AgentMaturitySpec{
 	},
 }
 
-// GetMaturityCatalog 返回系统支持的全部 Agent 成熟度规格画像列表。
+// GetMaturityCatalog 返回系统支持的全部 Agent 成熟度规格画像列表（深拷贝）。
 func GetMaturityCatalog() []AgentMaturitySpec {
 	copied := make([]AgentMaturitySpec, len(defaultCatalog))
-	copy(copied, defaultCatalog)
+	for i, spec := range defaultCatalog {
+		copied[i] = spec.Clone()
+	}
 	return copied
 }
 
@@ -183,7 +195,7 @@ func NormalizeAgentName(raw string) string {
 		return "Cursor Agent"
 	case strings.Contains(lower, "zcode"):
 		return "ZCode"
-	case strings.Contains(lower, "codex desktop") || strings.Contains(lower, "codex.app"):
+	case strings.Contains(lower, "codex desktop") || strings.Contains(lower, "codex-desktop") || strings.Contains(lower, "codex_desktop") || strings.Contains(lower, "codex.app"):
 		return "Codex Desktop"
 	case strings.Contains(lower, "codex"):
 		return "Codex CLI"
@@ -216,12 +228,12 @@ func ResolveAgentMaturity(agentName string) MaturityTier {
 	return MaturityExperimental
 }
 
-// GetAgentSpec 获取指定 Agent 的完整成熟度规格配置。
+// GetAgentSpec 获取指定 Agent 的完整成熟度规格配置（深拷贝副本）。
 func GetAgentSpec(agentName string) AgentMaturitySpec {
 	norm := NormalizeAgentName(agentName)
 	for _, spec := range defaultCatalog {
 		if strings.EqualFold(spec.Name, norm) || strings.EqualFold(spec.DisplayName, norm) || strings.EqualFold(spec.ID, norm) {
-			return spec
+			return spec.Clone()
 		}
 	}
 	// 兜底返回 Experimental 规格
@@ -240,12 +252,12 @@ func GetAgentSpec(agentName string) AgentMaturitySpec {
 	}
 }
 
-// ListAgentsByTier 获取指定成熟度等级的所有 Agent 规格列表。
+// ListAgentsByTier 获取指定成熟度等级的所有 Agent 规格列表（深拷贝副本）。
 func ListAgentsByTier(tier MaturityTier) []AgentMaturitySpec {
 	var results []AgentMaturitySpec
 	for _, spec := range defaultCatalog {
 		if spec.Tier == tier {
-			results = append(results, spec)
+			results = append(results, spec.Clone())
 		}
 	}
 	return results
