@@ -3365,16 +3365,16 @@
               updateAuthButtonUI();
             }
             if (selectedId === taskItem.id && isFollowLatest) {
-              const runs = getTaskRuns(data);
+              const runs = getTaskRuns(taskItem);
               selectedRunId = runs[runs.length - 1].index || runs.length;
               if (selectedId) refreshDrawer();
               syncURLState(false);
             }
             if (!isInitialLoad && oldTask && oldTask.status === 'running') {
-              if (data.status === 'completed') {
-                notifyTaskEvent(data, 'completed');
-              } else if (data.status === 'failed') {
-                notifyTaskEvent(data, 'failed');
+              if (taskItem.status === 'completed') {
+                notifyTaskEvent(taskItem, 'completed');
+              } else if (taskItem.status === 'failed') {
+                notifyTaskEvent(taskItem, 'failed');
               }
             }
             scheduleRender();
