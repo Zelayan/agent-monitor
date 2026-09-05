@@ -56,16 +56,15 @@
 
 ---
 
-## 3. Phase 4 工作包矩阵 (当前执行阶段)
+## 3. Phase 5 工作包矩阵 (当前执行阶段)
 
-> **本阶段重点**：扩大可正式支持的 Agent 类型并提升 Cursor 插件开箱即用与诊断能力。
+> **本阶段重点**：构建面向高并发与生产运维的 Agent APM（应用性能监视）平台化能力。
 
 | WP 编号 | 任务名称 | 架构目录 | 负责 Agent / 分支 | 隔离 Worktree | 当前状态 | PR 链接 | 质量门禁与审查结论 |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-20** | **Agent 适配成熟度模型与正式化**<br>(Claude Code / Aider 正式支持、Transcript 解析、Fail-Safe 自动化测试) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `wt-wp20` (已清理) | `Merged` | [#46](https://github.com/Zelayan/agent-monitor/pull/46) | 审查 [BLOCK] 已就地自愈，深拷贝隔离与别名覆盖验证通过，100% 绿灯 |
-| **WP-21** | **Cursor 多根工作区 Hook 管理**<br>(多根工作区遍历配置、Hook 冲突检测、无损 Diff 与撤销备份) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `wt-wp21` (已清理) | `Merged` | [#45](https://github.com/Zelayan/agent-monitor/pull/45) | `go test -race` 100% 绿灯，`npm test` 9/9 绿灯，AI Review [PASS]，0 BLOCK |
-| **WP-22** | **VSIX 跨平台内置二进制与分发**<br>(全平台交叉编译分发、按 OS/Arch 智能选择、执行权限与校验和) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `wt-wp22` (已清理) | `Merged` | [#47](https://github.com/Zelayan/agent-monitor/pull/47) | `go test -race` 100% 绿灯，`npm test` 18/18 绿灯，AI Review [PASS]，全平台 VSIX 打包与权限/校验和通过 |
-| **WP-23** | **扩展自诊断与自动化测试**<br>(Output Channel、自诊断健康命令、端口/版本/SSE 检测与自动化测试) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `wt-wp23` (已清理) | `Merged` | [#48](https://github.com/Zelayan/agent-monitor/pull/48) | `go test -race` 100% 绿灯，`npm test` 20/20 绿灯，AI Review [PASS]，0 BLOCK |
+| **WP-24** | **幂等 Event Log 与会话时序重放引擎**<br>(事件唯一键生成、幂等上报去重、单会话离线时序重放 API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Pending` | - | 待启动 (并发) |
+| **WP-25** | **Reporter 乱序检测与 Trace Span 耗时卡点诊断**<br>(事件时间戳倒流校正、工具调用细粒度 Span 计算、卡死卡点启发式告警) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `Pending` | - | 待启动 (并发) |
+| **WP-26** | **多租户会话配额、历史归档与敏感日志脱敏审计**<br>(租户空间任务配额超限保护、历史完成会话冷归档压缩、Prompt/Token 脱敏导出) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `Pending` | - | 待启动 (并发) |
 
 ---
 

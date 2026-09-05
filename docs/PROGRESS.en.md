@@ -44,7 +44,7 @@ This document serves as the single source of truth for persistent progress track
 
 ---
 
-## 2. Historical Phase Archive (Phase 0 ~ Phase 3)
+## 2. Historical Phase Archive (Phase 0 ~ Phase 4)
 
 | Phase | Core Goal | Work Packages | Delivered PR | Status |
 | :--- | :--- | :--- | :--- | :---: |
@@ -56,16 +56,15 @@ This document serves as the single source of truth for persistent progress track
 
 ---
 
-## 3. Phase 4 Work Package Matrix (Current Phase)
+## 3. Phase 5 Work Package Matrix (Current Phase)
 
-> **Key Focus**: Expand officially supported AI coding agents and elevate the Cursor extension out-of-the-box reliability and diagnostic tooling.
+> **Key Focus**: Build enterprise-grade Agent APM (Application Performance Monitoring) platform capabilities for high-concurrency production workflows.
 
 | WP ID | Work Package | Directory Scope | Responsible Agent / Branch | Worktree Path | Current Status | PR Link | Quality Gate & Review Verdict |
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
-| **WP-20** | **Agent Maturity Model & Official Adapters**<br>(Claude Code & Aider official tier, transcript extraction, fail-safe test fixtures) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `wt-wp20` (cleaned) | `Merged` | [#46](https://github.com/Zelayan/agent-monitor/pull/46) | Review [BLOCK] self-healed in-place with deep clone isolation & alias coverage, 100% green |
-| **WP-21** | **Cursor Multi-Root Workspace Hook Management**<br>(Multi-root workspace traversal, hook conflict prevention, diff preview & backup) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `wt-wp21` (cleaned) | `Merged` | [#45](https://github.com/Zelayan/agent-monitor/pull/45) | `go test -race` 100% green, `npm test` 9/9 pass, AI Review [PASS], 0 BLOCK |
-| **WP-22** | **VSIX Cross-Platform Binary Bundling**<br>(Cross-platform build pipeline, OS/Arch binary resolution, permissions & checksums) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `wt-wp22` (cleaned) | `Merged` | [#47](https://github.com/Zelayan/agent-monitor/pull/47) | `go test -race` 100% green, `npm test` 18/18 green, AI Review [PASS], full cross-platform VSIX package & checksum verified |
-| **WP-23** | **Extension Diagnostic Tooling & Automated Tests**<br>(Daemon output channel, health check command, TS unit & extension host tests) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `wt-wp23` (cleaned) | `Merged` | [#48](https://github.com/Zelayan/agent-monitor/pull/48) | `go test -race` 100% green, `npm test` 20/20 green, AI Review [PASS], 0 BLOCK |
+| **WP-24** | **Idempotent Event Log & Temporal Session Replay Engine**<br>(Event unique keys, idempotent deduplication, offline session replay API) | `internal/domain/task`<br>`internal/infrastructure/persistence`<br>`internal/infrastructure/transport/http` | PR-Subagent-24<br>`feat/apm-idempotent-eventlog-replay` | `../agent-monitor-worktrees/wt-wp24` | `Pending` | - | Ready to start (Parallelizable) |
+| **WP-25** | **Reporter Out-of-Order Detection & Trace Span Latency Diagnosis**<br>(Event clock-skew adjustment, fine-grained tool call duration spans, heuristic stuck alerts) | `internal/reporter`<br>`internal/domain/task` | PR-Subagent-25<br>`feat/apm-trace-span-anomaly` | `../agent-monitor-worktrees/wt-wp25` | `Pending` | - | Ready to start (Parallelizable) |
+| **WP-26** | **Multi-Tenant Quotas, Cold Archival & Sanitized Audit Exports**<br>(Per-tenant task capacity limits, completed task cold compression archival, Prompt/Token redaction) | `internal/application/monitor`<br>`internal/infrastructure/persistence` | PR-Subagent-26<br>`feat/apm-quota-archive-sanitization` | `../agent-monitor-worktrees/wt-wp26` | `Pending` | - | Ready to start (Parallelizable) |
 
 ---
 
