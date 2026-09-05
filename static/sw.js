@@ -1,21 +1,25 @@
 // AGENT MONITOR Service Worker
-const CACHE_NAME = 'agent-monitor-v1';
+const CACHE_NAME = 'agent-monitor-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/static/vendor/tailwind.js',
   '/static/vendor/marked.min.js',
   '/static/vendor/purify.min.js',
+  '/static/vendor/fonts/inter.woff2',
+  '/static/vendor/fonts/jetbrains-mono.woff2',
   '/static/icons/icon.svg',
   '/static/icons/icon-192.png',
-  '/static/icons/icon-512.png'
+  '/static/icons/icon-512.png',
+  '/static/icons/icon-maskable-192.png',
+  '/static/icons/icon-maskable-512.png'
 ];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(STATIC_ASSETS);
-    }).then(() => self.skipWaiting())
+    })
   );
 });
 
@@ -31,6 +35,12 @@ self.addEventListener('activate', (event) => {
       );
     }).then(() => self.clients.claim())
   );
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.action === 'skipWaiting') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {

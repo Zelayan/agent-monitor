@@ -278,6 +278,12 @@
           EN
         </button>
 
+        <!-- PWA 安装应用按钮 (支持 beforeinstallprompt 安装入口) -->
+        <button id="btn-pwa-install" type="button" class="hidden h-7 px-2 rounded border border-indigo-600/60 bg-indigo-950/30 text-indigo-300 hover:bg-indigo-900/50 flex items-center gap-1.5 transition-colors font-mono text-[11px]" title="安装应用" aria-label="安装应用">
+          <svg class="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          <span id="lbl-pwa-install" class="hidden sm:inline">安装</span>
+        </button>
+
         <!-- 桌面通知开关 -->
         <button id="btn-notify" type="button" class="h-7 w-7 rounded border border-line bg-card flex items-center justify-center text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors" title="桌面通知">
           <svg id="icon-notify-on" class="w-3.5 h-3.5 hidden text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
@@ -310,6 +316,11 @@
               <span id="lbl-act-select">开启批量选择清理...</span>
               <span class="text-[9px] text-zinc-500">Batch</span>
             </button>
+            <div class="my-1 border-t border-line"></div>
+            <button type="button" id="btn-action-clear-offline" class="w-full flex items-center justify-between px-2.5 py-1.5 rounded hover:bg-zinc-800/80 text-zinc-400 hover:text-zinc-200 text-left transition-colors">
+              <span id="lbl-act-clear-offline">清除离线缓存</span>
+              <span class="text-[9px] text-zinc-500">Cache</span>
+            </button>
           </div>
         </div>
       </div>
@@ -336,6 +347,41 @@
           <button type="button" id="btn-batch-cancel" class="px-2 py-1 rounded text-zinc-400 hover:text-zinc-200 text-[11px]">
             退出
           </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- PWA 版本更新横幅 (New Version Banner) -->
+    <div id="sw-update-banner" class="hidden border-t border-indigo-900/60 bg-indigo-950/80 px-3 sm:px-4 py-1.5 transition-all">
+      <div class="max-w-[1440px] mx-auto flex items-center justify-between gap-2 text-xs font-mono text-indigo-200">
+        <div class="flex items-center gap-2 min-w-0">
+          <svg class="w-3.5 h-3.5 text-indigo-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/>
+          </svg>
+          <span id="lbl-sw-update-msg" class="truncate">检测到新版本可用</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="btn-sw-update-refresh" type="button" class="h-6 px-2.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-mono text-[11px] font-medium transition-colors shadow-sm">
+            刷新更新
+          </button>
+          <button id="btn-sw-update-dismiss" type="button" class="h-6 w-6 rounded hover:bg-indigo-900/60 text-indigo-400 hover:text-indigo-200 flex items-center justify-center text-xs transition-colors" title="Dismiss" aria-label="Dismiss">
+            ✕
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 离线只读模式横幅 (Offline Read-only Banner) -->
+    <div id="offline-banner" class="hidden border-t border-amber-900/60 bg-amber-950/75 px-3 sm:px-4 py-1.5 transition-all">
+      <div class="max-w-[1440px] mx-auto flex items-center justify-between gap-2 text-xs font-mono text-amber-200">
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0"></span>
+          <span id="lbl-offline-title" class="font-semibold text-amber-300">离线模式 (只读)</span>
+          <span class="text-amber-500/60">—</span>
+          <span id="lbl-offline-sync" class="text-amber-400/80 text-[11px] truncate">上次同步: 从未</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <span class="text-[10px] text-amber-400/80 border border-amber-700/60 bg-amber-900/30 px-1.5 py-0.5 rounded font-mono uppercase tracking-wider">READ-ONLY</span>
         </div>
       </div>
     </div>
@@ -666,6 +712,30 @@
             <span id="auth-status-hint" class="text-zinc-500"></span>
           </div>
         </div>
+
+        <!-- 离线存储与快照管理分区 (WP-18) -->
+        <div class="border-t border-line/60 pt-3 space-y-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5 text-zinc-300 font-mono text-xs font-medium">
+              <svg class="w-3.5 h-3.5 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                <path d="M3 12c0 1.66 4 3 9 3s9-1.34 9-3"/>
+              </svg>
+              <span id="lbl-offline-storage-title">离线存储</span>
+            </div>
+            <span id="lbl-offline-cache-status" class="text-[10px] font-mono text-zinc-500">IndexedDB + SW</span>
+          </div>
+          <p id="lbl-offline-storage-desc" class="text-[11px] text-zinc-400 leading-relaxed font-sans">
+            本地保存当前项目空间的只读任务快照与静态资源。
+          </p>
+          <div class="flex items-center justify-between pt-0.5">
+            <button id="btn-clear-offline-cache" type="button" class="h-6 px-2 rounded border border-zinc-700 bg-zinc-800/80 hover:bg-zinc-700/80 text-zinc-300 hover:text-zinc-100 text-[10px] font-mono transition-colors flex items-center gap-1">
+              <svg class="w-3 h-3 text-zinc-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+              <span id="lbl-clear-offline-cache">清除离线缓存</span>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="flex items-center justify-between px-4 py-2.5 bg-[#111215] border-t border-[#27272a]">
         <button id="auth-modal-clear" type="button" class="h-7 px-2.5 rounded border border-rose-900/40 bg-rose-950/20 text-xs font-mono text-rose-400 hover:bg-rose-950/50 transition-colors">
@@ -838,6 +908,23 @@
         mdLifecycleBreadcrumbs: '生命周期轨迹',
         exportMdDesc: '.md 文档报告',
         exportJsonDesc: '.json 原始快照',
+        offlineMode: '离线模式 (只读)',
+        offlineLastSynced: '上次同步: {time}',
+        offlineNever: '从未',
+        offlineMutationDisabled: '离线模式下写操作已禁用',
+        onlineReconnected: '网络已恢复在线，正在对账同步...',
+        pwaInstall: '安装',
+        pwaInstallTitle: '将应用安装到桌面或主屏幕',
+        pwaInstalledSuccess: '应用已成功安装',
+        swUpdateAvailable: '检测到新版本可用',
+        swUpdateRefresh: '刷新更新',
+        swUpdateDismiss: '忽略',
+        offlineStorageTitle: '离线存储',
+        offlineStorageDesc: '本地保存当前项目空间的只读任务快照与静态资源。',
+        clearOfflineCache: '清除离线缓存',
+        clearOfflineCacheConfirm: '确定清除本地保存的所有离线快照与静态资源缓存吗？',
+        clearOfflineCacheSuccess: '离线缓存已清除',
+        actClearOffline: '清除离线缓存',
       },
       en: {
         htmlLang: 'en',
@@ -987,6 +1074,23 @@
         mdLifecycleBreadcrumbs: 'Lifecycle Breadcrumbs',
         exportMdDesc: '.md report document',
         exportJsonDesc: '.json raw snapshot',
+        offlineMode: 'Offline (Read-only)',
+        offlineLastSynced: 'Last synced: {time}',
+        offlineNever: 'Never',
+        offlineMutationDisabled: 'Mutations are disabled in offline mode',
+        onlineReconnected: 'Network reconnected. Synchronizing state...',
+        pwaInstall: 'Install',
+        pwaInstallTitle: 'Install app to desktop or home screen',
+        pwaInstalledSuccess: 'App was installed successfully',
+        swUpdateAvailable: 'New version available',
+        swUpdateRefresh: 'Refresh to Update',
+        swUpdateDismiss: 'Dismiss',
+        offlineStorageTitle: 'Offline Storage',
+        offlineStorageDesc: 'Locally persists read-only task snapshots and static assets.',
+        clearOfflineCache: 'Clear Offline Cache',
+        clearOfflineCacheConfirm: 'Are you sure you want to clear all locally cached snapshots and static assets?',
+        clearOfflineCacheSuccess: 'Offline cache cleared',
+        actClearOffline: 'Clear Offline Cache',
       },
     };
 
@@ -1183,6 +1287,31 @@
       if (lblMdDesc) lblMdDesc.textContent = t('exportMdDesc');
       const lblJsonDesc = document.getElementById('lbl-export-json-desc');
       if (lblJsonDesc) lblJsonDesc.textContent = t('exportJsonDesc');
+      const pwaBtn = document.getElementById('btn-pwa-install');
+      if (pwaBtn) pwaBtn.title = t('pwaInstallTitle');
+      const lblPwa = document.getElementById('lbl-pwa-install');
+      if (lblPwa) lblPwa.textContent = t('pwaInstall');
+      const lblOfflineTitle = document.getElementById('lbl-offline-title');
+      if (lblOfflineTitle) lblOfflineTitle.textContent = t('offlineMode');
+      const lblOfflineSync = document.getElementById('lbl-offline-sync');
+      if (lblOfflineSync && isOfflineMode) {
+        const syncTime = lastSavedSyncTime;
+        lblOfflineSync.textContent = syncTime
+          ? t('offlineLastSynced', { time: formatOfflineSyncTime(syncTime) })
+          : t('offlineLastSynced', { time: t('offlineNever') });
+      }
+      const lblSwUpdate = document.getElementById('lbl-sw-update-msg');
+      if (lblSwUpdate) lblSwUpdate.textContent = t('swUpdateAvailable');
+      const btnSwRefresh = document.getElementById('btn-sw-update-refresh');
+      if (btnSwRefresh) btnSwRefresh.textContent = t('swUpdateRefresh');
+      const lblActOffline = document.getElementById('lbl-act-clear-offline');
+      if (lblActOffline) lblActOffline.textContent = t('actClearOffline');
+      const lblStorageTitle = document.getElementById('lbl-offline-storage-title');
+      if (lblStorageTitle) lblStorageTitle.textContent = t('offlineStorageTitle');
+      const lblStorageDesc = document.getElementById('lbl-offline-storage-desc');
+      if (lblStorageDesc) lblStorageDesc.textContent = t('offlineStorageDesc');
+      const btnClearOffline = document.getElementById('lbl-clear-offline-cache');
+      if (btnClearOffline) btnClearOffline.textContent = t('clearOfflineCache');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -2477,9 +2606,15 @@
             btnAbort.classList.add('opacity-70', 'cursor-wait');
             btnAbort.disabled = true;
             if (lblAbort) lblAbort.textContent = t('statusAborting');
+          } else if (isOfflineMode) {
+            btnAbort.disabled = true;
+            btnAbort.title = t('offlineMutationDisabled');
+            btnAbort.classList.add('opacity-50', 'cursor-not-allowed');
+            if (lblAbort) lblAbort.textContent = t('drawerAbort');
           } else {
-            btnAbort.classList.remove('opacity-70', 'cursor-wait');
+            btnAbort.classList.remove('opacity-70', 'cursor-wait', 'opacity-50', 'cursor-not-allowed');
             btnAbort.disabled = false;
+            btnAbort.title = '';
             if (lblAbort) lblAbort.textContent = t('drawerAbort');
           }
         } else {
@@ -2491,8 +2626,30 @@
       if (btnKill) {
         if (task.status === 'running') {
           btnKill.classList.remove('hidden');
+          if (isOfflineMode) {
+            btnKill.disabled = true;
+            btnKill.title = t('offlineMutationDisabled');
+            btnKill.classList.add('opacity-50', 'cursor-not-allowed');
+          } else {
+            btnKill.disabled = false;
+            btnKill.title = t('drawerKill');
+            btnKill.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
         } else {
           btnKill.classList.add('hidden');
+        }
+      }
+
+      const btnDelSession = document.getElementById('btn-delete-session');
+      if (btnDelSession) {
+        if (isOfflineMode) {
+          btnDelSession.disabled = true;
+          btnDelSession.title = t('offlineMutationDisabled');
+          btnDelSession.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+          btnDelSession.disabled = false;
+          btnDelSession.title = t('drawerDel');
+          btnDelSession.classList.remove('opacity-50', 'cursor-not-allowed');
         }
       }
 
@@ -2537,6 +2694,288 @@
               btnSteerEl.className = 'h-6 px-2.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-[10px] font-medium transition-colors shrink-0';
             }
           }
+
+          if (isOfflineMode) {
+            if (btnSteerEl) {
+              btnSteerEl.disabled = true;
+              btnSteerEl.title = t('offlineMutationDisabled');
+              btnSteerEl.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+            if (inputSteerEl) {
+              inputSteerEl.disabled = true;
+              inputSteerEl.title = t('offlineMutationDisabled');
+              inputSteerEl.classList.add('opacity-50', 'cursor-not-allowed');
+            }
+          } else {
+            if (btnSteerEl) {
+              btnSteerEl.disabled = false;
+              btnSteerEl.title = '';
+              btnSteerEl.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+            if (inputSteerEl) {
+              inputSteerEl.disabled = false;
+              inputSteerEl.title = '';
+              inputSteerEl.classList.remove('opacity-50', 'cursor-not-allowed');
+            }
+          }
+        }
+      }
+    }
+
+    // ==========================================
+    // IndexedDB 离线任务快照与多租户分区存储 (WP-18)
+    // ==========================================
+    const OFFLINE_DB_NAME = 'agent_monitor_offline_db';
+    const OFFLINE_DB_VERSION = 1;
+    const OFFLINE_STORE_NAME = 'snapshots';
+    let offlineDbPromise = null;
+    let lastSavedSyncTime = null;
+    let debounceSaveOfflineTimer = null;
+    let isOfflineMode = false;
+
+    function openOfflineDB() {
+      if (offlineDbPromise) return offlineDbPromise;
+      if (typeof indexedDB === 'undefined') {
+        return Promise.resolve(null);
+      }
+      offlineDbPromise = new Promise((resolve) => {
+        try {
+          const req = indexedDB.open(OFFLINE_DB_NAME, OFFLINE_DB_VERSION);
+          req.onupgradeneeded = (e) => {
+            const db = e.target.result;
+            if (!db.objectStoreNames.contains(OFFLINE_STORE_NAME)) {
+              db.createObjectStore(OFFLINE_STORE_NAME, { keyPath: 'partitionKey' });
+            }
+          };
+          req.onsuccess = (e) => resolve(e.target.result);
+          req.onerror = () => {
+            console.warn('Failed to open IndexedDB for offline store');
+            resolve(null);
+          };
+          req.onblocked = () => {
+            console.warn('IndexedDB open blocked');
+            resolve(null);
+          };
+        } catch (_) {
+          resolve(null);
+        }
+      });
+      return offlineDbPromise;
+    }
+
+    async function getTenantPartitionKey() {
+      const t = (currentTenant || '').trim();
+      const k = (apiKey || '').trim();
+      if (!k && !t) {
+        return 'default:anon';
+      }
+      let keyHash = 'nokey';
+      if (k) {
+        try {
+          if (window.crypto && window.crypto.subtle) {
+            const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(k));
+            keyHash = Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16);
+          } else {
+            let h = 0x811c9dc5;
+            for (let i = 0; i < k.length; i++) {
+              h ^= k.charCodeAt(i);
+              h = Math.imul(h, 0x01000193);
+            }
+            keyHash = (h >>> 0).toString(16);
+          }
+        } catch (_) {
+          keyHash = 'hash_err';
+        }
+      }
+      return `tenant:${t || 'default'}:key:${keyHash}`;
+    }
+
+    function queueOfflineSnapshotSave() {
+      if (debounceSaveOfflineTimer) clearTimeout(debounceSaveOfflineTimer);
+      debounceSaveOfflineTimer = setTimeout(() => {
+        saveOfflineSnapshot();
+      }, 1000);
+    }
+
+    async function saveOfflineSnapshot() {
+      if (typeof indexedDB === 'undefined' || isOfflineMode) return;
+      const allTasks = Array.from(tasksMap.values());
+      if (allTasks.length === 0) return;
+
+      // 按最近活动时间倒序排序，截取最新的 100 个任务快照
+      const sortedTasks = allTasks.slice().sort((a, b) => {
+        const timeA = a.updatedAt || a.createdAt || (a.activeRunStart ? a.activeRunStart : 0);
+        const timeB = b.updatedAt || b.createdAt || (b.activeRunStart ? b.activeRunStart : 0);
+        return timeB - timeA;
+      }).slice(0, 100);
+
+      const partitionKey = await getTenantPartitionKey();
+      const db = await openOfflineDB();
+      if (!db) return;
+
+      const now = Date.now();
+      lastSavedSyncTime = now;
+
+      const record = {
+        partitionKey: partitionKey,
+        lastSyncTimestamp: now,
+        tenant: currentTenant || '',
+        taskCount: sortedTasks.length,
+        tasks: sortedTasks
+      };
+
+      try {
+        const tx = db.transaction(OFFLINE_STORE_NAME, 'readwrite');
+        const store = tx.objectStore(OFFLINE_STORE_NAME);
+        store.put(record);
+      } catch (err) {
+        console.warn('Failed to save offline snapshot to IndexedDB', err);
+      }
+    }
+
+    async function loadOfflineSnapshot() {
+      if (typeof indexedDB === 'undefined') return null;
+      const partitionKey = await getTenantPartitionKey();
+      const db = await openOfflineDB();
+      if (!db) return null;
+
+      return new Promise((resolve) => {
+        try {
+          const tx = db.transaction(OFFLINE_STORE_NAME, 'readonly');
+          const store = tx.objectStore(OFFLINE_STORE_NAME);
+          const req = store.get(partitionKey);
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        } catch (_) {
+          resolve(null);
+        }
+      });
+    }
+
+    async function clearAllOfflineSnapshots() {
+      if (typeof indexedDB !== 'undefined') {
+        const db = await openOfflineDB();
+        if (db) {
+          try {
+            const tx = db.transaction(OFFLINE_STORE_NAME, 'readwrite');
+            tx.objectStore(OFFLINE_STORE_NAME).clear();
+          } catch (_) {}
+        }
+        try {
+          indexedDB.deleteDatabase(OFFLINE_DB_NAME);
+          offlineDbPromise = null;
+        } catch (_) {}
+      }
+      if (typeof caches !== 'undefined') {
+        try {
+          const keys = await caches.keys();
+          for (const k of keys) {
+            if (k.startsWith('agent-monitor-')) {
+              await caches.delete(k);
+            }
+          }
+        } catch (_) {}
+      }
+      lastSavedSyncTime = null;
+    }
+
+    async function loadAndApplyOfflineSnapshot() {
+      const snapshot = await loadOfflineSnapshot();
+      if (snapshot && Array.isArray(snapshot.tasks) && snapshot.tasks.length > 0) {
+        if (tasksMap.size === 0) {
+          for (const t of snapshot.tasks) {
+            tasksMap.set(t.id, t);
+          }
+          scheduleRender();
+        }
+        setOfflineMode(true, snapshot.lastSyncTimestamp);
+        return true;
+      } else {
+        setOfflineMode(true, null);
+        return false;
+      }
+    }
+
+    function formatOfflineSyncTime(ts) {
+      if (!ts) return '';
+      try {
+        const locale = currentLang === 'zh' ? 'zh-CN' : 'en-US';
+        return new Intl.DateTimeFormat(locale, {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+          hour12: false
+        }).format(new Date(ts));
+      } catch (_) {
+        return new Date(ts).toLocaleTimeString();
+      }
+    }
+
+    function disableMutationControls(disabled) {
+      const mutationIds = [
+        'btn-drawer-kill',
+        'btn-drawer-abort',
+        'btn-delete-session',
+        'btn-drawer-steer',
+        'drawer-steer-input',
+        'btn-batch-delete',
+        'btn-action-clear-finished',
+        'btn-action-clear-all'
+      ];
+      mutationIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (disabled) {
+          el.setAttribute('data-offline-disabled', 'true');
+          if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+            el.disabled = true;
+          }
+          el.setAttribute('aria-disabled', 'true');
+          el.title = t('offlineMutationDisabled');
+          el.classList.add('opacity-50', 'cursor-not-allowed');
+        } else {
+          if (el.getAttribute('data-offline-disabled') === 'true') {
+            el.removeAttribute('data-offline-disabled');
+            if (el.tagName === 'BUTTON' || el.tagName === 'INPUT') {
+              el.disabled = false;
+            }
+            el.removeAttribute('aria-disabled');
+            el.classList.remove('opacity-50', 'cursor-not-allowed');
+          }
+        }
+      });
+      if (selectedId) refreshDrawer();
+      updateBatchUI();
+    }
+
+    function setOfflineMode(offline, lastSync) {
+      const wasOffline = isOfflineMode;
+      isOfflineMode = offline;
+      const banner = document.getElementById('offline-banner');
+      const syncEl = document.getElementById('lbl-offline-sync');
+      const titleEl = document.getElementById('lbl-offline-title');
+
+      if (offline) {
+        if (banner) banner.classList.remove('hidden');
+        if (titleEl) titleEl.textContent = t('offlineMode');
+        const syncTime = lastSync || lastSavedSyncTime;
+        if (syncEl) {
+          if (syncTime) {
+            const formatted = formatOfflineSyncTime(syncTime);
+            syncEl.textContent = t('offlineLastSynced', { time: formatted });
+          } else {
+            syncEl.textContent = t('offlineLastSynced', { time: t('offlineNever') });
+          }
+        }
+        disableMutationControls(true);
+        if (!wasOffline) {
+          announcePolite(t('offlineMode') + ' - ' + (syncEl ? syncEl.textContent : ''));
+        }
+      } else {
+        if (banner) banner.classList.add('hidden');
+        disableMutationControls(false);
+        if (wasOffline) {
+          announcePolite(t('onlineReconnected'));
         }
       }
     }
@@ -2676,11 +3115,21 @@
     function saveAuthKey() {
       const input = document.getElementById('auth-key-input');
       if (!input) return;
+      const oldKey = apiKey;
       apiKey = input.value.trim();
       if (apiKey) {
         localStorage.setItem('agent_monitor_api_key', apiKey);
       } else {
         localStorage.removeItem('agent_monitor_api_key');
+      }
+      if (oldKey !== apiKey) {
+        currentTenant = '';
+        tasksMap.clear();
+        searchIndexCache.clear();
+        columnCardCache.running.clear();
+        columnCardCache.completed.clear();
+        columnCardCache.failed.clear();
+        scheduleRender();
       }
       updateAuthButtonUI();
       closeAuthModal();
@@ -2689,9 +3138,16 @@
 
     function clearAuthKey() {
       apiKey = '';
+      currentTenant = '';
       localStorage.removeItem('agent_monitor_api_key');
       const input = document.getElementById('auth-key-input');
       if (input) input.value = '';
+      tasksMap.clear();
+      searchIndexCache.clear();
+      columnCardCache.running.clear();
+      columnCardCache.completed.clear();
+      columnCardCache.failed.clear();
+      scheduleRender();
       updateAuthButtonUI();
       closeAuthModal();
       connect();
@@ -2794,6 +3250,7 @@
       eventSource = new EventSource(sseUrl);
       eventSource.onopen = () => {
         setDaemon(true);
+        setOfflineMode(false);
         setTimeout(() => { isInitialLoad = false; }, 1200);
       };
 
@@ -2855,6 +3312,7 @@
             if (isInitialLoad) {
               restoreURLState();
             }
+            saveOfflineSnapshot();
             return;
           }
 
@@ -2874,6 +3332,7 @@
             if (selectedId && !tasksMap.has(selectedId)) closeDrawer();
             updateBatchUI();
             scheduleRender();
+            queueOfflineSnapshotSave();
             return;
           }
 
@@ -2908,6 +3367,7 @@
               }
             }
             scheduleRender();
+            queueOfflineSnapshotSave();
           }
         } catch (_) { /* ignore malformed frames */ }
       };
@@ -2922,6 +3382,11 @@
         setDaemon(false);
         eventSource.close();
         clearTimeout(reconnectTimer);
+        if (!navigator.onLine || tasksMap.size === 0) {
+          loadAndApplyOfflineSnapshot();
+        } else if (!navigator.onLine) {
+          setOfflineMode(true, lastSavedSyncTime);
+        }
         reconnectTimer = setTimeout(connect, 3000);
       };
     }
@@ -2996,6 +3461,10 @@
     // 1. 清空已完成与失败任务
     async function clearFinishedTasks() {
       toggleClearDropdown(false);
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       try {
         const resp = await apiFetch('/api/tasks', { method: 'DELETE' });
         const result = await resp.json();
@@ -3016,6 +3485,10 @@
     // 2. 清空全部任务（包括正在运行的会话）
     async function clearAllTasks() {
       toggleClearDropdown(false);
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const confirmed = await showConfirmModal({
         title: t('modalDangerTitle'),
         message: t('confirmDelAll'),
@@ -3040,6 +3513,10 @@
     // 3. 删除单个特定会话（抽屉内触发）
     async function deleteSingleSession(id) {
       if (!id) return;
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const confirmed = await showConfirmModal({
         title: t('modalConfirmTitle'),
         message: t('confirmDelSingle'),
@@ -3067,6 +3544,10 @@
     // 3.1 中断正在执行中的 Agent 会话
     async function abortSession(id) {
       if (!id) return;
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const tObj = tasksMap.get(id);
       if (!tObj || tObj.status !== 'running') return;
 
@@ -3103,6 +3584,10 @@
     // 3.2 强杀会话进程 (Hard Kill)
     async function killSession(id) {
       if (!id) return;
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const tObj = tasksMap.get(id);
       if (!tObj || tObj.status !== 'running') return;
 
@@ -3138,6 +3623,10 @@
     // 3.3 动态向当前活跃 Agent 注入上下文/指引 (Live Steer，支持定向子智能体)
     async function steerSession(id, message, targetInfo = {}) {
       if (!id || !message) return;
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const btnSteerEl = document.getElementById('btn-drawer-steer');
       if (btnSteerEl) btnSteerEl.disabled = true;
 
@@ -3283,6 +3772,10 @@
 
     async function deleteSelectedBatch() {
       if (selectedTaskIds.size === 0) return;
+      if (isOfflineMode) {
+        showToast(t('offlineMutationDisabled'), true);
+        return;
+      }
       const ids = Array.from(selectedTaskIds);
       const confirmed = await showConfirmModal({
         title: t('modalDangerTitle'),
@@ -3563,6 +4056,31 @@
     if (btnAuthSave) btnAuthSave.addEventListener('click', saveAuthKey);
     const btnAuthClear = document.getElementById('auth-modal-clear');
     if (btnAuthClear) btnAuthClear.addEventListener('click', clearAuthKey);
+
+    async function handleClearOfflineCache() {
+      const confirmed = await showConfirmModal({
+        title: t('modalConfirmTitle'),
+        message: t('clearOfflineCacheConfirm'),
+        confirmText: t('btnConfirm'),
+        cancelText: t('btnCancel'),
+        danger: false
+      });
+      if (!confirmed) return;
+      await clearAllOfflineSnapshots();
+      showToast(t('clearOfflineCacheSuccess'));
+    }
+
+    const btnClearOfflineCache = document.getElementById('btn-clear-offline-cache');
+    if (btnClearOfflineCache) {
+      btnClearOfflineCache.addEventListener('click', handleClearOfflineCache);
+    }
+    const btnActClearOffline = document.getElementById('btn-action-clear-offline');
+    if (btnActClearOffline) {
+      btnActClearOffline.addEventListener('click', () => {
+        toggleClearDropdown(false);
+        handleClearOfflineCache();
+      });
+    }
 
     const authShowKeyCb = document.getElementById('auth-show-key');
     if (authShowKeyCb) {
@@ -3906,12 +4424,125 @@
 
     resetTimerInterval();
     applyLanguageUI();
-    connect();
 
-    // PWA Service Worker 注册
+    // 离线/在线网络状态全局监听
+    window.addEventListener('offline', () => {
+      if (tasksMap.size === 0) {
+        loadAndApplyOfflineSnapshot();
+      } else {
+        setOfflineMode(true, lastSavedSyncTime);
+      }
+    });
+
+    window.addEventListener('online', () => {
+      setOfflineMode(false);
+      clearTimeout(reconnectTimer);
+      connect();
+    });
+
+    // PWA 应用安装生命周期 (beforeinstallprompt)
+    let deferredInstallPrompt = null;
+    const btnPwaInstall = document.getElementById('btn-pwa-install');
+
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      if (btnPwaInstall) {
+        btnPwaInstall.classList.remove('hidden');
+      }
+    });
+
+    window.addEventListener('appinstalled', () => {
+      deferredInstallPrompt = null;
+      if (btnPwaInstall) {
+        btnPwaInstall.classList.add('hidden');
+      }
+      showToast(t('pwaInstalledSuccess'));
+    });
+
+    if (btnPwaInstall) {
+      btnPwaInstall.addEventListener('click', async () => {
+        if (!deferredInstallPrompt) return;
+        deferredInstallPrompt.prompt();
+        try {
+          const choiceResult = await deferredInstallPrompt.userChoice;
+          if (choiceResult && choiceResult.outcome === 'accepted') {
+            deferredInstallPrompt = null;
+            btnPwaInstall.classList.add('hidden');
+          }
+        } catch (_) {}
+      });
+    }
+
+    // PWA Service Worker 版本更新横幅控制
+    let waitingServiceWorker = null;
+
+    function promptServiceWorkerUpdate(worker) {
+      waitingServiceWorker = worker;
+      const banner = document.getElementById('sw-update-banner');
+      if (banner) {
+        banner.classList.remove('hidden');
+        const msg = document.getElementById('lbl-sw-update-msg');
+        if (msg) msg.textContent = t('swUpdateAvailable');
+        const btn = document.getElementById('btn-sw-update-refresh');
+        if (btn) btn.textContent = t('swUpdateRefresh');
+      }
+    }
+
+    const btnSwRefresh = document.getElementById('btn-sw-update-refresh');
+    if (btnSwRefresh) {
+      btnSwRefresh.addEventListener('click', () => {
+        if (waitingServiceWorker) {
+          waitingServiceWorker.postMessage({ action: 'skipWaiting' });
+        } else {
+          window.location.reload();
+        }
+      });
+    }
+
+    const btnSwDismiss = document.getElementById('btn-sw-update-dismiss');
+    if (btnSwDismiss) {
+      btnSwDismiss.addEventListener('click', () => {
+        const banner = document.getElementById('sw-update-banner');
+        if (banner) banner.classList.add('hidden');
+      });
+    }
+
+    // 初始网络状态检测与挂载连接
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      loadAndApplyOfflineSnapshot();
+    } else {
+      connect();
+    }
+
+    // PWA Service Worker 注册与生命周期监听 (WP-18)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+        navigator.serviceWorker.register('/sw.js', { scope: '/' }).then((reg) => {
+          // 1. 如果已有处于 waiting 状态的 Service Worker
+          if (reg.waiting) {
+            promptServiceWorkerUpdate(reg.waiting);
+            return;
+          }
+          // 2. 监听是否有新的 Service Worker 正在安装
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            if (!newWorker) return;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                promptServiceWorkerUpdate(newWorker);
+              }
+            });
+          });
+        }).catch(() => {});
+
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
       });
     }
   </script>
