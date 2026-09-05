@@ -4466,13 +4466,12 @@
     if (btnPwaInstall) {
       btnPwaInstall.addEventListener('click', async () => {
         if (!deferredInstallPrompt) return;
-        deferredInstallPrompt.prompt();
+        const promptEvent = deferredInstallPrompt;
+        deferredInstallPrompt = null;
+        btnPwaInstall.classList.add('hidden');
         try {
-          const choiceResult = await deferredInstallPrompt.userChoice;
-          if (choiceResult && choiceResult.outcome === 'accepted') {
-            deferredInstallPrompt = null;
-            btnPwaInstall.classList.add('hidden');
-          }
+          await promptEvent.prompt();
+          await promptEvent.userChoice;
         } catch (_) {}
       });
     }
