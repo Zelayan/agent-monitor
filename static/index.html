@@ -420,14 +420,14 @@
               <span class="text-amber-400 font-bold">M↓</span>
               <div class="flex flex-col">
                 <span class="text-[11px]">Markdown</span>
-                <span class="text-[9px] text-zinc-500">.md 文档报告</span>
+                <span id="lbl-export-md-desc" class="text-[9px] text-zinc-500">.md 文档报告</span>
               </div>
             </button>
             <button type="button" id="btn-export-json" class="w-full flex items-center gap-2 px-2.5 py-1.5 rounded hover:bg-zinc-800 text-zinc-300 text-left transition-colors">
               <span class="text-indigo-400 font-bold">{ }</span>
               <div class="flex flex-col">
                 <span class="text-[11px]">JSON</span>
-                <span class="text-[9px] text-zinc-500">.json 原始快照</span>
+                <span id="lbl-export-json-desc" class="text-[9px] text-zinc-500">.json 原始快照</span>
               </div>
             </button>
           </div>
@@ -814,6 +814,30 @@
         followingLatest: '已跟随最新 Run',
         followPaused: '已暂停跟随',
         promptCopyUrl: '请复制当前视图链接:',
+        btnExportMd: 'Markdown 报告',
+        btnExportJson: 'JSON 数据',
+        mdReportTitle: '智能体工作流会话报告: {title}',
+        mdExportTime: '导出时间',
+        mdSessionId: '会话 ID',
+        mdAgent: '智能体',
+        mdStatus: '状态',
+        mdRepo: '代码仓库',
+        mdTotalLifetime: '总生命周期',
+        mdTotalRuns: '总轮次',
+        mdSessionOverview: '会话概览',
+        mdSessionGoal: '会话目标',
+        mdRootObjective: '原始总目标',
+        mdRunHistory: '历史轮次',
+        mdRunCol: '轮次',
+        mdStatusCol: '状态',
+        mdDurationCol: '耗时',
+        mdObjectiveCol: '执行目标',
+        mdDetailedRuns: '逐轮详细轨迹',
+        mdPromptObjective: '提示词 / 执行目标',
+        mdAIResponse: 'AI 回复与结果摘要',
+        mdLifecycleBreadcrumbs: '生命周期轨迹',
+        exportMdDesc: '.md 文档报告',
+        exportJsonDesc: '.json 原始快照',
       },
       en: {
         htmlLang: 'en',
@@ -939,6 +963,30 @@
         followingLatest: 'Following Latest Run',
         followPaused: 'Follow Paused',
         promptCopyUrl: 'Copy View URL:',
+        btnExportMd: 'Markdown Report',
+        btnExportJson: 'Raw JSON Data',
+        mdReportTitle: 'Agent Session Report: {title}',
+        mdExportTime: 'Export Time',
+        mdSessionId: 'Session ID',
+        mdAgent: 'Agent',
+        mdStatus: 'Status',
+        mdRepo: 'Repository',
+        mdTotalLifetime: 'Total Lifetime',
+        mdTotalRuns: 'Total Runs',
+        mdSessionOverview: 'Session Overview',
+        mdSessionGoal: 'Session Goal',
+        mdRootObjective: 'Original Root Objective',
+        mdRunHistory: 'Run History',
+        mdRunCol: 'Run #',
+        mdStatusCol: 'Status',
+        mdDurationCol: 'Duration',
+        mdObjectiveCol: 'Objective',
+        mdDetailedRuns: 'Detailed Runs Breakdown',
+        mdPromptObjective: 'Prompt / Objective',
+        mdAIResponse: 'AI Response & Summary',
+        mdLifecycleBreadcrumbs: 'Lifecycle Breadcrumbs',
+        exportMdDesc: '.md report document',
+        exportJsonDesc: '.json raw snapshot',
       },
     };
 
@@ -962,8 +1010,36 @@
     let reconnectTimer = null;
     let isOnline = true;
 
-    function t(key) {
-      return (I18N[currentLang] && I18N[currentLang][key]) || I18N.zh[key] || key;
+    function t(key, params = {}) {
+      let str = (I18N[currentLang] && I18N[currentLang][key]) || (I18N.en && I18N.en[key]) || (I18N.zh && I18N.zh[key]) || key;
+      if (params && typeof params === 'object') {
+        Object.keys(params).forEach(k => {
+          str = str.replace(new RegExp('\\{' + k + '\\}', 'g'), params[k]);
+        });
+      }
+      return str;
+    }
+
+    function formatNumber(num) {
+      try {
+        return new Intl.NumberFormat(currentLang === 'zh' ? 'zh-CN' : 'en-US').format(num);
+      } catch (_) {
+        return String(num);
+      }
+    }
+
+    function formatDateTime(date) {
+      try {
+        const d = (date instanceof Date) ? date : new Date(date);
+        if (isNaN(d.getTime())) return String(date);
+        return new Intl.DateTimeFormat(currentLang === 'zh' ? 'zh-CN' : 'en-US', {
+          year: 'numeric', month: '2-digit', day: '2-digit',
+          hour: '2-digit', minute: '2-digit', second: '2-digit',
+          hour12: false
+        }).format(d);
+      } catch (_) {
+        return String(date);
+      }
     }
 
     function postToCursorHost(action, payload) {
@@ -1095,6 +1171,10 @@
         lblFollowLatest.textContent = isFollowLatest ? t('btnFollowLatest') : t('followPaused');
         btnFollowLatest.title = isFollowLatest ? t('followingLatest') : t('followPaused');
       }
+      const lblMdDesc = document.getElementById('lbl-export-md-desc');
+      if (lblMdDesc) lblMdDesc.textContent = t('exportMdDesc');
+      const lblJsonDesc = document.getElementById('lbl-export-json-desc');
+      if (lblJsonDesc) lblJsonDesc.textContent = t('exportJsonDesc');
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -3098,50 +3178,50 @@
 
     function generateMarkdownSession(task) {
       const runs = getTaskRuns(task);
-      const exportDate = new Date().toISOString().replace('T', ' ').substring(0, 19);
+      const exportDate = formatDateTime(new Date());
       const title = sessionDisplayTitle(task);
       const rootGoal = (task.rootGoal || task.prompt || title).trim();
       const goalSummary = String(task.goalSummary || '').trim();
 
-      let md = `# Agent Session Report: ${title}\n\n`;
-      md += `> **Export Time**: ${exportDate}  \n`;
-      md += `> **Session ID**: \`${task.id}\`  \n`;
-      md += `> **Agent**: \`${task.agent || 'AI Agent'}\` | **Status**: \`${(task.status || '').toUpperCase()}\`  \n`;
-      md += `> **Repository**: \`${repoLabel(task)}\`  \n`;
-      md += `> **Total Lifetime**: \`${formatSec(task.totalLifetime || 0)}\` | **Total Runs**: \`${runs.length}\`\n\n`;
-      md += `---\n\n## 📋 Session Overview\n\n`;
+      let md = `# ${t('mdReportTitle', { title })}\n\n`;
+      md += `> **${t('mdExportTime')}**: ${exportDate}  \n`;
+      md += `> **${t('mdSessionId')}**: \`${task.id}\`  \n`;
+      md += `> **${t('mdAgent')}**: \`${task.agent || 'AI Agent'}\` | **${t('mdStatus')}**: \`${(task.status || '').toUpperCase()}\`  \n`;
+      md += `> **${t('mdRepo')}**: \`${repoLabel(task)}\`  \n`;
+      md += `> **${t('mdTotalLifetime')}**: \`${formatSec(task.totalLifetime || 0)}\` | **${t('mdTotalRuns')}**: \`${formatNumber(runs.length)}\`\n\n`;
+      md += `---\n\n## 📋 ${t('mdSessionOverview')}\n\n`;
       if (goalSummary) {
-        md += `**Session Goal:**\n> ${goalSummary}\n\n`;
-        md += `**Original Root Objective:**\n> ${rootGoal}\n\n`;
+        md += `**${t('mdSessionGoal')}:**\n> ${goalSummary}\n\n`;
+        md += `**${t('mdRootObjective')}:**\n> ${rootGoal}\n\n`;
       } else {
-        md += `**Root Objective:**\n> ${rootGoal}\n\n`;
+        md += `**${t('mdRootObjective')}:**\n> ${rootGoal}\n\n`;
       }
 
-      md += `### Run History\n`;
-      md += `| Run # | Status | Duration | Objective |\n`;
+      md += `### ${t('mdRunHistory')}\n`;
+      md += `| ${t('mdRunCol')} | ${t('mdStatusCol')} | ${t('mdDurationCol')} | ${t('mdObjectiveCol')} |\n`;
       md += `| :--- | :--- | :--- | :--- |\n`;
       runs.forEach(r => {
         const idx = r.index || r.runId || 1;
         const dur = typeof r.duration === 'number' ? formatSec(r.duration) : (r.duration || '-');
         const promptPreview = (r.prompt || r.title || '-').replace(/[\r\n]+/g, ' ').slice(0, 60);
-        md += `| **Run #${idx}** | \`${(r.status || 'completed').toUpperCase()}\` | ${dur} | ${promptPreview} |\n`;
+        md += `| **${t('mdRunCol')} #${idx}** | \`${(r.status || 'completed').toUpperCase()}\` | ${dur} | ${promptPreview} |\n`;
       });
-      md += `\n---\n\n## 🔍 Detailed Runs Breakdown\n\n`;
+      md += `\n---\n\n## 🔍 ${t('mdDetailedRuns')}\n\n`;
 
       runs.forEach(r => {
         const idx = r.index || r.runId || 1;
         const dur = typeof r.duration === 'number' ? formatSec(r.duration) : (r.duration || '-');
-        md += `### Run #${idx}: ${(r.status || 'COMPLETED').toUpperCase()} (${dur})\n\n`;
+        md += `### ${t('mdRunCol')} #${idx}: ${(r.status || 'COMPLETED').toUpperCase()} (${dur})\n\n`;
 
         if (r.prompt || r.title) {
-          md += `#### 🎯 Prompt / Objective\n\`\`\`text\n${r.prompt || r.title}\n\`\`\`\n\n`;
+          md += `#### 🎯 ${t('mdPromptObjective')}\n\`\`\`text\n${r.prompt || r.title}\n\`\`\`\n\n`;
         }
         if (r.aiResponse) {
-          md += `#### 🤖 AI Response & Summary\n\n${r.aiResponse.trim()}\n\n`;
+          md += `#### 🤖 ${t('mdAIResponse')}\n\n${r.aiResponse.trim()}\n\n`;
         }
         const events = (r.timeline || []).filter((e, i, arr) => i === 0 || e.desc !== arr[i - 1].desc);
         if (events.length > 0) {
-          md += `#### 🐾 Lifecycle Breadcrumbs\n`;
+          md += `#### 🐾 ${t('mdLifecycleBreadcrumbs')}\n`;
           events.forEach(e => {
             md += `- \`${e.time || '--:--:--'}\` **[${e.event || 'EVENT'}]** ${e.desc || ''}\n`;
           });
