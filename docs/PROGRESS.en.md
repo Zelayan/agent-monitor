@@ -9,11 +9,12 @@ This document serves as the single source of truth for persistent progress track
 ## 1. Global Overview & Collaboration Rules
 
 ### 1.1 Current Global Status
-- **Active Phase**: **Phase 4: Agent & Cursor Ecosystem Expansion** (Phase 0 through Phase 3 fully completed & archived)
-- **Master Baseline**: Commit `78c4d45` (PR #43 merged, 100% E2E tests green)
+- **Active Phase**: **Phase 4: Agent & Cursor Ecosystem Expansion is 100% COMPLETE & MERGED**
+- **Milestone Delivery**: All work packages across Phase 0 through Phase 4 (WP-1 to WP-23) are verified and merged into `master`.
+- **Master Baseline**: PR #48 merged, universal cross-platform VSIX pipeline and diagnostic tooling active.
 - **Quality Gate Baseline**:
   - Unit Tests & Race Detection: `go test -v -race ./...` (100% Pass, 0 Data Races)
-  - Strict Local Code Review: `make review-strict` (0 `[BLOCK]` issues)
+  - Extension Tests: `npm test` (20/20 Pass)
   - Self-Healing Requirement: Whenever a `[BLOCK]` issue is raised at any stage, the Subagent must analyze, refactor, eliminate the blocker in-place, and log the healing evidence in this document.
   - Automated Merge Authorization: Once both local reviews and remote CI checks (Test + AI Review) pass cleanly with 0 BLOCK, the PR is automatically squash-merged into `master`.
 
@@ -51,6 +52,7 @@ This document serves as the single source of truth for persistent progress track
 | **Phase 1** | Trusted Real-Time Pipeline | WP-1: Trusted Auth Identity Binding<br>WP-2: Composite Tenant Task Key (`TaskKey`)<br>WP-3: Ordered Persistence Command Stream & Graceful Drain<br>WP-4: SSE Snapshot Reconciliation & Trusted UI Operations<br>WP-5: Safe Kill & Process Group Control<br>WP-6: Strict HTTP & Typed Errors | [#24](https://github.com/Zelayan/agent-monitor/pull/24)<br>[#25](https://github.com/Zelayan/agent-monitor/pull/25)<br>[#26](https://github.com/Zelayan/agent-monitor/pull/26)<br>[#27](https://github.com/Zelayan/agent-monitor/pull/27)<br>[#28](https://github.com/Zelayan/agent-monitor/pull/28)<br>[#29](https://github.com/Zelayan/agent-monitor/pull/29) | ✅ Archived |
 | **Phase 2** | High-Frequency Efficiency & Ops | WP-7: `filter_repos` Repository Whitelist<br>WP-8: Decoupled Repo/Branch Schema<br>WP-9: Deep Search & Multi-Dimensional Filtering<br>WP-10 & 11: Multi-Dimensional Sorting, Views & Deep Links<br>WP-12 & 13: Health Probes, Metrics, Quarantine & Reporter Hygiene | [#30](https://github.com/Zelayan/agent-monitor/pull/30)<br>[#31](https://github.com/Zelayan/agent-monitor/pull/31)<br>[#32](https://github.com/Zelayan/agent-monitor/pull/32)<br>[#33](https://github.com/Zelayan/agent-monitor/pull/33)<br>[#34](https://github.com/Zelayan/agent-monitor/pull/34) | ✅ Archived |
 | **Phase 3** | Real-Time Reliability & Product Maturity | WP-14: Reliable SSE v2 Protocol (Monotonic IDs/Ring Buffer/Replay)<br>WP-15: Frontend Scalable Performance (Keyed DOM Patch/Tab Throttling)<br>WP-16: Accessibility, Focus & Motion (Dialogs/Focus Trap/A11y)<br>WP-17: Comprehensive I18N (Dictionary interpolation/Intl/Export)<br>WP-18: Complete PWA Lifecycle & Offline Snapshot (IndexedDB/SW update)<br>WP-19: Browser & End-to-End Testing (E2E full test suite) | [#36](https://github.com/Zelayan/agent-monitor/pull/36)<br>[#40](https://github.com/Zelayan/agent-monitor/pull/40)<br>[#37](https://github.com/Zelayan/agent-monitor/pull/37)<br>[#39](https://github.com/Zelayan/agent-monitor/pull/39)<br>[#42](https://github.com/Zelayan/agent-monitor/pull/42)<br>[#43](https://github.com/Zelayan/agent-monitor/pull/43) | ✅ Archived |
+| **Phase 4** | Agent & Cursor Ecosystem Expansion | WP-20: Agent Maturity Model & Claude Code / Aider Official Support<br>WP-21: Cursor Multi-Root Workspace Hook Management<br>WP-22: VSIX Cross-Platform Binary Bundling & Packaging<br>WP-23: Extension Diagnostic Tooling & Automated Tests | [#46](https://github.com/Zelayan/agent-monitor/pull/46)<br>[#45](https://github.com/Zelayan/agent-monitor/pull/45)<br>[#47](https://github.com/Zelayan/agent-monitor/pull/47)<br>[#48](https://github.com/Zelayan/agent-monitor/pull/48) | ✅ Archived |
 
 ---
 
@@ -62,8 +64,8 @@ This document serves as the single source of truth for persistent progress track
 | :--- | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | **WP-20** | **Agent Maturity Model & Official Adapters**<br>(Claude Code & Aider official tier, transcript extraction, fail-safe test fixtures) | `internal/reporter`<br>`internal/domain` | PR-Subagent-20<br>`feat/agent-maturity-claude-aider` | `wt-wp20` (cleaned) | `Merged` | [#46](https://github.com/Zelayan/agent-monitor/pull/46) | Review [BLOCK] self-healed in-place with deep clone isolation & alias coverage, 100% green |
 | **WP-21** | **Cursor Multi-Root Workspace Hook Management**<br>(Multi-root workspace traversal, hook conflict prevention, diff preview & backup) | `extensions/cursor`<br>`internal/reporter` | PR-Subagent-21<br>`feat/cursor-multi-root-hooks` | `wt-wp21` (cleaned) | `Merged` | [#45](https://github.com/Zelayan/agent-monitor/pull/45) | `go test -race` 100% green, `npm test` 9/9 pass, AI Review [PASS], 0 BLOCK |
-| **WP-22** | **VSIX Cross-Platform Binary Bundling**<br>(Cross-platform build pipeline, OS/Arch binary resolution, permissions & checksums) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `../agent-monitor-worktrees/wt-wp22` | `In Review` | Pending | `go test -race` 100% green, `npm test` 18/18 green, full cross-platform VSIX package & checksum verified |
-| **WP-23** | **Extension Diagnostic Tooling & Automated Tests**<br>(Daemon output channel, health check command, TS unit & extension host tests) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `../agent-monitor-worktrees/wt-wp23` | `Pending` | - | Ready to start |
+| **WP-22** | **VSIX Cross-Platform Binary Bundling**<br>(Cross-platform build pipeline, OS/Arch binary resolution, permissions & checksums) | `extensions/cursor`<br>`Makefile` | PR-Subagent-22<br>`feat/vsix-cross-platform-binaries` | `wt-wp22` (cleaned) | `Merged` | [#47](https://github.com/Zelayan/agent-monitor/pull/47) | `go test -race` 100% green, `npm test` 18/18 green, AI Review [PASS], full cross-platform VSIX package & checksum verified |
+| **WP-23** | **Extension Diagnostic Tooling & Automated Tests**<br>(Daemon output channel, health check command, TS unit & extension host tests) | `extensions/cursor` | PR-Subagent-23<br>`feat/cursor-diagnostics-and-tests` | `wt-wp23` (cleaned) | `Merged` | [#48](https://github.com/Zelayan/agent-monitor/pull/48) | `go test -race` 100% green, `npm test` 20/20 green, AI Review [PASS], 0 BLOCK |
 
 ---
 
@@ -81,6 +83,8 @@ This document serves as the single source of truth for persistent progress track
 | 2026-09-05 | WP-19 | Local E2E Verification | Test assertion alignment with unified error DTO schema and focus-visible/trapFocus naming | Test assertion did not unwrap error container and FocusTrap function was named trapFocus | Added extractErrorCode unwrapping helper and calibrated A11y test assertions | `go test -race ./...` 100% green, 0 Race, 0 BLOCK | ✅ Self-Healed |
 | 2026-09-05 | WP-21 | Local Verification & Tests | None | Multi-root traversal, non-destructive hook merge, path space escaping, diff preview, undo/backup & duplicate detection | Implemented multi-root workspace QuickPick/batch config, backup/restore, and 9 automated unit tests | `go test -race ./...` 100% green, `npm test` 9/9 pass, AI Review [PASS], PR #45 Merged | ✅ Merged |
 | 2026-09-05 | WP-20 | CI AI Review | `NormalizeAgentName` alias branch omission for `codex-desktop` causing misattribution to CLI; compound spec object `HookTypes` slice lacked deep copy posing data race risks | `strings.Contains` alias priority leak and shallow slice reference | 1. Extended alias branch to cover `codex-desktop`/`codex_desktop`/`codex.app`; 2. Implemented `Clone()` deep copy on `AgentMaturitySpec`; 3. Added concurrency isolation tests | CI AI Review re-assessed to [PASS], `go test -race` 100% green, PR #46 Merged | ✅ Self-Healed & Merged |
+| 2026-09-05 | WP-22 | CI & AI Review | None | Cross-platform binary compilation and dynamic resolution priority | Multi-tier resolution fallback, 0o755 permission repair and SHA-256 checksum validation | `go test -race` 100% green, `npm test` 18/18 green, AI Review [PASS], PR #47 Merged | ✅ Merged |
+| 2026-09-05 | WP-23 | CI & AI Review | None | Full-link diagnostic tooling suite and OutputChannel structured hierarchical logging | Binary verification, health probe checks, SSE protocol negotiation, and workspace hook inspection | `go test -race` 100% green, `npm test` 20/20 green, AI Review [PASS], PR #48 Merged | ✅ Merged |
 
 ---
 
