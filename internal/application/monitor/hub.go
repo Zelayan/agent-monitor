@@ -82,6 +82,13 @@ func (h *Hub) SubscribeTenant(keyID string, isMaster bool) chan string {
 	return ch
 }
 
+// ClientCount 返回当前连接中的活跃 SSE 客户端数。
+func (h *Hub) ClientCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.clients)
+}
+
 // Unsubscribe 注销 SSE 客户端通道。
 func (h *Hub) Unsubscribe(ch chan string) {
 	h.rmClient <- ch

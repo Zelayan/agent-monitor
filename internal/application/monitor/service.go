@@ -11,9 +11,11 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Zelayan/agent-monitor/internal/domain/task"
+	"github.com/Zelayan/agent-monitor/internal/infrastructure/persistence"
 )
 
 var (
@@ -62,6 +64,20 @@ func detectHostAndBootID() (string, string) {
 	return localHostID, localBootID
 }
 
+// ServiceMetrics 暴露 Monitor 服务的运行时统计与吞吐指标。
+type ServiceMetrics struct {
+	TotalEventsReceived  uint64 `json:"total_events_received"`
+	PersistSuccessTotal  uint64 `json:"persist_success_total"`
+	PersistErrorsTotal   uint64 `json:"persist_errors_total"`
+	PersistDroppedTotal  uint64 `json:"persist_dropped_total"`
+	PersistQueueLength   int    `json:"persist_queue_length"`
+	PersistQueueCapacity int    `json:"persist_queue_capacity"`
+	ActiveTasksCount     int    `json:"active_tasks_count"`
+	TenantsCount         int    `json:"tenants_count"`
+	SSEClientsCount      int    `json:"sse_clients_count"`
+	QuarantineFilesCount int    `json:"quarantine_files_count"`
+}
+
 // ErrPermissionDenied 表示跨租户越权访问或控制被拒绝。
 var ErrPermissionDenied = errors.New("permission denied")
 
@@ -100,6 +116,12 @@ type MonitorService struct {
 	summarizer  *TitleSummarizer
 	titleJobs   sync.Map                                 // map[string]*titleJobState，同一 TaskKey LLM 总结串行且可合并
 	steerQueue  map[task.TaskKey][]task.SteerInstruction // map[task.TaskKey][]task.SteerInstruction 结构化上下文注入队列 (支持定向子智能体)
+
+	// 指标统计 (原子操作)
+	eventsReceived uint64
+	persistSuccess uint64
+	persistErrors  uint64
+	persistDropped uint64
 }
 
 // NewMonitorService 实例化应用服务并从仓储加载已有会话数据。
@@ -206,12 +228,18 @@ func (s *MonitorService) executePersistenceCommand(cmd taskPersistenceCommand) {
 	case OpSave:
 		if len(cmd.data) > 0 {
 			if err := s.repo.SaveRawKeyVersioned(cmd.key, cmd.version, cmd.data); err != nil {
+				atomic.AddUint64(&s.persistErrors, 1)
 				log.Printf("[Application] Error persisting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+			} else {
+				atomic.AddUint64(&s.persistSuccess, 1)
 			}
 		}
 	case OpDelete:
 		if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
+			atomic.AddUint64(&s.persistErrors, 1)
 			log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+		} else {
+			atomic.AddUint64(&s.persistSuccess, 1)
 		}
 	}
 }
@@ -238,6 +266,7 @@ func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data [
 		select {
 		case s.persistChan <- cmd:
 		case <-ctx.Done():
+			atomic.AddUint64(&s.persistDropped, 1)
 			log.Printf("[Application] Warning: persistence queue saturated, dropped save command for %s v%d", key.String(), version)
 		}
 	}
@@ -263,6 +292,7 @@ func (s *MonitorService) enqueueDelete(key task.TaskKey, version uint64) {
 		select {
 		case s.persistChan <- cmd:
 		case <-ctx.Done():
+			atomic.AddUint64(&s.persistDropped, 1)
 			log.Printf("[Application] Warning: persistence queue saturated, dropped delete command for %s v%d", key.String(), version)
 		}
 	}
@@ -367,6 +397,8 @@ func (s *MonitorService) HandleHookEvent(p task.EventPayload) (HookEventResult, 
 // HandleHookEventTenant 处理带租户身份校验的 Hook 上报事件。
 // 若非 Master 且尝试修改属于其他租户的既有任务，返回 permission denied 错误。
 func (s *MonitorService) HandleHookEventTenant(p task.EventPayload, tenantKeyID string, isMaster bool) (HookEventResult, error) {
+	atomic.AddUint64(&s.eventsReceived, 1)
+
 	if !isMaster && tenantKeyID != "" {
 		p.KeyID = tenantKeyID
 	}
@@ -725,6 +757,51 @@ func (s *MonitorService) KillTaskTenant(id string, keyID string, isMaster bool) 
 	}
 
 	return taskCopy, nil
+}
+
+// Metrics 返回当前服务运行时关键指标快照。
+func (s *MonitorService) Metrics() ServiceMetrics {
+	s.mu.RLock()
+	tasksCount := len(s.tasks)
+	tenantsSet := make(map[string]struct{})
+	for k := range s.tasks {
+		tenantsSet[k.TenantID] = struct{}{}
+	}
+	tenantsCount := len(tenantsSet)
+	s.mu.RUnlock()
+
+	var sseCount int
+	if s.hub != nil {
+		sseCount = s.hub.ClientCount()
+	}
+
+	var quarantineCount int
+	if jsonRepo, ok := s.repo.(*persistence.JSONRepository); ok && jsonRepo != nil {
+		quarantineCount = jsonRepo.QuarantineStats().Count
+	}
+
+	return ServiceMetrics{
+		TotalEventsReceived:  atomic.LoadUint64(&s.eventsReceived),
+		PersistSuccessTotal:  atomic.LoadUint64(&s.persistSuccess),
+		PersistErrorsTotal:   atomic.LoadUint64(&s.persistErrors),
+		PersistDroppedTotal:  atomic.LoadUint64(&s.persistDropped),
+		PersistQueueLength:   len(s.persistChan),
+		PersistQueueCapacity: cap(s.persistChan),
+		ActiveTasksCount:     tasksCount,
+		TenantsCount:         tenantsCount,
+		SSEClientsCount:      sseCount,
+		QuarantineFilesCount: quarantineCount,
+	}
+}
+
+// IsReady 检查服务核心依赖与写管道是否处于就绪可用状态。
+func (s *MonitorService) IsReady() bool {
+	select {
+	case <-s.stopChan:
+		return false
+	default:
+	}
+	return s.repo != nil
 }
 
 // GetAllTasks 返回当前所有任务的独立只读深拷贝副本。

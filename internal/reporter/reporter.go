@@ -508,8 +508,16 @@ func isSessionDropped(sessionID string) bool {
 	if p == "" {
 		return false
 	}
-	_, err := os.Stat(p)
-	return err == nil
+	info, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	// 增加 TTL 24 小时自动过期保护，防止永久阻止复用的 Session ID
+	if time.Since(info.ModTime()) > 24*time.Hour {
+		_ = os.Remove(p)
+		return false
+	}
+	return true
 }
 
 func markSessionDropped(sessionID string) {
@@ -535,8 +543,16 @@ func isSessionAborting(sessionID string) bool {
 	if p == "" {
 		return false
 	}
-	_, err := os.Stat(p)
-	return err == nil
+	info, err := os.Stat(p)
+	if err != nil {
+		return false
+	}
+	// 中断标记增加 30 分钟 TTL，防止卡死的会话残留标记导致同名新会话被一直误拦截
+	if time.Since(info.ModTime()) > 30*time.Minute {
+		_ = os.Remove(p)
+		return false
+	}
+	return true
 }
 
 func markSessionAborting(sessionID string) {
@@ -583,6 +599,10 @@ func recordSessionPrompt(sessionID, prompt string) {
 		if prev == prompt {
 			return
 		}
+	}
+	// 限制 Prompt 历史缓存最多保留最近 20 条，防止无限膨胀
+	if len(existing) >= 20 {
+		existing = existing[len(existing)-19:]
 	}
 	existing = append(existing, prompt)
 	if data, err := json.Marshal(existing); err == nil {
@@ -836,7 +856,8 @@ func parsePayload(r io.Reader) Payload {
 	if r == nil {
 		return payload
 	}
-	data, err := io.ReadAll(r)
+	// 限制输入最大读取 5MB，防止异常巨型输入耗尽内存
+	data, err := io.ReadAll(io.LimitReader(r, 5<<20))
 	if err != nil || len(bytes.TrimSpace(data)) == 0 {
 		return payload
 	}
@@ -1674,7 +1695,8 @@ func SendEventWithAction(serverURL, apiKey string, report EventReport) (bool, Se
 	}
 	defer resp.Body.Close()
 
-	respBody, _ := io.ReadAll(resp.Body)
+	// 限制响应体最多读取 64KB，防御恶意或异常超大 payload
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		_ = json.Unmarshal(respBody, &controlResp)
 		if controlResp.Action == "" {

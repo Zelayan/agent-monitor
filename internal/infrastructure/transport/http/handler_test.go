@@ -658,6 +658,49 @@ func TestHandler_StrictHTTPMethodAndErrorDTO(t *testing.T) {
 	}
 }
 
+func TestHandler_HealthzReadyzAndMetrics(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok"))
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. 测试 /healthz 存活探针
+	reqHealth := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	wHealth := httptest.NewRecorder()
+	mux.ServeHTTP(wHealth, reqHealth)
+	if wHealth.Code != http.StatusOK || !strings.Contains(wHealth.Body.String(), `"status":"ok"`) {
+		t.Fatalf("healthz failed: %d, body=%s", wHealth.Code, wHealth.Body.String())
+	}
+
+	// 2. 测试 /readyz 就绪探针
+	reqReady := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	wReady := httptest.NewRecorder()
+	mux.ServeHTTP(wReady, reqReady)
+	if wReady.Code != http.StatusOK || !strings.Contains(wReady.Body.String(), `"status":"ready"`) {
+		t.Fatalf("readyz failed: %d, body=%s", wReady.Code, wReady.Body.String())
+	}
+
+	// 3. 测试 /api/metrics 指标端点
+	reqMetrics := httptest.NewRequest(http.MethodGet, "/api/metrics", nil)
+	wMetrics := httptest.NewRecorder()
+	mux.ServeHTTP(wMetrics, reqMetrics)
+	if wMetrics.Code != http.StatusOK {
+		t.Fatalf("metrics failed: %d", wMetrics.Code)
+	}
+	var metrics monitor.ServiceMetrics
+	if err := json.NewDecoder(wMetrics.Body).Decode(&metrics); err != nil {
+		t.Fatalf("failed to decode metrics: %v", err)
+	}
+	if metrics.PersistQueueCapacity != 5000 {
+		t.Fatalf("expected queue capacity 5000, got %d", metrics.PersistQueueCapacity)
+	}
+}
+
 type flushRecorder struct {
 	*httptest.ResponseRecorder
 	flushed chan struct{}
