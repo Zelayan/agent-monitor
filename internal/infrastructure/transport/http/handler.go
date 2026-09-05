@@ -97,6 +97,9 @@ func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
 	mux.HandleFunc("/api/tasks/", h.HandleTaskDetail)
+	mux.HandleFunc("/api/metrics", h.HandleMetrics)
+	mux.HandleFunc("/healthz", h.HandleHealthz)
+	mux.HandleFunc("/readyz", h.HandleReadyz)
 	mux.HandleFunc("/manifest.json", h.HandleManifest)
 	mux.HandleFunc("/sw.js", h.HandleServiceWorker)
 	if h.staticFS != nil {
@@ -605,4 +608,53 @@ func (h *Handler) HandleServiceWorker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// HandleHealthz 存活探针接口：快速返回 200 OK 表明进程存活。
+func (h *Handler) HandleHealthz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		MethodNotAllowed(w, "GET, HEAD, OPTIONS")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// HandleReadyz 就绪探针接口：检查持久化存储可用性与写管道就绪状态。
+func (h *Handler) HandleReadyz(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		MethodNotAllowed(w, "GET, HEAD, OPTIONS")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if h.svc != nil && h.svc.IsReady() {
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"status": "ready",
+		})
+		return
+	}
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"status": "not_ready",
+	})
+}
+
+// HandleMetrics 导出服务运行时吞吐与健康状态指标。
+func (h *Handler) HandleMetrics(w http.ResponseWriter, r *http.Request) {
+	if h.enableCORS(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet {
+		MethodNotAllowed(w, "GET, OPTIONS")
+		return
+	}
+	if h.svc == nil {
+		WriteJSONError(w, http.StatusServiceUnavailable, "SERVICE_UNAVAILABLE", "Monitor service not ready")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	metrics := h.svc.Metrics()
+	_ = json.NewEncoder(w).Encode(metrics)
 }

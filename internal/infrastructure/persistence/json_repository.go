@@ -37,12 +37,21 @@ type tombstoneItem struct {
 
 // JSONRepository 是基于本地 JSON 文件的 TaskRepository 实现，支持租户分目录隔离存储与版本单调递增保护。
 type JSONRepository struct {
-	dir         string
-	mu          sync.Mutex // 全局目录扫描与迁移互斥锁
-	stripe      StripedLock
-	versionLock sync.RWMutex
-	lastVersion map[string]uint64        // map[TaskKey.String()]latestVersion 已提交版本
-	tombstones  map[string]tombstoneItem // map[TaskKey.String()]tombstoneItem 短生命周期墓碑 (30s TTL)
+	dir            string
+	mu             sync.Mutex // 全局目录扫描与迁移互斥锁
+	stripe         StripedLock
+	versionLock    sync.RWMutex
+	lastVersion    map[string]uint64        // map[TaskKey.String()]latestVersion 已提交版本
+	tombstones     map[string]tombstoneItem // map[TaskKey.String()]tombstoneItem 短生命周期墓碑 (30s TTL)
+	quarantineDir  string                   // 损坏 JSON 文件的安全隔离区
+	quarantineStat QuarantineStats
+}
+
+// QuarantineStats 记录隔离损坏文件的统计信息。
+type QuarantineStats struct {
+	Count     int       `json:"count"`
+	LastError string    `json:"lastError,omitempty"`
+	LastTime  time.Time `json:"lastTime,omitempty"`
 }
 
 // NewJSONRepository 初始化并返回 JSONRepository 实例。
@@ -53,13 +62,39 @@ func NewJSONRepository(dir string) (*JSONRepository, error) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create repository dir %s: %w", dir, err)
 	}
+	quarantine := filepath.Join(dir, "quarantine")
+	_ = os.MkdirAll(quarantine, 0755)
+
 	repo := &JSONRepository{
-		dir:         dir,
-		lastVersion: make(map[string]uint64),
-		tombstones:  make(map[string]tombstoneItem),
+		dir:           dir,
+		quarantineDir: quarantine,
+		lastVersion:   make(map[string]uint64),
+		tombstones:    make(map[string]tombstoneItem),
 	}
 	repo.CleanOrphanTmpFiles()
 	return repo, nil
+}
+
+// QuarantineStats 返回隔离统计。
+func (r *JSONRepository) QuarantineStats() QuarantineStats {
+	r.versionLock.RLock()
+	defer r.versionLock.RUnlock()
+	return r.quarantineStat
+}
+
+// quarantineCorruptedFile 将损坏 JSON 移动到隔离目录，防止阻断服务启动。
+func (r *JSONRepository) quarantineCorruptedFile(path string, parseErr error) {
+	base := filepath.Base(path)
+	target := filepath.Join(r.quarantineDir, fmt.Sprintf("%d-%s", time.Now().UnixMilli(), base))
+	_ = os.Rename(path, target)
+
+	r.versionLock.Lock()
+	r.quarantineStat.Count++
+	r.quarantineStat.LastError = parseErr.Error()
+	r.quarantineStat.LastTime = time.Now()
+	r.versionLock.Unlock()
+
+	log.Printf("[Persistence] Warning: corrupted session file %s quarantined to %s: %v", path, target, parseErr)
 }
 
 // hashPrefix 计算输入字符串的 SHA256 哈希值前缀。
@@ -213,6 +248,10 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 		if err != nil {
 			return nil
 		}
+		// 跳过 quarantine 隔离目录
+		if info.IsDir() && info.Name() == "quarantine" {
+			return filepath.SkipDir
+		}
 		if info.IsDir() || !strings.HasSuffix(info.Name(), ".json") || strings.HasSuffix(info.Name(), ".tmp") {
 			return nil
 		}
@@ -224,6 +263,8 @@ func (r *JSONRepository) FindAll() ([]*task.Task, error) {
 
 		var t task.Task
 		if err := json.Unmarshal(data, &t); err != nil {
+			// 自动隔离损坏文件，避免阻塞启动与正常数据恢复
+			r.quarantineCorruptedFile(path, err)
 			return nil
 		}
 		if t.ID != "" {

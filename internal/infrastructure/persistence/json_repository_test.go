@@ -296,3 +296,43 @@ func TestJSONRepository_VersionedAndTombstoneSuppression(t *testing.T) {
 		t.Fatalf("stale v3 overwrote v4 after restart: %+v", reloaded)
 	}
 }
+
+func TestJSONRepository_QuarantineCorruptedFiles(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "repo-quarantine-test-*")
+	if err != nil {
+		t.Fatalf("failed to create tmp dir: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// 1. 在目录下人为制造一个非法的破坏性 JSON 文件
+	brokenPath := filepath.Join(tmpDir, "sess-corrupted.json")
+	if err := os.WriteFile(brokenPath, []byte("NOT_VALID_JSON{[[{"), 0644); err != nil {
+		t.Fatalf("failed to write broken json: %v", err)
+	}
+
+	// 2. 初始化 Repository，并执行 FindAll，验证不会挂掉，而是自动移入 quarantine
+	repo, err := NewJSONRepository(tmpDir)
+	if err != nil {
+		t.Fatalf("NewJSONRepository failed: %v", err)
+	}
+	defer repo.Close()
+
+	tasks, err := repo.FindAll()
+	if err != nil {
+		t.Fatalf("FindAll should succeed even with corrupted file: %v", err)
+	}
+	if len(tasks) != 0 {
+		t.Fatalf("expected 0 valid tasks, got %d", len(tasks))
+	}
+
+	// 验证损坏文件已被移出原位置
+	if _, err := os.Stat(brokenPath); !os.IsNotExist(err) {
+		t.Fatal("broken file should have been moved from original path")
+	}
+
+	// 验证隔离统计
+	stats := repo.QuarantineStats()
+	if stats.Count != 1 || stats.LastError == "" {
+		t.Fatalf("unexpected quarantine stats: %+v", stats)
+	}
+}
