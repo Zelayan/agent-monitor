@@ -45,6 +45,11 @@
         "icon": "$(gear)"
       },
       {
+        "command": "agent-monitor.restoreHooks",
+        "title": "Agent Monitor: Restore Workspace Hooks from Backup (.cursor/hooks.json.bak)",
+        "icon": "$(history)"
+      },
+      {
         "command": "agent-monitor.restartDaemon",
         "title": "Agent Monitor: Restart Backend Daemon",
         "icon": "$(refresh)"
@@ -119,7 +124,8 @@
   "scripts": {
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package --no-dependencies",
+    "test": "node test/runner.js"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
