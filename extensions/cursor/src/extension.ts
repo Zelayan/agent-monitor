@@ -32,6 +32,12 @@ export async function activate(context: vscode.ExtensionContext) {
       }
     }),
 
+    vscode.commands.registerCommand('agent-monitor.restoreHooks', async () => {
+      if (hooksManager) {
+        await hooksManager.restoreWorkspaceHooksBackup();
+      }
+    }),
+
     vscode.commands.registerCommand('agent-monitor.restartDaemon', async () => {
       if (daemonManager) {
         vscode.window.showInformationMessage('Restarting Agent Monitor daemon...');
