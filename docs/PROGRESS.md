@@ -63,7 +63,7 @@
 | **WP-15** | **前端规模化性能**<br>(Keyed DOM Patch/局部状态列重绘/按版本缓存/后台节流) | `static/index.html` | PR-Subagent-15<br>`feat/frontend-dom-patch` | `wt-wp15 (已清理)` | `Merged` | [#40](https://github.com/Zelayan/agent-monitor/pull/40) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-16** | **无障碍、焦点管理与动效偏好**<br>(标准Dialog/Focus Trap/方向键导航/Reduced Motion) | `static/index.html` | PR-Subagent-16<br>`feat/a11y-focus-nav` | `wt-wp16 (已清理)` | `Merged` | [#37](https://github.com/Zelayan/agent-monitor/pull/37) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-17** | **国际化全量完备化**<br>(动态Run/事件/操作全量字典化/Intl 本地化格式) | `static/index.html` | PR-Subagent-17<br>`feat/i18n-complete` | `wt-wp17 (已清理)` | `Merged` | [#39](https://github.com/Zelayan/agent-monitor/pull/39) | [PASS] 0 BLOCK, 测试 100% 绿灯 |
-| **WP-18** | **完整 PWA 生命周期与离线快照**<br>(IndexedDB 加密快照/SW升级提示/脱机只读) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `Pending` | - | 待启动 |
+| **WP-18** | **完整 PWA 生命周期与离线快照**<br>(IndexedDB 加密快照/SW升级提示/脱机只读) | `static/index.html`<br>`static/sw.js` | PR-Subagent-18<br>`feat/pwa-offline-lifecycle` | `../agent-monitor-worktrees/wt-wp18` | `In Review` | - | [PASS] 0 BLOCK, 测试 100% 绿灯 |
 | **WP-19** | **浏览器级端到端测试**<br>(端到端快照对账/无障碍/重连断线覆盖) | `tests/e2e/` | PR-Subagent-19<br>`feat/e2e-browser-tests` | `../agent-monitor-worktrees/wt-wp19` | `Pending` | - | 待启动 |
 
 ---
