@@ -330,12 +330,12 @@ func TestJSONRepository_QuarantineCorruptedFiles(t *testing.T) {
 		t.Fatal("broken file should have been moved from original path")
 	}
 
-		// 验证隔离统计
-		stats := repo.QuarantineStats()
-		if stats.Count != 1 || stats.LastError == "" {
-			t.Fatalf("unexpected quarantine stats: %+v", stats)
-		}
+	// 验证隔离统计
+	stats := repo.QuarantineStats()
+	if stats.Count != 1 || stats.LastError == "" {
+		t.Fatalf("unexpected quarantine stats: %+v", stats)
 	}
+}
 
 func TestJSONRepository_EventLog(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "repo-eventlog-test-*")

@@ -11,17 +11,17 @@ import (
 
 // EventRecord 记录单条接收到的事件详情及产生时的状态快照（值对象）。
 type EventRecord struct {
-	EventID        string                 `json:"eventId"`        // 幂等全局唯一哈希键
-	Sequence       uint64                 `json:"sequence"`       // 会话内单调递增序号 1, 2, 3...
-	Timestamp      int64                  `json:"timestamp"`      // 事件产生时间戳 (Unix毫秒)
-	ReceivedAt     int64                  `json:"receivedAt"`     // 服务端接收时间戳 (Unix毫秒)
-	Event          string                 `json:"event"`          // hook 事件名称
-	TurnIndex      int                    `json:"turnIndex"`      // 对应所属轮次
-	Detail         string                 `json:"detail"`         // 操作详情
-	Prompt         string                 `json:"prompt,omitempty"` // 本轮 Prompt
-	AIResponse     string                 `json:"aiResponse,omitempty"` // AI 回复
-	TaskStatus     string                 `json:"taskStatus"`     // 事件应用后的任务全局状态
-	TaskVersion    uint64                 `json:"taskVersion"`    // 事件应用后的任务单调版本
+	EventID        string                 `json:"eventId"`                  // 幂等全局唯一哈希键
+	Sequence       uint64                 `json:"sequence"`                 // 会话内单调递增序号 1, 2, 3...
+	Timestamp      int64                  `json:"timestamp"`                // 事件产生时间戳 (Unix毫秒)
+	ReceivedAt     int64                  `json:"receivedAt"`               // 服务端接收时间戳 (Unix毫秒)
+	Event          string                 `json:"event"`                    // hook 事件名称
+	TurnIndex      int                    `json:"turnIndex"`                // 对应所属轮次
+	Detail         string                 `json:"detail"`                   // 操作详情
+	Prompt         string                 `json:"prompt,omitempty"`         // 本轮 Prompt
+	AIResponse     string                 `json:"aiResponse,omitempty"`     // AI 回复
+	TaskStatus     string                 `json:"taskStatus"`               // 事件应用后的任务全局状态
+	TaskVersion    uint64                 `json:"taskVersion"`              // 事件应用后的任务单调版本
 	PayloadSummary map[string]interface{} `json:"payloadSummary,omitempty"` // 关键元数据
 }
 
@@ -44,11 +44,12 @@ func ComputeEventFingerprint(p EventPayload) string {
 
 // EventLogRingBuffer 是固定容量线程安全的单会话 Event Log 内存环形缓冲区。
 type EventLogRingBuffer struct {
-	mu       sync.RWMutex
-	capacity int
-	records  []EventRecord
-	seenKeys map[string]time.Time // key -> 首次记录时间 (带内存 TTL 防抖)
-	seq      uint64
+	mu            sync.RWMutex
+	capacity      int
+	records       []EventRecord
+	seenKeys      map[string]time.Time // key -> 首次记录时间 (带内存 TTL 防抖)
+	seq           uint64
+	lastCleanTime time.Time
 }
 
 // NewEventLogRingBuffer 初始化指定容量的环形事件日志缓冲区。
@@ -79,14 +80,15 @@ func (rb *EventLogRingBuffer) AppendIfNew(rec EventRecord) (bool, uint64) {
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
 
-	// 清理超过 10 分钟的过时指纹缓存，防止内存无界增长
+	// 清理超过 10 分钟的过时指纹缓存，防止内存无界增长（频率限制至少间隔 1 分钟）
 	now := time.Now()
-	if len(rb.seenKeys) > rb.capacity*2 {
+	if len(rb.seenKeys) > rb.capacity*2 && now.Sub(rb.lastCleanTime) > time.Minute {
 		for k, t := range rb.seenKeys {
 			if now.Sub(t) > 10*time.Minute {
 				delete(rb.seenKeys, k)
 			}
 		}
+		rb.lastCleanTime = now
 	}
 
 	if rec.EventID != "" {
@@ -138,4 +140,3 @@ func (rb *EventLogRingBuffer) UpdateLastPostApplication(status string, version u
 		rb.records[idx].TaskVersion = version
 	}
 }
-

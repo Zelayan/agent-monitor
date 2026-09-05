@@ -10,14 +10,14 @@ import (
 // TestComputeEventFingerprint_Deterministic 测试确定性事件指纹哈希生成
 func TestComputeEventFingerprint_Deterministic(t *testing.T) {
 	basePayload := EventPayload{
-		ID:          "task-123",
-		KeyID:       "tenant-a",
-		Event:       "toolUse",
-		Timestamp:   1700000000,
-		Detail:      "Executing grep command",
-		TurnIndex:   2,
-		Prompt:      "Find all errors in logs",
-		SubagentID:  "agent-sub-1",
+		ID:         "task-123",
+		KeyID:      "tenant-a",
+		Event:      "toolUse",
+		Timestamp:  1700000000,
+		Detail:     "Executing grep command",
+		TurnIndex:  2,
+		Prompt:     "Find all errors in logs",
+		SubagentID: "agent-sub-1",
 	}
 
 	fp1 := ComputeEventFingerprint(basePayload)

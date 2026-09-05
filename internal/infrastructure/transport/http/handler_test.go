@@ -813,10 +813,10 @@ func TestHandler_HealthzReadyzAndMetrics(t *testing.T) {
 	if err := json.NewDecoder(wMetrics.Body).Decode(&metrics); err != nil {
 		t.Fatalf("failed to decode metrics: %v", err)
 	}
-		if metrics.PersistQueueCapacity != 5000 {
-			t.Fatalf("expected queue capacity 5000, got %d", metrics.PersistQueueCapacity)
-		}
+	if metrics.PersistQueueCapacity != 5000 {
+		t.Fatalf("expected queue capacity 5000, got %d", metrics.PersistQueueCapacity)
 	}
+}
 
 func TestHandler_ReplayEndpoint(t *testing.T) {
 	repo := &mockRepo{tasks: make(map[string]*task.Task)}
@@ -945,7 +945,6 @@ func TestHandler_ReplayEndpoint(t *testing.T) {
 		t.Fatalf("expected 405 Method Not Allowed for POST replay, got %d", wMethodNotAllowed.Code)
 	}
 }
-
 
 type flushRecorder struct {
 	*httptest.ResponseRecorder

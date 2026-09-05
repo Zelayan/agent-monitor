@@ -720,12 +720,12 @@ func TestMonitorService_KillSafetyHostMismatch(t *testing.T) {
 		t.Fatalf("expected ErrHostMismatch when killing remote task, got: %v", err)
 	}
 
-		// 验证任务状态未被伪造为 killed
-		tObj := svc.GetTaskTenant("sess-remote-kill-01", "tenant-safe", false)
-		if tObj == nil || tObj.Status != "running" || tObj.ControlState == "killed" {
-			t.Fatalf("task state should remain running when kill is rejected, got: %+v", tObj)
-		}
+	// 验证任务状态未被伪造为 killed
+	tObj := svc.GetTaskTenant("sess-remote-kill-01", "tenant-safe", false)
+	if tObj == nil || tObj.Status != "running" || tObj.ControlState == "killed" {
+		t.Fatalf("task state should remain running when kill is rejected, got: %+v", tObj)
 	}
+}
 
 func TestMonitorService_IdempotencyAndReplay(t *testing.T) {
 	repo := &memoryRepo{tasks: make(map[string]*task.Task)}

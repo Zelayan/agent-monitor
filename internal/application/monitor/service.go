@@ -109,7 +109,7 @@ type MonitorService struct {
 	mu               sync.RWMutex
 	hostID           string
 	bootID           string
-	tasks            map[task.TaskKey]*task.Task // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
+	tasks            map[task.TaskKey]*task.Task               // 以 TaskKey 复合主键索引，消除不同租户同 Session ID 覆盖
 	eventRingBuffers map[task.TaskKey]*task.EventLogRingBuffer // 会话事件幂等防抖与回放环形缓冲区
 	repo             task.TaskRepository
 	hub              *Hub
@@ -240,26 +240,26 @@ func (s *MonitorService) executePersistenceCommand(cmd taskPersistenceCommand) {
 				atomic.AddUint64(&s.persistSuccess, 1)
 			}
 		}
-		case OpDelete:
-			if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
-				atomic.AddUint64(&s.persistErrors, 1)
-				log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
-			} else {
-				atomic.AddUint64(&s.persistSuccess, 1)
-			}
-		case OpAppendEventLog:
-			if cmd.eventRec != nil && s.repo != nil {
-				if er, ok := s.repo.(task.EventLogRepository); ok {
-					if err := er.AppendEventLog(cmd.key, *cmd.eventRec); err != nil {
-						atomic.AddUint64(&s.persistErrors, 1)
-						log.Printf("[Application] Error appending event log for %s: %v", cmd.key.String(), err)
-					} else {
-						atomic.AddUint64(&s.persistSuccess, 1)
-					}
+	case OpDelete:
+		if err := s.repo.DeleteKeyVersioned(cmd.key, cmd.version); err != nil {
+			atomic.AddUint64(&s.persistErrors, 1)
+			log.Printf("[Application] Error deleting task %s (v%d): %v", cmd.key.String(), cmd.version, err)
+		} else {
+			atomic.AddUint64(&s.persistSuccess, 1)
+		}
+	case OpAppendEventLog:
+		if cmd.eventRec != nil && s.repo != nil {
+			if er, ok := s.repo.(task.EventLogRepository); ok {
+				if err := er.AppendEventLog(cmd.key, *cmd.eventRec); err != nil {
+					atomic.AddUint64(&s.persistErrors, 1)
+					log.Printf("[Application] Error appending event log for %s: %v", cmd.key.String(), err)
+				} else {
+					atomic.AddUint64(&s.persistSuccess, 1)
 				}
 			}
 		}
 	}
+}
 
 // enqueuePersist 尝试将 Save 命令推入管道。若管道满，通过短超时等待缓冲释放，超时后记录告警，严格维持单 Worker 串行有序消费。
 func (s *MonitorService) enqueuePersist(key task.TaskKey, version uint64, data []byte) {
@@ -387,12 +387,12 @@ func (s *MonitorService) cleanExpiredTasks() {
 			if endTime == 0 {
 				endTime = t.StartTime
 			}
-				if endTime > 0 && endTime < cutoffMs {
-					delete(s.tasks, k)
-					delete(s.steerQueue, k)
-					delete(s.eventRingBuffers, k)
-					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-				}
+			if endTime > 0 && endTime < cutoffMs {
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				delete(s.eventRingBuffers, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+			}
 		}
 	}
 	s.mu.Unlock()
@@ -1063,43 +1063,43 @@ func (s *MonitorService) DeleteTasksTenant(req DeleteTasksRequest, keyID string,
 	var toDelete []delTarget
 	var toDeleteIDs []string
 
-		if req.All {
-			// 清空当前空间全部任务（包括 running）
-			for k, t := range s.tasks {
-				if t != nil && t.BelongsTo(keyID, isMaster) {
+	if req.All {
+		// 清空当前空间全部任务（包括 running）
+		for k, t := range s.tasks {
+			if t != nil && t.BelongsTo(keyID, isMaster) {
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				delete(s.eventRingBuffers, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+				toDeleteIDs = append(toDeleteIDs, t.ID)
+			}
+		}
+	} else if len(req.IDs) > 0 {
+		// 精确删除指定 ID 列表
+		for _, targetID := range req.IDs {
+			k, t, exists := s.findTaskLocked(targetID, keyID, isMaster)
+			if exists && t != nil {
+				delete(s.tasks, k)
+				delete(s.steerQueue, k)
+				delete(s.eventRingBuffers, k)
+				toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
+				toDeleteIDs = append(toDeleteIDs, t.ID)
+			}
+		}
+	} else {
+		// 默认行为：只清已完成和失败任务
+		for k, t := range s.tasks {
+			if t != nil && t.BelongsTo(keyID, isMaster) {
+				if t.Status == "completed" || t.Status == "failed" {
 					delete(s.tasks, k)
 					delete(s.steerQueue, k)
 					delete(s.eventRingBuffers, k)
 					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
 					toDeleteIDs = append(toDeleteIDs, t.ID)
-				}
-			}
-		} else if len(req.IDs) > 0 {
-			// 精确删除指定 ID 列表
-			for _, targetID := range req.IDs {
-				k, t, exists := s.findTaskLocked(targetID, keyID, isMaster)
-				if exists && t != nil {
-					delete(s.tasks, k)
-					delete(s.steerQueue, k)
-					delete(s.eventRingBuffers, k)
-					toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-					toDeleteIDs = append(toDeleteIDs, t.ID)
-				}
-			}
-		} else {
-			// 默认行为：只清已完成和失败任务
-			for k, t := range s.tasks {
-				if t != nil && t.BelongsTo(keyID, isMaster) {
-					if t.Status == "completed" || t.Status == "failed" {
-						delete(s.tasks, k)
-						delete(s.steerQueue, k)
-						delete(s.eventRingBuffers, k)
-						toDelete = append(toDelete, delTarget{key: k, ver: t.Version})
-						toDeleteIDs = append(toDeleteIDs, t.ID)
-					}
 				}
 			}
 		}
+	}
 	s.generation++
 	gen := s.generation
 	s.mu.Unlock()

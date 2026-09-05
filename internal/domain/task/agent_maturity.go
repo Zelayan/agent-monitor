@@ -25,21 +25,21 @@ type AgentMaturitySpec struct {
 	HasToolFailure bool         `json:"hasToolFailure"`
 	HasMultiTurn   bool         `json:"hasMultiTurn"`
 	HasTranscript  bool         `json:"hasTranscript"`
-		HasFailSafe    bool         `json:"hasFailSafe"`
-		HookTypes      []string     `json:"hookTypes"`
-	}
+	HasFailSafe    bool         `json:"hasFailSafe"`
+	HookTypes      []string     `json:"hookTypes"`
+}
 
-	// Clone 返回 AgentMaturitySpec 的深拷贝副本，杜绝底层切片数据竞争与状态污染
-	func (s AgentMaturitySpec) Clone() AgentMaturitySpec {
-		cloned := s
-		if s.HookTypes != nil {
-			cloned.HookTypes = make([]string, len(s.HookTypes))
-			copy(cloned.HookTypes, s.HookTypes)
-		}
-		return cloned
+// Clone 返回 AgentMaturitySpec 的深拷贝副本，杜绝底层切片数据竞争与状态污染
+func (s AgentMaturitySpec) Clone() AgentMaturitySpec {
+	cloned := s
+	if s.HookTypes != nil {
+		cloned.HookTypes = make([]string, len(s.HookTypes))
+		copy(cloned.HookTypes, s.HookTypes)
 	}
+	return cloned
+}
 
-	// defaultCatalog 是 Agent Monitor 权威认证的 Agent 成熟度目录。
+// defaultCatalog 是 Agent Monitor 权威认证的 Agent 成熟度目录。
 var defaultCatalog = []AgentMaturitySpec{
 	// --- Official Agents ---
 	{
