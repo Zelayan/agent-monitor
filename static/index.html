@@ -436,12 +436,12 @@
     
     <!-- 抽屉顶部 Bar -->
     <div class="sticky top-0 z-20 -mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 px-3.5 pt-3.5 sm:px-5 sm:pt-5 pb-3 bg-panel/95 backdrop-blur-md border-b border-line flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <span id="drawer-agent"></span>
-        <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate"></span>
-        <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
+      <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+        <span id="drawer-agent" class="shrink-0 flex items-center"></span>
+        <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate min-w-0 flex-1 max-w-[200px] sm:max-w-[280px]" title=""></span>
+        <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0 whitespace-nowrap">1 Run</span>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
+      <div class="flex items-center gap-1.5 shrink-0 ml-auto">
         <!-- Cursor 尚未公开按 conversation_id 定位本地会话的稳定接口，入口暂时隐藏。 -->
         <button id="btn-drawer-focus-cursor" type="button" class="hidden h-7 px-2 rounded border border-indigo-800/60 bg-indigo-950/40 font-mono text-[10px] text-indigo-300 hover:bg-indigo-900/60 hover:text-white items-center gap-1 transition-colors" title="Focus in Cursor / 在 Cursor 中定位会话" aria-hidden="true" tabindex="-1">
           <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
@@ -512,12 +512,12 @@
     </div>
 
     <!-- 会话整体容器 (SESSION CONTAINER) -->
-    <div class="mt-3 sm:mt-4 pb-3 sm:pb-4 border-b border-[#1e1e22]">
+    <div class="mt-2.5 sm:mt-3 pb-3 sm:pb-4 border-b border-[#1e1e22]">
       <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
       <h2 id="drawer-root-title" class="text-xs sm:text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
       
       <!-- 实时人机协同 / 动态上下文注入 (Live Steer & Context Injection) -->
-      <div id="drawer-steer-section" class="mt-2.5 p-2 bg-[#121316] border border-indigo-900/40 rounded-md">
+      <div id="drawer-steer-section" class="mt-2 p-2 bg-[#121316] border border-indigo-900/40 rounded-md">
         <div class="font-mono text-[10px] text-zinc-400 uppercase mb-1.5 flex items-center justify-between">
           <span class="flex items-center gap-1.5 text-indigo-400 font-semibold">
             <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2564,7 +2564,12 @@
       const runs = getTaskRuns(task);
 
       document.getElementById('drawer-agent').innerHTML = agentBadge(task.agent);
-      document.getElementById('drawer-repo').textContent = repoLabel(task);
+      const repoText = repoLabel(task);
+      const drawerRepoEl = document.getElementById('drawer-repo');
+      if (drawerRepoEl) {
+        drawerRepoEl.textContent = repoText;
+        drawerRepoEl.title = repoText;
+      }
       document.getElementById('drawer-runs-badge').innerText = `${runs.length} Runs`;
       document.getElementById('drawer-root-title').textContent = sessionDisplayTitle(task);
       const sessionGoalEl = document.getElementById('drawer-session-goal');
