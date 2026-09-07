@@ -231,6 +231,10 @@
           <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
           <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100 uppercase">AGENT MONITOR</span>
         </div>
+        <span id="app-version-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded border border-line bg-card text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer select-none inline-flex items-center gap-1" title="查看版本信息与更新">
+          <span id="app-version-text">v1.4.0</span>
+          <span id="app-version-dot" class="hidden w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        </span>
         <span class="text-zinc-700">/</span>
         <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] tabular-nums text-zinc-500">
           <span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>
@@ -753,6 +757,52 @@
     </div>
   </div>
 
+  <!-- 4. 版本信息与更新模态框 (Version & Update Modal) -->
+  <div id="version-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs hidden" role="dialog" aria-modal="true" aria-labelledby="version-modal-title">
+    <div id="version-modal-card" class="w-full max-w-md bg-[#0c0d0e] border border-[#27272a] rounded-lg shadow-2xl overflow-hidden transition-all duration-150">
+      <div class="p-4 sm:p-5 border-b border-[#27272a] flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </div>
+          <h3 id="version-modal-title" class="font-mono text-xs font-semibold text-zinc-100 uppercase tracking-tight">版本信息与更新</h3>
+        </div>
+        <button id="version-modal-close" type="button" class="text-zinc-500 hover:text-zinc-200 text-sm font-mono transition-colors p-1" title="关闭 (Esc)">✕</button>
+      </div>
+      <div class="p-4 sm:p-5 space-y-3.5 text-xs font-mono">
+        <div class="grid grid-cols-2 gap-2 bg-[#121316] border border-[#1e1e24] p-3 rounded">
+          <div>
+            <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5" id="lbl-version-current">当前运行版本</div>
+            <div id="version-current-val" class="text-zinc-200 font-semibold text-sm">v1.4.0</div>
+            <div id="version-commit-val" class="text-[10px] text-zinc-500 truncate mt-0.5">commit: dev</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5" id="lbl-version-latest">最新官方发布</div>
+            <div id="version-latest-val" class="text-zinc-200 font-semibold text-sm">--</div>
+            <div id="version-status-val" class="text-[10px] text-zinc-500 mt-0.5">检查更新中...</div>
+          </div>
+        </div>
+
+        <div id="version-update-box" class="hidden p-3 rounded bg-indigo-950/30 border border-indigo-800/40 text-indigo-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span id="lbl-version-has-update" class="font-semibold text-indigo-300">🎉 发现新版本可用！</span>
+            <a id="version-release-link" href="https://github.com/Zelayan/agent-monitor/releases" target="_blank" rel="noopener noreferrer" class="text-[11px] underline hover:text-indigo-100">Releases 页面 ↗</a>
+          </div>
+          <div class="text-[10px] text-zinc-400 font-mono" id="lbl-version-upgrade-guide">升级指引（终端执行一键升级）：</div>
+          <div class="flex items-center justify-between bg-black/60 border border-indigo-900/50 rounded px-2 py-1 text-[10px] text-zinc-300">
+            <code id="version-upgrade-cmd" class="truncate select-all">curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/master/install.sh | bash</code>
+            <button id="btn-copy-upgrade-cmd" type="button" class="ml-2 text-indigo-400 hover:text-indigo-200 shrink-0" title="复制">复制</button>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end px-4 py-2.5 bg-[#111215] border-t border-[#27272a]">
+        <button id="version-modal-ok" type="button" class="h-7 px-3 rounded border border-line text-xs font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors">
+          关闭
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- 全局无障碍实时播报区 (Screen Reader Live Region for Announcements & Toasts) -->
   <div id="a11y-live-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <div id="a11y-live-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
@@ -912,6 +962,17 @@
         offlineMode: '离线模式 (只读)',
         offlineLastSynced: '上次同步: {time}',
         offlineNever: '从未',
+        versionDetails: '版本信息与更新',
+        currentVersion: '当前运行版本',
+        latestVersion: '最新官方发布',
+        versionChecking: '检查更新中...',
+        versionUpToDate: '已是最新版本',
+        versionNewAvailable: '🎉 发现新版本可用！',
+        versionCheckFailed: '检查更新失败 (网络离线)',
+        upgradeGuide: '升级指引（终端执行一键升级）：',
+        daemonUpdatedToast: '检测到 Monitor 守护进程已更新 ({v})，点击刷新',
+        btnCopy: '复制',
+        cmdCopied: '已复制升级命令！',
         offlineMutationDisabled: '离线模式下写操作已禁用',
         onlineReconnected: '网络已恢复在线，正在对账同步...',
         pwaInstall: '安装',
@@ -1079,6 +1140,17 @@
         offlineMode: 'Offline (Read-only)',
         offlineLastSynced: 'Last synced: {time}',
         offlineNever: 'Never',
+        versionDetails: 'Version & Updates',
+        currentVersion: 'Current Version',
+        latestVersion: 'Latest Release',
+        versionChecking: 'Checking for updates...',
+        versionUpToDate: 'Up to date',
+        versionNewAvailable: '🎉 New version available!',
+        versionCheckFailed: 'Update check failed (offline)',
+        upgradeGuide: 'Upgrade Guide (Run in terminal):',
+        daemonUpdatedToast: 'Monitor daemon updated ({v}), click to refresh',
+        btnCopy: 'Copy',
+        cmdCopied: 'Upgrade command copied!',
         offlineMutationDisabled: 'Mutations are disabled in offline mode',
         onlineReconnected: 'Network reconnected. Synchronizing state...',
         pwaInstall: 'Install',
@@ -1318,6 +1390,25 @@
       if (lblStorageDesc) lblStorageDesc.textContent = t('offlineStorageDesc');
       const btnClearOffline = document.getElementById('lbl-clear-offline-cache');
       if (btnClearOffline) btnClearOffline.textContent = t('clearOfflineCache');
+
+      // 更新版本模态框及徽章文案
+      const versionBadge = document.getElementById('app-version-badge');
+      if (versionBadge) versionBadge.title = t('versionDetails');
+      const versionModalTitle = document.getElementById('version-modal-title');
+      if (versionModalTitle) versionModalTitle.textContent = t('versionDetails');
+      const lblVerCurrent = document.getElementById('lbl-version-current');
+      if (lblVerCurrent) lblVerCurrent.textContent = t('currentVersion');
+      const lblVerLatest = document.getElementById('lbl-version-latest');
+      if (lblVerLatest) lblVerLatest.textContent = t('latestVersion');
+      const lblVerHasUpdate = document.getElementById('lbl-version-has-update');
+      if (lblVerHasUpdate) lblVerHasUpdate.textContent = t('versionNewAvailable');
+      const lblVerUpgradeGuide = document.getElementById('lbl-version-upgrade-guide');
+      if (lblVerUpgradeGuide) lblVerUpgradeGuide.textContent = t('upgradeGuide');
+      const btnCopyUpgrade = document.getElementById('btn-copy-upgrade-cmd');
+      if (btnCopyUpgrade) btnCopyUpgrade.textContent = t('btnCopy');
+      const btnVerOk = document.getElementById('version-modal-ok');
+      if (btnVerOk) btnVerOk.textContent = t('btnCancel');
+
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -3275,6 +3366,9 @@
       eventSource.onopen = () => {
         setDaemon(true);
         setOfflineMode(false);
+        if (typeof checkServerVersion === 'function') {
+          checkServerVersion(true);
+        }
       };
 
       // 监听专用 SSE v2 事件类型与默认 message 事件
@@ -4569,6 +4663,171 @@
     } else {
       connect();
     }
+
+    // 版本元数据管理与更新检测
+    let currentServerVersion = '';
+    let currentServerCommit = '';
+    let latestReleaseVersion = '';
+    let latestReleaseUrl = 'https://github.com/Zelayan/agent-monitor/releases';
+    let hasNewRelease = false;
+
+    function openVersionModal() {
+      const modal = document.getElementById('version-modal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeVersionModal() {
+      const modal = document.getElementById('version-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    const versionBadgeEl = document.getElementById('app-version-badge');
+    if (versionBadgeEl) {
+      versionBadgeEl.addEventListener('click', openVersionModal);
+    }
+    const btnVerClose = document.getElementById('version-modal-close');
+    if (btnVerClose) {
+      btnVerClose.addEventListener('click', closeVersionModal);
+    }
+    const btnVerOk = document.getElementById('version-modal-ok');
+    if (btnVerOk) {
+      btnVerOk.addEventListener('click', closeVersionModal);
+    }
+    const versionModalEl = document.getElementById('version-modal');
+    if (versionModalEl) {
+      versionModalEl.addEventListener('click', (e) => {
+        if (e.target === versionModalEl) closeVersionModal();
+      });
+    }
+
+    const btnCopyUpgradeCmd = document.getElementById('btn-copy-upgrade-cmd');
+    if (btnCopyUpgradeCmd) {
+      btnCopyUpgradeCmd.addEventListener('click', async () => {
+        const cmd = document.getElementById('version-upgrade-cmd')?.textContent || '';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(cmd);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = cmd;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          showToast(t('cmdCopied'));
+        } catch (_) {
+          showToast(t('promptCopyUrl') + ' ' + cmd);
+        }
+      });
+    }
+
+    // 比较两个语义版本 (v1.4.1 vs v1.4.0)；若 v2 > v1 返回 true
+    function isSemverNewer(v1, v2) {
+      if (!v1 || !v2) return false;
+      const clean1 = String(v1).replace(/^v/, '').split('-')[0];
+      const clean2 = String(v2).replace(/^v/, '').split('-')[0];
+      const p1 = clean1.split('.').map(n => parseInt(n, 10) || 0);
+      const p2 = clean2.split('.').map(n => parseInt(n, 10) || 0);
+      for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+        const num1 = p1[i] || 0;
+        const num2 = p2[i] || 0;
+        if (num2 > num1) return true;
+        if (num2 < num1) return false;
+      }
+      return false;
+    }
+
+    async function checkServerVersion(isRecheck = false) {
+      try {
+        const res = await fetch('/api/version', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const newVer = data.version || '';
+        const newCommit = data.commit || '';
+
+        if (isRecheck && (currentServerCommit && newCommit && currentServerCommit !== newCommit || currentServerVersion && newVer && currentServerVersion !== newVer)) {
+          // 本地服务热更生效，提示刷新
+          showToast(t('daemonUpdatedToast', { v: newVer || newCommit }));
+        }
+
+        currentServerVersion = newVer;
+        currentServerCommit = newCommit;
+
+        const verTextEl = document.getElementById('app-version-text');
+        if (verTextEl && newVer) {
+          verTextEl.textContent = newVer.split('-')[0]; // 展示主版本号，如 v1.4.0
+        }
+        const curValEl = document.getElementById('version-current-val');
+        if (curValEl && newVer) {
+          curValEl.textContent = newVer;
+        }
+        const commitValEl = document.getElementById('version-commit-val');
+        if (commitValEl) {
+          commitValEl.textContent = `commit: ${newCommit || 'unknown'}` + (data.build_date ? ` (${data.build_date.slice(0, 10)})` : '');
+        }
+      } catch (_) {}
+    }
+
+    async function checkGitHubRelease() {
+      const statusValEl = document.getElementById('version-status-val');
+      const latestValEl = document.getElementById('version-latest-val');
+      const updateBoxEl = document.getElementById('version-update-box');
+      const dotEl = document.getElementById('app-version-dot');
+      const linkEl = document.getElementById('version-release-link');
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch('https://api.github.com/repos/Zelayan/agent-monitor/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          if (statusValEl) statusValEl.textContent = t('versionCheckFailed');
+          return;
+        }
+        const data = await res.json();
+        const remoteTag = data.tag_name || '';
+        latestReleaseVersion = remoteTag;
+        if (data.html_url) latestReleaseUrl = data.html_url;
+        if (linkEl) linkEl.href = latestReleaseUrl;
+
+        if (latestValEl) latestValEl.textContent = remoteTag || '--';
+
+        if (remoteTag && currentServerVersion && isSemverNewer(currentServerVersion, remoteTag)) {
+          hasNewRelease = true;
+          if (statusValEl) {
+            statusValEl.textContent = t('versionNewAvailable');
+            statusValEl.className = 'text-[10px] text-emerald-400 font-semibold mt-0.5';
+          }
+          if (dotEl) {
+            dotEl.classList.remove('hidden');
+          }
+          if (updateBoxEl) {
+            updateBoxEl.classList.remove('hidden');
+          }
+          const badge = document.getElementById('app-version-badge');
+          if (badge) {
+            badge.title = `${t('versionNewAvailable')} (${remoteTag})`;
+          }
+        } else {
+          if (statusValEl) {
+            statusValEl.textContent = t('versionUpToDate');
+            statusValEl.className = 'text-[10px] text-zinc-500 mt-0.5';
+          }
+        }
+      } catch (_) {
+        if (statusValEl) statusValEl.textContent = t('versionCheckFailed');
+      }
+    }
+
+    // 延迟检查版本与更新
+    checkServerVersion(false).then(() => {
+      setTimeout(checkGitHubRelease, 1500);
+    });
 
     // PWA Service Worker 注册与生命周期监听 (WP-18)
     if ('serviceWorker' in navigator) {

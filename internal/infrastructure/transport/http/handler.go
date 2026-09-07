@@ -33,6 +33,7 @@ type Handler struct {
 	masterKey   string            // Master 全局管理 Key
 	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
 	allowedCORS []string          // 可配置 CORS 白名单域名（为空则允许全部 "*"）
+	versionInfo map[string]string // 版本元数据
 }
 
 // NewHandler 创建 HTTP 处理器实例。
@@ -42,7 +43,26 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 		hub:         hub,
 		staticHTML:  staticHTML,
 		projectKeys: make(map[string]string),
+		versionInfo: map[string]string{
+			"version":    "v1.4.0",
+			"commit":     "dev",
+			"build_date": "unknown",
+		},
 	}
+}
+
+// WithVersionInfo 设置版本元数据（version, commit, build_date）。
+func (h *Handler) WithVersionInfo(version, commit, buildDate string) *Handler {
+	if version != "" {
+		h.versionInfo["version"] = version
+	}
+	if commit != "" {
+		h.versionInfo["commit"] = commit
+	}
+	if buildDate != "" {
+		h.versionInfo["build_date"] = buildDate
+	}
+	return h
 }
 
 // WithAllowedCORS 设置允许的 CORS Origin 白名单域名。
@@ -96,6 +116,7 @@ func (h *Handler) WithStaticFS(staticFS fs.FS) *Handler {
 
 // RegisterRoutes 在给定的 ServeMux 上注册路由。
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/version", h.HandleVersion)
 	mux.HandleFunc("/api/event", h.HandleEvent)
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
@@ -898,6 +919,20 @@ func (h *Handler) HandleServiceWorker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// HandleVersion 导出当前服务的版本号、构建 Commit 及构建日期。
+func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
+	if h.enableCORS(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		MethodNotAllowed(w, "GET, HEAD, OPTIONS")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(h.versionInfo)
 }
 
 // HandleHealthz 存活探针接口：快速返回 200 OK 表明进程存活。
