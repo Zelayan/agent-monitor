@@ -568,9 +568,11 @@ func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
 
 	eventsPath := r.eventLogPath(key)
 	var eventsData []byte
+	r.mu.Lock()
 	if ed, err := os.ReadFile(eventsPath); err == nil && len(ed) > 0 {
 		eventsData = ed
 	}
+	r.mu.Unlock()
 
 	archiveDir := filepath.Join(r.tenantDir(key.TenantID), "archives")
 	if err := os.MkdirAll(archiveDir, 0755); err != nil {
@@ -656,7 +658,9 @@ func (r *JSONRepository) ArchiveTask(key task.TaskKey) (string, error) {
 	if targetPath != legacyPath {
 		_ = os.Remove(legacyPath)
 	}
+	r.mu.Lock()
 	_ = os.Remove(eventsPath)
+	r.mu.Unlock()
 
 	r.versionLock.Lock()
 	r.tombstones[keyStr] = tombstoneItem{

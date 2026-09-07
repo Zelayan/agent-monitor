@@ -52,6 +52,16 @@ func TestSanitizeString(t *testing.T) {
 			expected: `db_password = "[REDACTED_SECRET]"`,
 		},
 		{
+			name:     "password assignment with quotes and internal spaces",
+			input:    `password: "My Super Secret 2026!"`,
+			expected: `password: "[REDACTED_SECRET]"`,
+		},
+		{
+			name:     "token assignment with single quotes and internal spaces",
+			input:    `secret_token = 'secret token value with spaces'`,
+			expected: `secret_token = '[REDACTED_SECRET]'`,
+		},
+		{
 			name:     "api_key assignment with colon",
 			input:    `api_key: secret_api_val_999`,
 			expected: `api_key: [REDACTED_SECRET]`,

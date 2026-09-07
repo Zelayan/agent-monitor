@@ -712,4 +712,49 @@ func TestNormalizeRepoAndBranch(t *testing.T) {
 	if task.Branch != "hotfix/urgent" || task.Repo != "agent-monitor" {
 		t.Fatalf("ApplyEvent failed to update branch: repo=%q, branch=%q", task.Repo, task.Branch)
 	}
+
+	// 5. Git SSH URL 防御性解析，严禁破坏 SSH 仓库名并错误切出 branch
+	r3, b3 := NormalizeRepoAndBranch("git@github.com:Zelayan/agent-monitor.git", "")
+	if r3 != "git@github.com:Zelayan/agent-monitor.git" || b3 != "" {
+		t.Fatalf("NormalizeRepoAndBranch broke git SSH URL: repo=%q, branch=%q", r3, b3)
+	}
+
+	r4, b4 := NormalizeRepoAndBranch("https://github.com/Zelayan/agent-monitor.git", "")
+	if r4 != "https://github.com/Zelayan/agent-monitor.git" || b4 != "" {
+		t.Fatalf("NormalizeRepoAndBranch broke https URL: repo=%q, branch=%q", r4, b4)
+	}
+}
+
+func TestStartNewTurn_ResetsTerminalState(t *testing.T) {
+	task := NewTask(EventPayload{
+		ID:     "task-turn-reset",
+		Event:  "sessionStart",
+		Prompt: "First turn",
+	}, 1000)
+
+	// 模拟首轮中止
+	task.Status = "failed"
+	task.EndTime = 2000
+	task.ControlState = "aborted"
+	task.AbortReason = "User aborted session"
+
+	// 开启第二轮
+	task.StartNewTurn(EventPayload{
+		ID:     "task-turn-reset",
+		Event:  "UserPromptSubmit",
+		Prompt: "Second turn",
+	}, 3000, "12:00:00")
+
+	if task.Status != "running" {
+		t.Fatalf("expected status running, got %s", task.Status)
+	}
+	if task.EndTime != 0 {
+		t.Fatalf("expected EndTime reset to 0, got %d", task.EndTime)
+	}
+	if task.ControlState != "" {
+		t.Fatalf("expected ControlState reset to empty, got %s", task.ControlState)
+	}
+	if task.AbortReason != "" {
+		t.Fatalf("expected AbortReason reset to empty, got %s", task.AbortReason)
+	}
 }
