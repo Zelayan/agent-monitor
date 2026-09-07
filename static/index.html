@@ -558,7 +558,7 @@
           <span id="lbl-drawer-waterfall-title">AGENT TRACE WATERFALL</span>
         </span>
         <div class="flex items-center gap-2">
-          <button id="drawer-waterfall-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
+          <button id="drawer-waterfall-filter-reset" type="button" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
             × <span id="lbl-drawer-waterfall-reset">Reset Filter</span>
           </button>
           <span id="drawer-waterfall-total-badge" class="text-zinc-500 font-mono text-[10px]"></span>
@@ -1373,6 +1373,9 @@
     function renderMarkdown(src) {
       const raw = String(src ?? '');
       if (!raw) return '';
+      if (typeof DOMPurify === 'undefined') {
+        return esc(raw).replace(/\n/g, '<br>');
+      }
       let html;
       try {
         html = (typeof marked !== 'undefined')
@@ -1381,10 +1384,7 @@
       } catch (err) {
         html = esc(raw).replace(/\n/g, '<br>');
       }
-      if (typeof DOMPurify !== 'undefined') {
-        return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
-      }
-      return html;
+      return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
     }
 
     function agentSlug(name) {
@@ -1570,22 +1570,25 @@
     // 核心创新：生成高轮次微型刻度条 (Tick Sparkline Matrix)
     function renderTickSparkline(runs) {
       if (!runs || runs.length === 0) return '';
+      const latestStatus = runs[runs.length - 1].status || '';
       return `
         <div class="bg-[#09090b] border border-[#1e1e22] rounded p-1.5 my-2">
           <div class="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-1">
             <span>RUN MATRIX (${runs.length})</span>
-            <span class="${runs[runs.length-1].status === 'running' ? 'text-amber-400' : 'text-zinc-500'}">
-              Run #${runs.length} ${runs[runs.length-1].status.toUpperCase()}
+            <span class="${latestStatus === 'running' ? 'text-amber-400' : 'text-zinc-500'}">
+              Run #${runs.length} ${esc(latestStatus.toUpperCase())}
             </span>
           </div>
           <div class="flex items-center gap-[2px] h-2.5 overflow-hidden">
             ${runs.map(r => {
-              const color = r.status === 'running' 
+              const rStatus = r.status || '';
+              const rIndex = r.index || r.runId || 1;
+              const color = rStatus === 'running' 
                 ? 'bg-amber-400 animate-pulse' 
-                : r.status === 'failed' 
+                : rStatus === 'failed' 
                   ? 'bg-rose-500' 
                   : 'bg-emerald-500/80 hover:bg-emerald-400';
-              return `<div title="Run #${r.index || r.runId}: ${r.status}" class="flex-1 h-full rounded-[1px] ${color} transition-colors"></div>`;
+              return `<div title="${esc(`Run #${rIndex}: ${rStatus}`)}" class="flex-1 h-full rounded-[1px] ${color} transition-colors"></div>`;
             }).join('')}
           </div>
         </div>`;
@@ -1730,13 +1733,13 @@
       const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
 
       const checkboxHTML = isSelectMode ? `
-        <div class="shrink-0 pl-1" onclick="event.stopPropagation()">
+        <div class="shrink-0 pl-1">
           <input type="checkbox" data-select-id="${esc(tObj.id)}" ${isSelected ? 'checked' : ''} 
             class="w-4 h-4 rounded bg-zinc-900 border-line text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer">
         </div>` : '';
 
       const abortBtnHTML = isRunning ? `
-        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
+        <button type="button" data-action="abort" data-task-id="${esc(tObj.id)}"
           class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
           title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
@@ -2168,6 +2171,7 @@
       selectedId = null;
       selectedRunId = null;
       isFollowLatest = true;
+      activeTraceSubagentFilter = null;
       toggleRunDropdown(false);
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
@@ -2244,8 +2248,8 @@
           <div class="flex items-center justify-between font-mono text-[10px]">
             <div class="flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
-              <span class="font-semibold ${isSelected ? 'text-zinc-100' : 'text-zinc-300'}">RUN #${rIndex}</span>
-              <span class="px-1 py-px rounded text-[9px] ${badgeClass}">${(r.status || 'COMPLETED').toUpperCase()}</span>
+              <span class="font-semibold ${isSelected ? 'text-zinc-100' : 'text-zinc-300'}">RUN #${esc(rIndex)}</span>
+              <span class="px-1 py-px rounded text-[9px] ${badgeClass}">${esc((r.status || 'COMPLETED').toUpperCase())}</span>
             </div>
             <div class="flex items-center gap-1.5 text-zinc-500">
               <span class="tabular-nums">${esc(durationText)}</span>
@@ -2464,7 +2468,7 @@
       const isRootFiltered = activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT';
       const rootTrackHTML = `
         <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isRootFiltered ? 'opacity-40' : 'opacity-100'}"
-          onclick="resetTraceFilter()" title="${esc(task.title || task.rootGoal)}">
+          data-action="reset-trace-filter" title="${esc(task.title || task.rootGoal)}">
           <span class="w-28 text-zinc-300 truncate shrink-0 flex items-center gap-1.5 font-semibold text-[11px]">
             <span class="w-1.5 h-1.5 rounded-full ${isRootRunning ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}"></span>
             <span>ROOT</span>
@@ -2507,7 +2511,7 @@
 
         return `
           <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isDimmed ? 'opacity-35' : 'opacity-100'}"
-            onclick="selectTraceSubagentFilter('${esc(s.id)}', '${esc(s.role)}', ${Boolean(!s.isStandalone)})"
+            data-action="select-subagent" data-sub-id="${esc(s.id)}" data-sub-role="${esc(s.role)}" data-sub-timeline-only="${Boolean(!s.isStandalone)}"
             title="${esc(s.title || s.role)}">
             <span class="w-28 text-purple-300 truncate shrink-0 flex items-center gap-1 text-[11px]">
               <span class="text-zinc-600 font-mono text-[10px]">↳</span>
@@ -2898,6 +2902,10 @@
           scheduleRender();
         }
         setOfflineMode(true, snapshot.lastSyncTimestamp);
+        if (isInitialLoad) {
+          isInitialLoad = false;
+          restoreURLState();
+        }
         return true;
       } else {
         setOfflineMode(true, null);
@@ -3133,6 +3141,7 @@
       }
       if (oldKey !== apiKey) {
         currentTenant = '';
+        lastSseEventId = 0;
         tasksMap.clear();
         searchIndexCache.clear();
         columnCardCache.running.clear();
@@ -3148,6 +3157,7 @@
     function clearAuthKey() {
       apiKey = '';
       currentTenant = '';
+      lastSseEventId = 0;
       localStorage.removeItem('agent_monitor_api_key');
       const input = document.getElementById('auth-key-input');
       if (input) input.value = '';
@@ -3260,7 +3270,6 @@
       eventSource.onopen = () => {
         setDaemon(true);
         setOfflineMode(false);
-        setTimeout(() => { isInitialLoad = false; }, 1200);
       };
 
       // 监听专用 SSE v2 事件类型与默认 message 事件
@@ -3320,6 +3329,7 @@
               scheduleRender();
             }
             if (isInitialLoad) {
+              isInitialLoad = false;
               restoreURLState();
             }
             saveOfflineSnapshot();
@@ -4307,7 +4317,37 @@
       }
     });
 
+    const btnWaterfallReset = document.getElementById('drawer-waterfall-filter-reset');
+    if (btnWaterfallReset) {
+      btnWaterfallReset.addEventListener('click', resetTraceFilter);
+    }
+    const drawerWaterfallContainer = document.getElementById('drawer-waterfall-container');
+    if (drawerWaterfallContainer) {
+      drawerWaterfallContainer.addEventListener('click', (e) => {
+        const resetEl = e.target.closest('[data-action="reset-trace-filter"]');
+        if (resetEl) {
+          resetTraceFilter();
+          return;
+        }
+        const subagentEl = e.target.closest('[data-action="select-subagent"]');
+        if (subagentEl) {
+          const subId = subagentEl.dataset.subId || '';
+          const subRole = subagentEl.dataset.subRole || '';
+          const isTimelineOnly = subagentEl.dataset.subTimelineOnly === 'true';
+          selectTraceSubagentFilter(subId, subRole, isTimelineOnly);
+        }
+      });
+    }
+
     document.addEventListener('click', (e) => {
+      const abortBtn = e.target.closest('[data-action="abort"]');
+      if (abortBtn) {
+        e.stopPropagation();
+        const taskId = abortBtn.dataset.taskId;
+        if (taskId) abortSession(taskId);
+        return;
+      }
+
       const checkbox = e.target.closest('[data-select-id]');
       if (checkbox) {
         const id = checkbox.dataset.selectId;

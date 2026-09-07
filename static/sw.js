@@ -52,6 +52,11 @@ self.addEventListener('message', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
 
+  // 仅拦截 HTTP/HTTPS 的 GET 请求，跳过扩展/非 HTTP 及非 GET 方法
+  if (!url.protocol.startsWith('http') || event.request.method !== 'GET') {
+    return;
+  }
+
   // 动态 API 请求与 SSE 流不走缓存，始终走网络
   if (url.pathname.startsWith('/api/')) {
     return;
@@ -75,8 +80,22 @@ self.addEventListener('fetch', (event) => {
             return cachedResponse;
           }
           if (event.request.mode === 'navigate') {
-            return caches.match('/');
+            return caches.match('/').then((rootCached) => {
+              if (rootCached) {
+                return rootCached;
+              }
+              return new Response('Offline: Resource not available in cache', {
+                status: 503,
+                statusText: 'Service Unavailable',
+                headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+              });
+            });
           }
+          return new Response('Offline: Resource not available in cache', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+          });
         });
       })
   );
