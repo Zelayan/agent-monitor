@@ -1,5 +1,7 @@
 # 远端 IP 部署与 PWA / HTTPS 指南 (Remote Deployment & PWA Guide)
 
+[English](REMOTE_DEPLOYMENT.en.md) | [简体中文](REMOTE_DEPLOYMENT.md)
+
 本文档面向需要将 **AGENT MONITOR** 部署到局域网远程主机（如 `192.168.x.x`）或私有云服务器，并希望在客户端浏览器（Chrome / Edge / Safari）中启用 **PWA 独立桌面 App 安装** 与 **Service Worker** 的开发者。
 
 ---
