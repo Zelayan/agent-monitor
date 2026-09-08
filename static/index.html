@@ -231,6 +231,10 @@
           <span class="font-mono text-[12px] text-zinc-400 leading-none select-none">&gt;_</span>
           <span class="text-[11px] font-semibold tracking-[0.16em] text-zinc-100 uppercase">AGENT MONITOR</span>
         </div>
+        <span id="app-version-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded border border-line bg-card text-zinc-400 hover:border-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer select-none inline-flex items-center gap-1" title="查看版本信息与更新">
+          <span id="app-version-text">v1.4.0</span>
+          <span id="app-version-dot" class="hidden w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+        </span>
         <span class="text-zinc-700">/</span>
         <span id="daemon-status" class="inline-flex items-center gap-1.5 font-mono text-[10px] sm:text-[11px] tabular-nums text-zinc-500">
           <span class="w-1.5 h-1.5 rounded-full bg-[#6b8f71]"></span>
@@ -432,16 +436,16 @@
 
   <!-- 3. 企业级多轮工作流抽屉 (支持宽屏/全屏展开与 Run 步进器) -->
   <div id="drawer-overlay" class="overlay fixed inset-0 z-40 bg-black/60" aria-hidden="true"></div>
-  <aside id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-root-title" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line p-3.5 sm:p-5 pb-16 sm:pb-20 overflow-y-auto" aria-hidden="true" tabindex="-1">
+  <aside id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-root-title" class="drawer fixed top-0 right-0 z-50 h-full w-full max-w-2xl bg-panel border-l border-line px-3.5 sm:px-5 pb-16 sm:pb-20 overflow-y-auto" aria-hidden="true" tabindex="-1">
     
     <!-- 抽屉顶部 Bar -->
-    <div class="sticky top-0 z-20 -mx-3.5 -mt-3.5 sm:-mx-5 sm:-mt-5 px-3.5 pt-3.5 sm:px-5 sm:pt-5 pb-3 bg-panel/95 backdrop-blur-md border-b border-line flex items-center justify-between gap-2">
-      <div class="flex items-center gap-2 min-w-0">
-        <span id="drawer-agent"></span>
-        <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate"></span>
-        <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0">1 Run</span>
+    <div class="sticky top-0 z-20 -mx-3.5 sm:-mx-5 px-3.5 sm:px-5 pt-3.5 sm:pt-4 pb-3 bg-panel border-b border-line flex items-center justify-between gap-2 shadow-sm">
+      <div class="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden">
+        <span id="drawer-agent" class="shrink-0 flex items-center"></span>
+        <span id="drawer-repo" class="font-mono text-[11px] tabular-nums text-zinc-400 truncate min-w-0 flex-1 max-w-[180px] sm:max-w-[260px]" title=""></span>
+        <span id="drawer-runs-badge" class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-indigo-950/80 text-indigo-300 border border-indigo-800/60 font-semibold shrink-0 whitespace-nowrap">1 Run</span>
       </div>
-      <div class="flex items-center gap-1.5 shrink-0">
+      <div class="flex items-center gap-1.5 shrink-0 ml-auto">
         <!-- Cursor 尚未公开按 conversation_id 定位本地会话的稳定接口，入口暂时隐藏。 -->
         <button id="btn-drawer-focus-cursor" type="button" class="hidden h-7 px-2 rounded border border-indigo-800/60 bg-indigo-950/40 font-mono text-[10px] text-indigo-300 hover:bg-indigo-900/60 hover:text-white items-center gap-1 transition-colors" title="Focus in Cursor / 在 Cursor 中定位会话" aria-hidden="true" tabindex="-1">
           <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 3v3m0 12v3M3 12h3m12 0h3"/></svg>
@@ -512,12 +516,12 @@
     </div>
 
     <!-- 会话整体容器 (SESSION CONTAINER) -->
-    <div class="mt-3 sm:mt-4 pb-3 sm:pb-4 border-b border-[#1e1e22]">
+    <div class="pt-4 sm:pt-5 pb-3 sm:pb-4 border-b border-[#1e1e22]">
       <div class="font-mono text-[10px] text-zinc-500 uppercase tracking-wider" id="lbl-drawer-container">SESSION CONTAINER (WORKFLOW)</div>
       <h2 id="drawer-root-title" class="text-xs sm:text-sm font-medium text-zinc-100 mt-1 leading-snug break-words"></h2>
       
       <!-- 实时人机协同 / 动态上下文注入 (Live Steer & Context Injection) -->
-      <div id="drawer-steer-section" class="mt-2.5 p-2 bg-[#121316] border border-indigo-900/40 rounded-md">
+      <div id="drawer-steer-section" class="mt-2 p-2 bg-[#121316] border border-indigo-900/40 rounded-md">
         <div class="font-mono text-[10px] text-zinc-400 uppercase mb-1.5 flex items-center justify-between">
           <span class="flex items-center gap-1.5 text-indigo-400 font-semibold">
             <svg class="w-3 h-3 text-indigo-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -558,7 +562,7 @@
           <span id="lbl-drawer-waterfall-title">AGENT TRACE WATERFALL</span>
         </span>
         <div class="flex items-center gap-2">
-          <button id="drawer-waterfall-filter-reset" type="button" onclick="resetTraceFilter()" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
+          <button id="drawer-waterfall-filter-reset" type="button" class="hidden px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/60 text-indigo-300 text-[9px] cursor-pointer hover:bg-indigo-900/70 transition-colors">
             × <span id="lbl-drawer-waterfall-reset">Reset Filter</span>
           </button>
           <span id="drawer-waterfall-total-badge" class="text-zinc-500 font-mono text-[10px]"></span>
@@ -753,6 +757,52 @@
     </div>
   </div>
 
+  <!-- 4. 版本信息与更新模态框 (Version & Update Modal) -->
+  <div id="version-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs hidden" role="dialog" aria-modal="true" aria-labelledby="version-modal-title">
+    <div id="version-modal-card" class="w-full max-w-md bg-[#0c0d0e] border border-[#27272a] rounded-lg shadow-2xl overflow-hidden transition-all duration-150">
+      <div class="p-4 sm:p-5 border-b border-[#27272a] flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <div class="w-7 h-7 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center shrink-0">
+            <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          </div>
+          <h3 id="version-modal-title" class="font-mono text-xs font-semibold text-zinc-100 uppercase tracking-tight">版本信息与更新</h3>
+        </div>
+        <button id="version-modal-close" type="button" class="text-zinc-500 hover:text-zinc-200 text-sm font-mono transition-colors p-1" title="关闭 (Esc)">✕</button>
+      </div>
+      <div class="p-4 sm:p-5 space-y-3.5 text-xs font-mono">
+        <div class="grid grid-cols-2 gap-2 bg-[#121316] border border-[#1e1e24] p-3 rounded">
+          <div>
+            <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5" id="lbl-version-current">当前运行版本</div>
+            <div id="version-current-val" class="text-zinc-200 font-semibold text-sm">v1.4.0</div>
+            <div id="version-commit-val" class="text-[10px] text-zinc-500 truncate mt-0.5">commit: dev</div>
+          </div>
+          <div>
+            <div class="text-[10px] text-zinc-500 uppercase tracking-wider mb-0.5" id="lbl-version-latest">最新官方发布</div>
+            <div id="version-latest-val" class="text-zinc-200 font-semibold text-sm">--</div>
+            <div id="version-status-val" class="text-[10px] text-zinc-500 mt-0.5">检查更新中...</div>
+          </div>
+        </div>
+
+        <div id="version-update-box" class="hidden p-3 rounded bg-indigo-950/30 border border-indigo-800/40 text-indigo-200 space-y-2">
+          <div class="flex items-center justify-between">
+            <span id="lbl-version-has-update" class="font-semibold text-indigo-300">发现新版本可用</span>
+            <a id="version-release-link" href="https://github.com/Zelayan/agent-monitor/releases" target="_blank" rel="noopener noreferrer" class="text-[11px] underline hover:text-indigo-100">Releases ↗</a>
+          </div>
+          <div class="text-[10px] text-zinc-400 font-mono" id="lbl-version-upgrade-guide">升级指引（终端执行一键升级）：</div>
+          <div class="flex items-center justify-between bg-black/60 border border-indigo-900/50 rounded px-2 py-1 text-[10px] text-zinc-300">
+            <code id="version-upgrade-cmd" class="truncate select-all">curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/master/install.sh | bash</code>
+            <button id="btn-copy-upgrade-cmd" type="button" class="ml-2 text-indigo-400 hover:text-indigo-200 shrink-0" title="复制">复制</button>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-end px-4 py-2.5 bg-[#111215] border-t border-[#27272a]">
+        <button id="version-modal-ok" type="button" class="h-7 px-3 rounded border border-line text-xs font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors">
+          关闭
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- 全局无障碍实时播报区 (Screen Reader Live Region for Announcements & Toasts) -->
   <div id="a11y-live-polite" class="sr-only" aria-live="polite" aria-atomic="true"></div>
   <div id="a11y-live-assertive" class="sr-only" aria-live="assertive" aria-atomic="true"></div>
@@ -912,6 +962,17 @@
         offlineMode: '离线模式 (只读)',
         offlineLastSynced: '上次同步: {time}',
         offlineNever: '从未',
+        versionDetails: '版本信息与更新',
+        currentVersion: '当前运行版本',
+        latestVersion: '最新官方发布',
+        versionChecking: '检查更新中...',
+        versionUpToDate: '已是最新版本',
+        versionNewAvailable: '发现新版本可用',
+        versionCheckFailed: '检查更新失败 (网络离线)',
+        upgradeGuide: '升级指引（终端执行一键升级）：',
+        daemonUpdatedToast: '检测到 Monitor 守护进程已更新 ({v})，点击刷新',
+        btnCopy: '复制',
+        cmdCopied: '已复制升级命令！',
         offlineMutationDisabled: '离线模式下写操作已禁用',
         onlineReconnected: '网络已恢复在线，正在对账同步...',
         pwaInstall: '安装',
@@ -926,6 +987,7 @@
         clearOfflineCacheConfirm: '确定清除本地保存的所有离线快照与静态资源缓存吗？',
         clearOfflineCacheSuccess: '离线缓存已清除',
         actClearOffline: '清除离线缓存',
+        btnClose: '关闭',
       },
       en: {
         htmlLang: 'en',
@@ -1079,6 +1141,17 @@
         offlineMode: 'Offline (Read-only)',
         offlineLastSynced: 'Last synced: {time}',
         offlineNever: 'Never',
+        versionDetails: 'Version & Updates',
+        currentVersion: 'Current Version',
+        latestVersion: 'Latest Release',
+        versionChecking: 'Checking for updates...',
+        versionUpToDate: 'Up to date',
+        versionNewAvailable: 'New version available',
+        versionCheckFailed: 'Update check failed (offline)',
+        upgradeGuide: 'Upgrade Guide (Run in terminal):',
+        daemonUpdatedToast: 'Monitor daemon updated ({v}), click to refresh',
+        btnCopy: 'Copy',
+        cmdCopied: 'Upgrade command copied!',
         offlineMutationDisabled: 'Mutations are disabled in offline mode',
         onlineReconnected: 'Network reconnected. Synchronizing state...',
         pwaInstall: 'Install',
@@ -1093,6 +1166,7 @@
         clearOfflineCacheConfirm: 'Are you sure you want to clear all locally cached snapshots and static assets?',
         clearOfflineCacheSuccess: 'Offline cache cleared',
         actClearOffline: 'Clear Offline Cache',
+        btnClose: 'Close',
       },
     };
 
@@ -1318,6 +1392,34 @@
       if (lblStorageDesc) lblStorageDesc.textContent = t('offlineStorageDesc');
       const btnClearOffline = document.getElementById('lbl-clear-offline-cache');
       if (btnClearOffline) btnClearOffline.textContent = t('clearOfflineCache');
+
+      // 更新版本模态框及徽章文案
+      const versionBadge = document.getElementById('app-version-badge');
+      if (versionBadge) versionBadge.title = t('versionDetails');
+      const versionModalTitle = document.getElementById('version-modal-title');
+      if (versionModalTitle) versionModalTitle.textContent = t('versionDetails');
+      const btnVerClose = document.getElementById('version-modal-close');
+      if (btnVerClose) btnVerClose.title = `${t('btnClose')} (Esc)`;
+      const lblVerCurrent = document.getElementById('lbl-version-current');
+      if (lblVerCurrent) lblVerCurrent.textContent = t('currentVersion');
+      const lblVerLatest = document.getElementById('lbl-version-latest');
+      if (lblVerLatest) lblVerLatest.textContent = t('latestVersion');
+      const lblVerStatus = document.getElementById('version-status-val');
+      if (lblVerStatus && !lblVerStatus.dataset.checked) {
+        lblVerStatus.textContent = t('versionChecking');
+      }
+      const lblVerHasUpdate = document.getElementById('lbl-version-has-update');
+      if (lblVerHasUpdate) lblVerHasUpdate.textContent = t('versionNewAvailable');
+      const lblVerUpgradeGuide = document.getElementById('lbl-version-upgrade-guide');
+      if (lblVerUpgradeGuide) lblVerUpgradeGuide.textContent = t('upgradeGuide');
+      const btnCopyUpgrade = document.getElementById('btn-copy-upgrade-cmd');
+      if (btnCopyUpgrade) {
+        btnCopyUpgrade.textContent = t('btnCopy');
+        btnCopyUpgrade.title = t('btnCopy');
+      }
+      const btnVerOk = document.getElementById('version-modal-ok');
+      if (btnVerOk) btnVerOk.textContent = t('btnClose');
+
       updateNotifyButtonUI();
       updateAuthButtonUI();
       updateBatchUI();
@@ -1373,6 +1475,9 @@
     function renderMarkdown(src) {
       const raw = String(src ?? '');
       if (!raw) return '';
+      if (typeof DOMPurify === 'undefined') {
+        return esc(raw).replace(/\n/g, '<br>');
+      }
       let html;
       try {
         html = (typeof marked !== 'undefined')
@@ -1381,10 +1486,7 @@
       } catch (err) {
         html = esc(raw).replace(/\n/g, '<br>');
       }
-      if (typeof DOMPurify !== 'undefined') {
-        return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
-      }
-      return html;
+      return DOMPurify.sanitize(html, { USE_PROFILES: { html: true } });
     }
 
     function agentSlug(name) {
@@ -1570,22 +1672,25 @@
     // 核心创新：生成高轮次微型刻度条 (Tick Sparkline Matrix)
     function renderTickSparkline(runs) {
       if (!runs || runs.length === 0) return '';
+      const latestStatus = runs[runs.length - 1].status || '';
       return `
         <div class="bg-[#09090b] border border-[#1e1e22] rounded p-1.5 my-2">
           <div class="flex items-center justify-between text-[10px] font-mono text-zinc-500 mb-1">
             <span>RUN MATRIX (${runs.length})</span>
-            <span class="${runs[runs.length-1].status === 'running' ? 'text-amber-400' : 'text-zinc-500'}">
-              Run #${runs.length} ${runs[runs.length-1].status.toUpperCase()}
+            <span class="${latestStatus === 'running' ? 'text-amber-400' : 'text-zinc-500'}">
+              Run #${runs.length} ${esc(latestStatus.toUpperCase())}
             </span>
           </div>
           <div class="flex items-center gap-[2px] h-2.5 overflow-hidden">
             ${runs.map(r => {
-              const color = r.status === 'running' 
+              const rStatus = r.status || '';
+              const rIndex = r.index || r.runId || 1;
+              const color = rStatus === 'running' 
                 ? 'bg-amber-400 animate-pulse' 
-                : r.status === 'failed' 
+                : rStatus === 'failed' 
                   ? 'bg-rose-500' 
                   : 'bg-emerald-500/80 hover:bg-emerald-400';
-              return `<div title="Run #${r.index || r.runId}: ${r.status}" class="flex-1 h-full rounded-[1px] ${color} transition-colors"></div>`;
+              return `<div title="${esc(`Run #${rIndex}: ${rStatus}`)}" class="flex-1 h-full rounded-[1px] ${color} transition-colors"></div>`;
             }).join('')}
           </div>
         </div>`;
@@ -1730,13 +1835,13 @@
       const selectBorder = isSelectMode && isSelected ? 'ring-2 ring-indigo-500 border-indigo-500/80' : '';
 
       const checkboxHTML = isSelectMode ? `
-        <div class="shrink-0 pl-1" onclick="event.stopPropagation()">
+        <div class="shrink-0 pl-1">
           <input type="checkbox" data-select-id="${esc(tObj.id)}" ${isSelected ? 'checked' : ''} 
             class="w-4 h-4 rounded bg-zinc-900 border-line text-indigo-600 focus:ring-0 focus:ring-offset-0 cursor-pointer">
         </div>` : '';
 
       const abortBtnHTML = isRunning ? `
-        <button type="button" onclick="event.stopPropagation(); abortSession('${esc(tObj.id)}')"
+        <button type="button" data-action="abort" data-task-id="${esc(tObj.id)}"
           class="px-1.5 py-0.5 rounded border border-rose-900/60 bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 font-mono text-[10px] transition-colors ${isAborting ? 'opacity-75 animate-pulse cursor-wait text-amber-300 border-amber-900/60 bg-amber-950/40' : ''}"
           ${isAborting ? 'disabled' : ''}
           title="${isAborting ? t('statusAborting') : t('confirmAbort')}">
@@ -2168,6 +2273,7 @@
       selectedId = null;
       selectedRunId = null;
       isFollowLatest = true;
+      activeTraceSubagentFilter = null;
       toggleRunDropdown(false);
       document.getElementById('drawer').classList.remove('open');
       document.getElementById('drawer-overlay').classList.remove('open');
@@ -2244,8 +2350,8 @@
           <div class="flex items-center justify-between font-mono text-[10px]">
             <div class="flex items-center gap-1.5">
               <span class="w-1.5 h-1.5 rounded-full ${dotColor}"></span>
-              <span class="font-semibold ${isSelected ? 'text-zinc-100' : 'text-zinc-300'}">RUN #${rIndex}</span>
-              <span class="px-1 py-px rounded text-[9px] ${badgeClass}">${(r.status || 'COMPLETED').toUpperCase()}</span>
+              <span class="font-semibold ${isSelected ? 'text-zinc-100' : 'text-zinc-300'}">RUN #${esc(rIndex)}</span>
+              <span class="px-1 py-px rounded text-[9px] ${badgeClass}">${esc((r.status || 'COMPLETED').toUpperCase())}</span>
             </div>
             <div class="flex items-center gap-1.5 text-zinc-500">
               <span class="tabular-nums">${esc(durationText)}</span>
@@ -2464,7 +2570,7 @@
       const isRootFiltered = activeTraceSubagentFilter && activeTraceSubagentFilter !== 'ROOT';
       const rootTrackHTML = `
         <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isRootFiltered ? 'opacity-40' : 'opacity-100'}"
-          onclick="resetTraceFilter()" title="${esc(task.title || task.rootGoal)}">
+          data-action="reset-trace-filter" title="${esc(task.title || task.rootGoal)}">
           <span class="w-28 text-zinc-300 truncate shrink-0 flex items-center gap-1.5 font-semibold text-[11px]">
             <span class="w-1.5 h-1.5 rounded-full ${isRootRunning ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}"></span>
             <span>ROOT</span>
@@ -2507,7 +2613,7 @@
 
         return `
           <div class="flex items-center text-xs font-mono group cursor-pointer transition-opacity ${isDimmed ? 'opacity-35' : 'opacity-100'}"
-            onclick="selectTraceSubagentFilter('${esc(s.id)}', '${esc(s.role)}', ${Boolean(!s.isStandalone)})"
+            data-action="select-subagent" data-sub-id="${esc(s.id)}" data-sub-role="${esc(s.role)}" data-sub-timeline-only="${Boolean(!s.isStandalone)}"
             title="${esc(s.title || s.role)}">
             <span class="w-28 text-purple-300 truncate shrink-0 flex items-center gap-1 text-[11px]">
               <span class="text-zinc-600 font-mono text-[10px]">↳</span>
@@ -2560,7 +2666,12 @@
       const runs = getTaskRuns(task);
 
       document.getElementById('drawer-agent').innerHTML = agentBadge(task.agent);
-      document.getElementById('drawer-repo').textContent = repoLabel(task);
+      const repoText = repoLabel(task);
+      const drawerRepoEl = document.getElementById('drawer-repo');
+      if (drawerRepoEl) {
+        drawerRepoEl.textContent = repoText;
+        drawerRepoEl.title = repoText;
+      }
       document.getElementById('drawer-runs-badge').innerText = `${runs.length} Runs`;
       document.getElementById('drawer-root-title').textContent = sessionDisplayTitle(task);
       const sessionGoalEl = document.getElementById('drawer-session-goal');
@@ -2898,6 +3009,10 @@
           scheduleRender();
         }
         setOfflineMode(true, snapshot.lastSyncTimestamp);
+        if (isInitialLoad) {
+          isInitialLoad = false;
+          restoreURLState();
+        }
         return true;
       } else {
         setOfflineMode(true, null);
@@ -3133,6 +3248,7 @@
       }
       if (oldKey !== apiKey) {
         currentTenant = '';
+        lastSseEventId = 0;
         tasksMap.clear();
         searchIndexCache.clear();
         columnCardCache.running.clear();
@@ -3148,6 +3264,7 @@
     function clearAuthKey() {
       apiKey = '';
       currentTenant = '';
+      lastSseEventId = 0;
       localStorage.removeItem('agent_monitor_api_key');
       const input = document.getElementById('auth-key-input');
       if (input) input.value = '';
@@ -3260,7 +3377,10 @@
       eventSource.onopen = () => {
         setDaemon(true);
         setOfflineMode(false);
-        setTimeout(() => { isInitialLoad = false; }, 1200);
+        setTimeout(() => { isInitialLoad = false; }, 1500); // 增量重放模式保底解除
+        if (typeof checkServerVersion === 'function') {
+          checkServerVersion(true);
+        }
       };
 
       // 监听专用 SSE v2 事件类型与默认 message 事件
@@ -3320,6 +3440,7 @@
               scheduleRender();
             }
             if (isInitialLoad) {
+              isInitialLoad = false;
               restoreURLState();
             }
             saveOfflineSnapshot();
@@ -4307,7 +4428,37 @@
       }
     });
 
+    const btnWaterfallReset = document.getElementById('drawer-waterfall-filter-reset');
+    if (btnWaterfallReset) {
+      btnWaterfallReset.addEventListener('click', resetTraceFilter);
+    }
+    const drawerWaterfallContainer = document.getElementById('drawer-waterfall-container');
+    if (drawerWaterfallContainer) {
+      drawerWaterfallContainer.addEventListener('click', (e) => {
+        const resetEl = e.target.closest('[data-action="reset-trace-filter"]');
+        if (resetEl) {
+          resetTraceFilter();
+          return;
+        }
+        const subagentEl = e.target.closest('[data-action="select-subagent"]');
+        if (subagentEl) {
+          const subId = subagentEl.dataset.subId || '';
+          const subRole = subagentEl.dataset.subRole || '';
+          const isTimelineOnly = subagentEl.dataset.subTimelineOnly === 'true';
+          selectTraceSubagentFilter(subId, subRole, isTimelineOnly);
+        }
+      });
+    }
+
     document.addEventListener('click', (e) => {
+      const abortBtn = e.target.closest('[data-action="abort"]');
+      if (abortBtn) {
+        e.stopPropagation();
+        const taskId = abortBtn.dataset.taskId;
+        if (taskId) abortSession(taskId);
+        return;
+      }
+
       const checkbox = e.target.closest('[data-select-id]');
       if (checkbox) {
         const id = checkbox.dataset.selectId;
@@ -4524,6 +4675,179 @@
     } else {
       connect();
     }
+
+    // 版本元数据管理与更新检测
+    let currentServerVersion = '';
+    let currentServerCommit = '';
+    let latestReleaseVersion = '';
+    let latestReleaseUrl = 'https://github.com/Zelayan/agent-monitor/releases';
+    let hasNewRelease = false;
+
+    function openVersionModal() {
+      const modal = document.getElementById('version-modal');
+      if (modal) modal.classList.remove('hidden');
+    }
+
+    function closeVersionModal() {
+      const modal = document.getElementById('version-modal');
+      if (modal) modal.classList.add('hidden');
+    }
+
+    const versionBadgeEl = document.getElementById('app-version-badge');
+    if (versionBadgeEl) {
+      versionBadgeEl.addEventListener('click', openVersionModal);
+    }
+    const btnVerClose = document.getElementById('version-modal-close');
+    if (btnVerClose) {
+      btnVerClose.addEventListener('click', closeVersionModal);
+    }
+    const btnVerOk = document.getElementById('version-modal-ok');
+    if (btnVerOk) {
+      btnVerOk.addEventListener('click', closeVersionModal);
+    }
+    const versionModalEl = document.getElementById('version-modal');
+    if (versionModalEl) {
+      versionModalEl.addEventListener('click', (e) => {
+        if (e.target === versionModalEl) closeVersionModal();
+      });
+    }
+
+    const btnCopyUpgradeCmd = document.getElementById('btn-copy-upgrade-cmd');
+    if (btnCopyUpgradeCmd) {
+      btnCopyUpgradeCmd.addEventListener('click', async () => {
+        const cmd = document.getElementById('version-upgrade-cmd')?.textContent || '';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(cmd);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = cmd;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          showToast(t('cmdCopied'));
+        } catch (_) {
+          showToast(t('promptCopyUrl') + ' ' + cmd);
+        }
+      });
+    }
+
+    // 比较两个语义版本 (v1.4.1 vs v1.4.0)；若 v2 > v1 返回 true
+    function isSemverNewer(v1, v2) {
+      if (!v1 || !v2) return false;
+      const clean1 = String(v1).replace(/^v/, '').split('-')[0];
+      const clean2 = String(v2).replace(/^v/, '').split('-')[0];
+      const p1 = clean1.split('.').map(n => parseInt(n, 10) || 0);
+      const p2 = clean2.split('.').map(n => parseInt(n, 10) || 0);
+      for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
+        const num1 = p1[i] || 0;
+        const num2 = p2[i] || 0;
+        if (num2 > num1) return true;
+        if (num2 < num1) return false;
+      }
+      return false;
+    }
+
+    async function checkServerVersion(isRecheck = false) {
+      try {
+        const res = await fetch('/api/version', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        const newVer = data.version || '';
+        const newCommit = data.commit || '';
+
+        if (isRecheck && (currentServerCommit && newCommit && currentServerCommit !== newCommit || currentServerVersion && newVer && currentServerVersion !== newVer)) {
+          // 本地服务热更生效，提示刷新
+          showToast(t('daemonUpdatedToast', { v: newVer || newCommit }));
+        }
+
+        currentServerVersion = newVer;
+        currentServerCommit = newCommit;
+
+        const verTextEl = document.getElementById('app-version-text');
+        if (verTextEl && newVer) {
+          verTextEl.textContent = newVer.split('-')[0]; // 展示主版本号，如 v1.4.0
+        }
+        const curValEl = document.getElementById('version-current-val');
+        if (curValEl && newVer) {
+          curValEl.textContent = newVer;
+        }
+        const commitValEl = document.getElementById('version-commit-val');
+        if (commitValEl) {
+          commitValEl.textContent = `commit: ${newCommit || 'unknown'}` + (data.build_date ? ` (${data.build_date.slice(0, 10)})` : '');
+        }
+      } catch (_) {}
+    }
+
+    async function checkGitHubRelease() {
+      const statusValEl = document.getElementById('version-status-val');
+      const latestValEl = document.getElementById('version-latest-val');
+      const updateBoxEl = document.getElementById('version-update-box');
+      const dotEl = document.getElementById('app-version-dot');
+      const linkEl = document.getElementById('version-release-link');
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 4000);
+        const res = await fetch('https://api.github.com/repos/Zelayan/agent-monitor/releases/latest', {
+          headers: { 'Accept': 'application/vnd.github.v3+json' },
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!res.ok) {
+          if (statusValEl) {
+            statusValEl.textContent = t('versionCheckFailed');
+            statusValEl.dataset.checked = 'true';
+          }
+          return;
+        }
+        const data = await res.json();
+        const remoteTag = data.tag_name || '';
+        latestReleaseVersion = remoteTag;
+        if (data.html_url) latestReleaseUrl = data.html_url;
+        if (linkEl) linkEl.href = latestReleaseUrl;
+
+        if (latestValEl) latestValEl.textContent = remoteTag || '--';
+
+        if (remoteTag && currentServerVersion && isSemverNewer(currentServerVersion, remoteTag)) {
+          hasNewRelease = true;
+          if (statusValEl) {
+            statusValEl.textContent = t('versionNewAvailable');
+            statusValEl.className = 'text-[10px] text-emerald-400 font-semibold mt-0.5';
+            statusValEl.dataset.checked = 'true';
+          }
+          if (dotEl) {
+            dotEl.classList.remove('hidden');
+          }
+          if (updateBoxEl) {
+            updateBoxEl.classList.remove('hidden');
+          }
+          const badge = document.getElementById('app-version-badge');
+          if (badge) {
+            badge.title = `${t('versionNewAvailable')} (${remoteTag})`;
+          }
+        } else {
+          if (statusValEl) {
+            statusValEl.textContent = t('versionUpToDate');
+            statusValEl.className = 'text-[10px] text-zinc-500 mt-0.5';
+            statusValEl.dataset.checked = 'true';
+          }
+        }
+      } catch (_) {
+        if (statusValEl) {
+          statusValEl.textContent = t('versionCheckFailed');
+          statusValEl.dataset.checked = 'true';
+        }
+      }
+    }
+
+    // 延迟检查版本与更新
+    checkServerVersion(false).then(() => {
+      setTimeout(checkGitHubRelease, 1500);
+    });
 
     // PWA Service Worker 注册与生命周期监听 (WP-18)
     if ('serviceWorker' in navigator) {

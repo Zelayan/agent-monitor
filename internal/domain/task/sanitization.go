@@ -8,8 +8,14 @@ import (
 const RedactedSecret = "[REDACTED_SECRET]"
 
 var (
-	// regexAPIKeyAssignments 匹配形如 password=..., db_password=..., api_key: "...", token: '...' 等键值对
-	regexAPIKeyAssignments = regexp.MustCompile(`(?i)\b([a-zA-Z0-9_-]*(?:password|secret|token|api[_-]?key)\s*[:=]\s*["']?)[^"'\s\r\n]+(["']?)`)
+	// regexAPIKeyAssignmentsQuotedDouble 匹配双引号赋值 (允许值内部含空格): password="my secret 2026", api_key: "..."
+	regexAPIKeyAssignmentsQuotedDouble = regexp.MustCompile(`(?i)\b([a-zA-Z0-9_-]*(?:password|secret|token|api[_-]?key)\s*[:=]\s*)"[^"\r\n]*"`)
+
+	// regexAPIKeyAssignmentsQuotedSingle 匹配单引号赋值 (允许值内部含空格): token='my secret token', secret: '...'
+	regexAPIKeyAssignmentsQuotedSingle = regexp.MustCompile(`(?i)\b([a-zA-Z0-9_-]*(?:password|secret|token|api[_-]?key)\s*[:=]\s*)'[^'\r\n]*'`)
+
+	// regexAPIKeyAssignmentsUnquoted 匹配未加引号的赋值: password=secret123, api_key: sk-123
+	regexAPIKeyAssignmentsUnquoted = regexp.MustCompile("(?i)\\b([a-zA-Z0-9_-]*(?:password|secret|token|api[_-]?key)\\s*[:=]\\s*)([^\\s\"'`\\r\\n]+)")
 
 	// regexOpenAIAnthropic 匹配 OpenAI / Anthropic / 通用 sk- 前缀密钥 (>=20 字符)
 	regexOpenAIAnthropic = regexp.MustCompile(`\bsk-[A-Za-z0-9\-_]{20,}\b`)
@@ -36,8 +42,10 @@ func SanitizeString(input string) string {
 		return ""
 	}
 
-	// 1. 键值对敏感赋值 (password=..., token: ..., api_key=...)
-	s := regexAPIKeyAssignments.ReplaceAllString(input, "${1}"+RedactedSecret+"${2}")
+	// 1. 键值对敏感赋值 (带双引号、带单引号、未加引号)
+	s := regexAPIKeyAssignmentsQuotedDouble.ReplaceAllString(input, "${1}\""+RedactedSecret+"\"")
+	s = regexAPIKeyAssignmentsQuotedSingle.ReplaceAllString(s, "${1}'"+RedactedSecret+"'")
+	s = regexAPIKeyAssignmentsUnquoted.ReplaceAllString(s, "${1}"+RedactedSecret)
 
 	// 2. OpenAI / Anthropic sk-... 密钥
 	s = regexOpenAIAnthropic.ReplaceAllString(s, RedactedSecret)

@@ -1247,3 +1247,41 @@ func TestHandler_SanitizedExportEndpoints(t *testing.T) {
 		t.Fatalf("leaked secret in /api/tasks?sanitize=true: %s", wSanitizeQuery.Body.String())
 	}
 }
+
+func TestHandler_HandleVersion(t *testing.T) {
+	repo := &mockRepo{tasks: make(map[string]*task.Task)}
+	hub := monitor.NewHub()
+	go hub.Run()
+
+	svc := monitor.NewMonitorService(repo, hub)
+	handler := NewHandler(svc, hub, []byte("ok")).
+		WithVersionInfo("v1.4.1", "abc1234", "2026-09-07T00:00:00Z")
+
+	mux := http.NewServeMux()
+	handler.RegisterRoutes(mux)
+
+	// 1. GET /api/version 正常获取版本信息
+	req := httptest.NewRequest(http.MethodGet, "/api/version", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d: %s", w.Code, w.Body.String())
+	}
+	var res map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&res); err != nil {
+		t.Fatalf("failed to decode version json: %v", err)
+	}
+	if res["version"] != "v1.4.1" || res["commit"] != "abc1234" || res["build_date"] != "2026-09-07T00:00:00Z" {
+		t.Fatalf("unexpected version info: %+v", res)
+	}
+
+	// 2. POST /api/version 返回 405 Method Not Allowed
+	reqPost := httptest.NewRequest(http.MethodPost, "/api/version", nil)
+	wPost := httptest.NewRecorder()
+	mux.ServeHTTP(wPost, reqPost)
+	if wPost.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("expected 405 for POST /api/version, got %d", wPost.Code)
+	}
+}
+

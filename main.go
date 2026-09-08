@@ -28,6 +28,13 @@ var staticFS embed.FS
 //go:embed static/index.html
 var indexHTML []byte // 将 Monitor 页面嵌入二进制
 
+// 版本构建元数据（支持通过 go build -ldflags "-X main.Version=... -X main.Commit=... -X main.BuildDate=..." 动态注入）
+var (
+	Version   = "v1.4.0"
+	Commit    = "dev"
+	BuildDate = "unknown"
+)
+
 func main() {
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -97,7 +104,8 @@ func main() {
 		WithStaticFS(staticFS).
 		WithAPIKey(apiKey).
 		WithMasterKey(masterKey).
-		WithProjectKeys(apiKeys)
+		WithProjectKeys(apiKeys).
+		WithVersionInfo(Version, Commit, BuildDate)
 
 	mux := http.NewServeMux()
 	handler.RegisterRoutes(mux)

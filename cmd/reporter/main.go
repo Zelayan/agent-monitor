@@ -4,6 +4,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -85,6 +86,9 @@ func main() {
 		}
 	}
 
+	flag.CommandLine.Init(os.Args[0], flag.ContinueOnError)
+	flag.CommandLine.SetOutput(io.Discard)
+
 	var (
 		eventFlag      = flag.String("event", "", "Hook event name (e.g. sessionStart, PreToolUse, Stop)")
 		agentFlag      = flag.String("agent", "", "Agent name (e.g. ZCode, Cursor Agent)")
@@ -94,7 +98,11 @@ func main() {
 		deleteTagFlag  = flag.String("delete-tag", "", "Delete/untrack tag in prompt (e.g. #drop,#untrack)")
 		apiKeyFlag     = flag.String("api-key", "", "API Key for monitor server authentication")
 	)
-	flag.Parse()
+	if err := flag.CommandLine.Parse(os.Args[1:]); err != nil {
+		// 参数解析失败或未知 flag，坚决放行退出，绝不阻断用户日常编码
+		fmt.Println(`{"continue":true,"permission":"allow"}`)
+		os.Exit(0)
+	}
 
 	cfg := reporter.Config{
 		Event:      *eventFlag,
@@ -109,7 +117,11 @@ func main() {
 	// 保证 Hook 放行兜底：即使程序内部发生未知 panic，也必须输出合法的 Hook 放行协议并以 0 退出，绝不阻塞 Agent
 	defer func() {
 		if r := recover(); r != nil {
-			fmt.Println(reporter.GetHookResponse(cfg.Event))
+			if cfg.Event != "" {
+				fmt.Println(reporter.GetHookResponse(cfg.Event))
+			} else {
+				fmt.Println(`{"continue":true,"permission":"allow"}`)
+			}
 			os.Exit(0)
 		}
 	}()

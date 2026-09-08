@@ -129,6 +129,10 @@ func NormalizeRepoAndBranch(rawRepo, rawBranch string) (string, string) {
 	branch := strings.TrimSpace(rawBranch)
 
 	if branch == "" && strings.Contains(repo, ":") {
+		// 排除 SSH/SCP URL (如 git@host:owner/repo.git) 和网络协议 (如 http://, https://, ssh://)
+		if strings.Contains(repo, "@") || strings.Contains(repo, "://") {
+			return repo, branch
+		}
 		parts := strings.SplitN(repo, ":", 2)
 		// 防御形如 "C:\path" 或 "D:/path" 的 Windows 盘符路径
 		isWindowsDrive := len(parts[0]) == 1 && (parts[1] == "" || parts[1][0] == '\\' || parts[1][0] == '/')
@@ -564,6 +568,9 @@ func (t *Task) StartNewTurn(p EventPayload, nowMs int64, nowStr string) {
 	t.ActiveRunIndex = newIdx
 	t.ActiveRunStart = nowMs
 	t.Status = "running"
+	t.EndTime = 0
+	t.ControlState = ""
+	t.AbortReason = ""
 	t.refreshHeuristicTitle(newTitle)
 }
 
@@ -734,7 +741,7 @@ func (t *Task) ApplyEvent(p EventPayload, nowMs int64, nowStr string) {
 		t.Status = "failed"
 		t.EndTime = nowMs
 		t.recountLifetime()
-	case "toolFailure", "PostToolUseFailure", "postToolUseFailure":
+	case "toolFailure", "PostToolUseFailure", "postToolUseFailure", "toolError":
 		// 单个工具执行异常（如 bash 非零退出），非致命中断，任务与 Run 保持 running
 		if curRun.Status == "" {
 			curRun.Status = "running"

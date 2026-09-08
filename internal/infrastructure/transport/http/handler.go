@@ -33,6 +33,7 @@ type Handler struct {
 	masterKey   string            // Master 全局管理 Key
 	projectKeys map[string]string // keyHash/token -> keyID/projectName 映射
 	allowedCORS []string          // 可配置 CORS 白名单域名（为空则允许全部 "*"）
+	versionInfo map[string]string // 版本元数据
 }
 
 // NewHandler 创建 HTTP 处理器实例。
@@ -42,7 +43,26 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 		hub:         hub,
 		staticHTML:  staticHTML,
 		projectKeys: make(map[string]string),
+		versionInfo: map[string]string{
+			"version":    "v1.4.0",
+			"commit":     "dev",
+			"build_date": "unknown",
+		},
 	}
+}
+
+// WithVersionInfo 设置版本元数据（version, commit, build_date）。
+func (h *Handler) WithVersionInfo(version, commit, buildDate string) *Handler {
+	if version != "" {
+		h.versionInfo["version"] = version
+	}
+	if commit != "" {
+		h.versionInfo["commit"] = commit
+	}
+	if buildDate != "" {
+		h.versionInfo["build_date"] = buildDate
+	}
+	return h
 }
 
 // WithAllowedCORS 设置允许的 CORS Origin 白名单域名。
@@ -96,6 +116,7 @@ func (h *Handler) WithStaticFS(staticFS fs.FS) *Handler {
 
 // RegisterRoutes 在给定的 ServeMux 上注册路由。
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("/api/version", h.HandleVersion)
 	mux.HandleFunc("/api/event", h.HandleEvent)
 	mux.HandleFunc("/api/stream", h.HandleStream)
 	mux.HandleFunc("/api/tasks", h.HandleTasks)
@@ -312,16 +333,23 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 		rawLastID = strings.TrimSpace(r.URL.Query().Get("last_event_id"))
 	}
 
+	// 记录当前连接已向客户端成功发送的最大 Event ID，防止广播队列中的滞后旧消息与重放/快照产生时序倒流
+	var maxSentSeqID int64
+
 	shouldSnapshot := true
 	if rawLastID != "" {
 		var lastSeq int64
 		if _, err := fmt.Sscanf(rawLastID, "%d", &lastSeq); err == nil && lastSeq > 0 {
+			maxSentSeqID = lastSeq
 			// 尝试从 Hub 环形缓冲区重放错过的事件
 			missedEvents, canReplay := h.hub.ReplayMissedEvents(lastSeq, authCtx.KeyID, authCtx.IsMaster)
 			if canReplay {
 				// 成功重放，不需要做全量快照
 				shouldSnapshot = false
 				for _, ev := range missedEvents {
+					if ev.ID > maxSentSeqID {
+						maxSentSeqID = ev.ID
+					}
 					fmt.Fprint(w, ev.FormatSSE())
 				}
 				flusher.Flush()
@@ -333,6 +361,9 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 					"last_event_id": lastSeq,
 				})
 				seq := h.hub.CurrentSeqID()
+				if seq > maxSentSeqID {
+					maxSentSeqID = seq
+				}
 				resyncEv := monitor.SSEEvent{
 					ID:   seq,
 					Type: "resync_required",
@@ -346,7 +377,10 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if shouldSnapshot {
-		h.writeSnapshot(w, flusher, authCtx)
+		currentSeq := h.writeSnapshot(w, flusher, authCtx)
+		if currentSeq > maxSentSeqID {
+			maxSentSeqID = currentSeq
+		}
 	}
 
 	// 2. 15s 心跳 Ticker，防止云代理/反向代理（Nginx/Caddy/ALB）在无事件时空闲超时中断连接
@@ -365,6 +399,16 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 			if !ok {
 				return
 			}
+			// 检查消息中的事件 ID，丢弃 <= maxSentSeqID 的重复或历史滞后排队事件
+			if strings.HasPrefix(msg, "id: ") {
+				var msgSeq int64
+				if _, err := fmt.Sscanf(msg, "id: %d", &msgSeq); err == nil && msgSeq > 0 {
+					if msgSeq <= maxSentSeqID {
+						continue
+					}
+					maxSentSeqID = msgSeq
+				}
+			}
 			// msg 已经是由 Hub 格式化的完整 SSE 帧（含 id, event, data）
 			fmt.Fprint(w, msg)
 			flusher.Flush()
@@ -372,8 +416,8 @@ func (h *Handler) HandleStream(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// writeSnapshot 向 SSE 客户端写入权威快照序列：snapshot_start -> task_upserts -> snapshot_end
-func (h *Handler) writeSnapshot(w http.ResponseWriter, flusher http.Flusher, authCtx AuthContext) {
+// writeSnapshot 向 SSE 客户端写入权威快照序列：snapshot_start -> task_upserts -> snapshot_end，并返回当前快照所用的 Sequence ID
+func (h *Handler) writeSnapshot(w http.ResponseWriter, flusher http.Flusher, authCtx AuthContext) int64 {
 	tasks, gen := h.svc.GetSnapshotWithGeneration(authCtx.KeyID, authCtx.IsMaster)
 	currentSeq := h.hub.CurrentSeqID()
 
@@ -428,6 +472,7 @@ func (h *Handler) writeSnapshot(w http.ResponseWriter, flusher http.Flusher, aut
 	}
 	fmt.Fprint(w, endEv.FormatSSE())
 	flusher.Flush()
+	return currentSeq
 }
 
 // HandleTasks 处理任务查询与多种模式删除（全部/选中/已完成）。
@@ -874,6 +919,20 @@ func (h *Handler) HandleServiceWorker(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.NotFound(w, r)
+}
+
+// HandleVersion 导出当前服务的版本号、构建 Commit 及构建日期。
+func (h *Handler) HandleVersion(w http.ResponseWriter, r *http.Request) {
+	if h.enableCORS(w, r) {
+		return
+	}
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		MethodNotAllowed(w, "GET, HEAD, OPTIONS")
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(h.versionInfo)
 }
 
 // HandleHealthz 存活探针接口：快速返回 200 OK 表明进程存活。
