@@ -30,7 +30,7 @@ var indexHTML []byte // 将 Monitor 页面嵌入二进制
 
 // 版本构建元数据（支持通过 go build -ldflags "-X main.Version=... -X main.Commit=... -X main.BuildDate=..." 动态注入）
 var (
-	Version   = "v1.4.0"
+	Version   = "v1.4.1"
 	Commit    = "dev"
 	BuildDate = "unknown"
 )

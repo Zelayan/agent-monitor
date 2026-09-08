@@ -44,7 +44,7 @@ func NewHandler(svc *monitor.MonitorService, hub *monitor.Hub, staticHTML []byte
 		staticHTML:  staticHTML,
 		projectKeys: make(map[string]string),
 		versionInfo: map[string]string{
-			"version":    "v1.4.0",
+			"version":    "v1.4.1",
 			"commit":     "dev",
 			"build_date": "unknown",
 		},
