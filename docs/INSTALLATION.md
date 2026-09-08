@@ -70,13 +70,25 @@ journalctl --user -u agent-monitor -f
 loginctl enable-linger "$USER"
 ```
 
-### 端口与持久化目录自定义
+### 端口、安全鉴权与持久化目录自定义
 用户服务配置文件位于 `~/.config/systemd/user/agent-monitor.service`，可通过环境变量重写：
 ```ini
 [Service]
 Environment="PORT=8000"
 Environment="DATA_DIR=%h/.local/share/agent-monitor/sessions"
-# Optional: LLM session titles / goal summaries (OpenAI-compatible, e.g. Ollama / vLLM)
+
+# 安全鉴权（公网 / 局域网暴露时必填）
+# 模式 A：单项目统一密钥
+# Environment="AGENT_MONITOR_API_KEY=your-secret-token"
+
+# 模式 B：多项目命名空间隔离 + Master 全局管理 Key (推荐团队共享)
+# Environment="AGENT_MONITOR_API_KEYS=team_alpha=token_1,team_beta=token_2"
+# Environment="AGENT_MONITOR_MASTER_KEY=master-super-secret"
+
+# 可选：配置允许跨域的 CORS 域名 (默认为空允许所有)
+# Environment="AGENT_MONITOR_CORS=https://monitor.corp.internal"
+
+# 可选：用 LLM 总结会话标题与总目标 (OpenAI-compatible, e.g. Ollama / vLLM / OpenAI)
 # Environment="AGENT_MONITOR_LLM_BASE_URL=http://127.0.0.1:11434/v1"
 # Environment="AGENT_MONITOR_LLM_MODEL=qwen2.5:7b"
 # Environment="AGENT_MONITOR_LLM_API_KEY="
@@ -212,11 +224,14 @@ make build-all
 
 ---
 
-## 7. 局域网远程 IP 部署与 PWA / HTTPS 指南
+## 7. 局域网远程 IP / 公网部署与 PWA / HTTPS 指南
 
-如果你将服务部署在另一台局域网主机（如 `192.168.x.x`）或私有云服务器上，并希望在客户端浏览器上正常使用 **PWA 独立桌面 App 安装**，由于跨 IP 访问受到浏览器安全上下文限制，需要配置 HTTPS 或启用浏览器本地白名单。
+如果你将服务部署在另一台局域网主机（如 `192.168.x.x`）或公网云服务器上，并希望在客户端浏览器上正常使用 **PWA 独立桌面 App 安装** 与 **安全鉴权**：
+- **浏览器安全限制**：跨 IP 访问受到浏览器安全上下文限制，需要配置 HTTPS 或启用 Chromium 开发者安全源白名单；
+- **反向代理重点**：使用 Nginx 或 Caddy 代理时，必须开启 `proxy_buffering off;` 禁用缓冲，确保 SSE 实时流无延迟下发；
+- **访问鉴权**：配置 `AGENT_MONITOR_API_KEY` 或 `AGENT_MONITOR_API_KEYS`，各开发机通过 `~/.agent-monitor.json` 配置 `"api_key"` 即可安全上报。
 
-详细配置步骤（含 Chrome 免证书白名单、Caddy 自动证书、Nginx 自签名反代配置）请参阅：
+详细配置步骤（含 Nginx 生产反代、Caddy 自动证书、Chrome 免证书白名单与多租户 API Key 隔离实操）请参阅：
 👉 **[📖 远端 IP 部署与 PWA / HTTPS 指南 (REMOTE_DEPLOYMENT.md)](REMOTE_DEPLOYMENT.md)**
 
 ---

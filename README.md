@@ -199,21 +199,55 @@ curl -fsSL https://raw.githubusercontent.com/Zelayan/agent-monitor/main/install.
 
 ---
 
+## 🛡️ 公网部署与安全鉴权 (Security & Remote Deployment)
+
+Agent Monitor 支持开箱即用的**密码学级访问控制**（基于 `crypto/subtle.ConstantTimeCompare` 防时序侧信道攻击），支持单项目共享密钥与多团队/多项目空间隔离：
+
+### 1. 服务端配置鉴权环境变量
+- **单项目统一密钥**：
+  ```bash
+  export AGENT_MONITOR_API_KEY="your-strong-secret-token"
+  agent-monitor -port 8000
+  ```
+- **多团队/多项目空间隔离 + Master 全局上帝视角**：
+  ```bash
+  # 格式：项目名=密钥，多个项目用逗号分隔
+  export AGENT_MONITOR_API_KEYS="projA=token_alpha,projB=token_beta"
+  export AGENT_MONITOR_MASTER_KEY="master-super-secret-key"
+  agent-monitor -port 8000
+  ```
+
+### 2. 客户端与看板访问
+- **客户端上报**：在 `~/.agent-monitor.json` 中配置 `"api_key": "your-token"`，或使用 `agent-reporter --api-key "your-token"`。
+- **Web 看板**：首次打开看板时若服务端启用了鉴权，会自动弹出暗色认证窗口；亦可在右上角点击 **🔑 鉴权设置** 保存 Token，支持随时在不同项目空间和 Master 视图间无缝切换。
+- **公网反代最佳实践**：公网部署建议搭配 Nginx 或 Caddy 配置 HTTPS 并开启 `proxy_buffering off;`，确保 SSE 实时流式响应毫无延迟。完整配置详见 **[📖 远端 IP 部署与 PWA / HTTPS 指南 (REMOTE_DEPLOYMENT.md)](docs/REMOTE_DEPLOYMENT.md)**。
+
+---
+
 ## 📡 HTTP API 概览
 
-| Method | Endpoint | 用途 | 说明 |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/event` | Hook 事件上报 | 接收各 Agent 触发的生命周期事件（支持 `Authorization: Bearer <key>`） |
-| `GET` | `/api/stream` | SSE 实时事件流 | Server-Sent Events（支持 `?token=<key>` 或 Header 鉴权） |
-| `GET` | `/api/tasks` | 获取所有任务 | 返回当前内存/磁盘上的全量会话聚合数据 |
-| `DELETE` | `/api/tasks` | 清空历史任务 | 支持 `?all=true` 或指定 `ids` 列表批量删除 |
-| `GET` | `/manifest.json` | PWA 清单 | 提供应用元数据与离线图标描述 |
+所有需要权限的接口均原生支持三种认证格式：`Authorization: Bearer <key>`、`X-API-Key: <key>` 或 URL Query 参数 `?token=<key>`。
+
+| Method | Endpoint | 认证要求 | 用途 | 说明 |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/version` | 公开 | 版本与构建元数据 | 返回当前运行版本、Commit、构建时间，支持热更与新版检测 |
+| `POST` | `/api/event` | 必需 (配置Key时) | Hook 事件上报 | 接收各 Agent 触发的生命周期事件与工具调用轨迹 |
+| `GET` | `/api/stream` | 必需 (配置Key时) | SSE 实时事件流 | Server-Sent Events 协议长连接（支持 `?token=<key>`） |
+| `GET` | `/api/tasks` | 必需 (配置Key时) | 获取全量会话列表 | 按租户/项目空间过滤隔离返回任务聚合根深拷贝 |
+| `GET` | `/api/tasks/{id}` | 必需 (配置Key时) | 会话详情与轨迹 | 获取单任务的详细时间线、Run Matrix 与 Trace Spans |
+| `POST` | `/api/tasks/{id}/abort` | 必需 (配置Key时) | 中断正在执行的任务 | 向目标会话注入中止信号，安全回收 Agent 进程组 |
+| `DELETE` | `/api/tasks` | 必需 (配置Key时) | 清空/批量删除任务 | 支持 `?all=true`（清空当前空间）或请求体 `ids` 批量删除 |
+| `GET` | `/api/metrics` | 必需 (配置Key时) | 运维吞吐指标 | 导出活跃连接数、事件吞吐与丢弃率指标 |
+| `GET` | `/healthz` | 公开 | 存活探针 (Liveness) | 快速返回 200 OK 表明进程存活 |
+| `GET` | `/readyz` | 公开 | 就绪探针 (Readiness) | 检查写管道与持久化就绪状态 |
+| `GET` | `/manifest.json` | 公开 | PWA 清单 | 提供应用桌面安装元数据与离线图标描述 |
 
 ---
 
 ## 📚 文档导航
 
 - **[📖 安装与部署指南 (INSTALLATION.md)](docs/INSTALLATION.md)**：包含 systemd 守护管理、内网离线包、Docker 镜像与编译构建全指南。
+- **[🌐 远端 IP 部署与 PWA / HTTPS 指南 (REMOTE_DEPLOYMENT.md)](docs/REMOTE_DEPLOYMENT.md)**：公网反向代理、自签名证书、Chrome 免证书白名单与多租户 API Key 隔离实操。
 - **[🔌 Agent 集成手册 (AGENT_INTEGRATION.md)](docs/AGENT_INTEGRATION.md)**：各 Agent 嗅探规则、Hook 协议定义与参数说明。
 - **[并行 Agent (PARALLEL_AGENTS.md)](docs/PARALLEL_AGENTS.md)**：同一 GitHub 仓库上多 Cursor Agent 用 worktree / Cloud 分分支并发开发。
 - **[完整开发路线图 (DEVELOPMENT_ROADMAP.md)](docs/DEVELOPMENT_ROADMAP.md)**：当前能力基线、正确性与安全缺口、分阶段功能计划、迁移、测试、验收和 PR 拆分。

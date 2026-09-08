@@ -199,21 +199,55 @@ Create an Environment named `ai-review` in your GitHub repository, and configure
 
 ---
 
+## 🛡️ Remote Deployment & Security (API Key Auth)
+
+Agent Monitor provides cryptographic-grade access control (using Go's `crypto/subtle.ConstantTimeCompare` against timing attacks) out of the box, supporting both single-shared keys and multi-tenant project isolation:
+
+### 1. Server Authentication Environment Variables
+- **Single Shared Key**:
+  ```bash
+  export AGENT_MONITOR_API_KEY="your-strong-secret-token"
+  agent-monitor -port 8000
+  ```
+- **Multi-Tenant / Multi-Project Isolation + Master Key**:
+  ```bash
+  # Format: projA=token1,projB=token2
+  export AGENT_MONITOR_API_KEYS="projA=token_alpha,projB=token_beta"
+  export AGENT_MONITOR_MASTER_KEY="master-super-secret-key"
+  agent-monitor -port 8000
+  ```
+
+### 2. Client and Dashboard Integration
+- **Reporter Ingestion**: Configure `"api_key": "your-token"` in `~/.agent-monitor.json`, or pass `agent-reporter --api-key "your-token"`.
+- **Web Dashboard**: An authentication modal automatically prompts on 401 Unauthorized responses, or configure keys anytime via the **🔑 Auth Settings** button in the header. Token inputs are persisted in local browser storage.
+- **Reverse Proxy Best Practices**: When deploying to public servers, reverse proxy behind Nginx or Caddy with HTTPS enabled and ensure `proxy_buffering off;` is set for instant SSE updates. Full guide: **[📖 Remote Deployment & PWA / HTTPS Guide (REMOTE_DEPLOYMENT.en.md)](docs/REMOTE_DEPLOYMENT.en.md)**.
+
+---
+
 ## HTTP API
 
-| Method | Endpoint | Purpose | Notes |
-| :--- | :--- | :--- | :--- |
-| `POST` | `/api/event` | Hook event ingest | Lifecycle events from Agents (`Authorization: Bearer <key>`) |
-| `GET` | `/api/stream` | SSE live stream | Server-Sent Events (`?token=<key>` or Header auth) |
-| `GET` | `/api/tasks` | List all tasks | Aggregated sessions from memory / disk |
-| `DELETE` | `/api/tasks` | Clear history | `?all=true` or an `ids` list |
-| `GET` | `/manifest.json` | PWA manifest | App metadata and offline icons |
+All protected endpoints accept authentication through `Authorization: Bearer <key>`, `X-API-Key: <key>`, or URL Query parameter `?token=<key>`.
+
+| Method | Endpoint | Auth Required | Purpose | Notes |
+| :--- | :--- | :--- | :--- | :--- |
+| `GET` | `/api/version` | Public | Version & Build Metadata | Returns current version, commit, build timestamp for hot-reload and updates |
+| `POST` | `/api/event` | Required (if configured) | Hook event ingest | Ingests lifecycle events and tool execution spans from agents |
+| `GET` | `/api/stream` | Required (if configured) | SSE live stream | Server-Sent Events connection (`?token=<key>` supported) |
+| `GET` | `/api/tasks` | Required (if configured) | List all sessions | Returns cloned aggregated sessions filtered by project scope |
+| `GET` | `/api/tasks/{id}` | Required (if configured) | Session details | Retrieves full multi-turn timeline, run matrix, and trace spans |
+| `POST` | `/api/tasks/{id}/abort` | Required (if configured) | Abort active execution | Signals cancellation and safely terminates agent process tree |
+| `DELETE` | `/api/tasks` | Required (if configured) | Clear sessions | Batch deletes with `?all=true` (current scope) or payload `ids` |
+| `GET` | `/api/metrics` | Required (if configured) | Operational metrics | Exports active connections, throughput, and dropped events |
+| `GET` | `/healthz` | Public | Liveness probe | Instant 200 OK indicating the process is alive |
+| `GET` | `/readyz` | Public | Readiness probe | Checks storage availability and ingestion queue readiness |
+| `GET` | `/manifest.json` | Public | PWA manifest | App metadata and offline desktop icon descriptions |
 
 ---
 
 ## Docs
 
 - **[Installation (INSTALLATION.md)](docs/INSTALLATION.md)**: systemd, air-gapped packages, Docker, and builds.
+- **[Remote Deployment & HTTPS (REMOTE_DEPLOYMENT.en.md)](docs/REMOTE_DEPLOYMENT.en.md)**: reverse proxies, TLS certs, Chrome bypass flags, and multi-tenant security.
 - **[Agent Integration (AGENT_INTEGRATION.md)](docs/AGENT_INTEGRATION.md)**: Agent sniffing, Hook protocol, and parameters.
 - **[Parallel Agents (PARALLEL_AGENTS.en.md)](docs/PARALLEL_AGENTS.en.md)**: concurrent Cursor Agents on isolated GitHub `feat/` / `fix/` branches via worktrees or Cloud Agents.
 - **[Complete Development Roadmap (DEVELOPMENT_ROADMAP.en.md)](docs/DEVELOPMENT_ROADMAP.en.md)**: current capability baseline, correctness and security gaps, phased features, migrations, tests, acceptance criteria, and PR boundaries.
