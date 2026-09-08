@@ -785,8 +785,8 @@
 
         <div id="version-update-box" class="hidden p-3 rounded bg-indigo-950/30 border border-indigo-800/40 text-indigo-200 space-y-2">
           <div class="flex items-center justify-between">
-            <span id="lbl-version-has-update" class="font-semibold text-indigo-300">🎉 发现新版本可用！</span>
-            <a id="version-release-link" href="https://github.com/Zelayan/agent-monitor/releases" target="_blank" rel="noopener noreferrer" class="text-[11px] underline hover:text-indigo-100">Releases 页面 ↗</a>
+            <span id="lbl-version-has-update" class="font-semibold text-indigo-300">发现新版本可用</span>
+            <a id="version-release-link" href="https://github.com/Zelayan/agent-monitor/releases" target="_blank" rel="noopener noreferrer" class="text-[11px] underline hover:text-indigo-100">Releases ↗</a>
           </div>
           <div class="text-[10px] text-zinc-400 font-mono" id="lbl-version-upgrade-guide">升级指引（终端执行一键升级）：</div>
           <div class="flex items-center justify-between bg-black/60 border border-indigo-900/50 rounded px-2 py-1 text-[10px] text-zinc-300">
@@ -967,7 +967,7 @@
         latestVersion: '最新官方发布',
         versionChecking: '检查更新中...',
         versionUpToDate: '已是最新版本',
-        versionNewAvailable: '🎉 发现新版本可用！',
+        versionNewAvailable: '发现新版本可用',
         versionCheckFailed: '检查更新失败 (网络离线)',
         upgradeGuide: '升级指引（终端执行一键升级）：',
         daemonUpdatedToast: '检测到 Monitor 守护进程已更新 ({v})，点击刷新',
@@ -987,6 +987,7 @@
         clearOfflineCacheConfirm: '确定清除本地保存的所有离线快照与静态资源缓存吗？',
         clearOfflineCacheSuccess: '离线缓存已清除',
         actClearOffline: '清除离线缓存',
+        btnClose: '关闭',
       },
       en: {
         htmlLang: 'en',
@@ -1145,7 +1146,7 @@
         latestVersion: 'Latest Release',
         versionChecking: 'Checking for updates...',
         versionUpToDate: 'Up to date',
-        versionNewAvailable: '🎉 New version available!',
+        versionNewAvailable: 'New version available',
         versionCheckFailed: 'Update check failed (offline)',
         upgradeGuide: 'Upgrade Guide (Run in terminal):',
         daemonUpdatedToast: 'Monitor daemon updated ({v}), click to refresh',
@@ -1165,6 +1166,7 @@
         clearOfflineCacheConfirm: 'Are you sure you want to clear all locally cached snapshots and static assets?',
         clearOfflineCacheSuccess: 'Offline cache cleared',
         actClearOffline: 'Clear Offline Cache',
+        btnClose: 'Close',
       },
     };
 
@@ -1396,18 +1398,27 @@
       if (versionBadge) versionBadge.title = t('versionDetails');
       const versionModalTitle = document.getElementById('version-modal-title');
       if (versionModalTitle) versionModalTitle.textContent = t('versionDetails');
+      const btnVerClose = document.getElementById('version-modal-close');
+      if (btnVerClose) btnVerClose.title = `${t('btnClose')} (Esc)`;
       const lblVerCurrent = document.getElementById('lbl-version-current');
       if (lblVerCurrent) lblVerCurrent.textContent = t('currentVersion');
       const lblVerLatest = document.getElementById('lbl-version-latest');
       if (lblVerLatest) lblVerLatest.textContent = t('latestVersion');
+      const lblVerStatus = document.getElementById('version-status-val');
+      if (lblVerStatus && !lblVerStatus.dataset.checked) {
+        lblVerStatus.textContent = t('versionChecking');
+      }
       const lblVerHasUpdate = document.getElementById('lbl-version-has-update');
       if (lblVerHasUpdate) lblVerHasUpdate.textContent = t('versionNewAvailable');
       const lblVerUpgradeGuide = document.getElementById('lbl-version-upgrade-guide');
       if (lblVerUpgradeGuide) lblVerUpgradeGuide.textContent = t('upgradeGuide');
       const btnCopyUpgrade = document.getElementById('btn-copy-upgrade-cmd');
-      if (btnCopyUpgrade) btnCopyUpgrade.textContent = t('btnCopy');
+      if (btnCopyUpgrade) {
+        btnCopyUpgrade.textContent = t('btnCopy');
+        btnCopyUpgrade.title = t('btnCopy');
+      }
       const btnVerOk = document.getElementById('version-modal-ok');
-      if (btnVerOk) btnVerOk.textContent = t('btnCancel');
+      if (btnVerOk) btnVerOk.textContent = t('btnClose');
 
       updateNotifyButtonUI();
       updateAuthButtonUI();
@@ -3366,6 +3377,7 @@
       eventSource.onopen = () => {
         setDaemon(true);
         setOfflineMode(false);
+        setTimeout(() => { isInitialLoad = false; }, 1500); // 增量重放模式保底解除
         if (typeof checkServerVersion === 'function') {
           checkServerVersion(true);
         }
@@ -4786,7 +4798,10 @@
         clearTimeout(timeoutId);
 
         if (!res.ok) {
-          if (statusValEl) statusValEl.textContent = t('versionCheckFailed');
+          if (statusValEl) {
+            statusValEl.textContent = t('versionCheckFailed');
+            statusValEl.dataset.checked = 'true';
+          }
           return;
         }
         const data = await res.json();
@@ -4802,6 +4817,7 @@
           if (statusValEl) {
             statusValEl.textContent = t('versionNewAvailable');
             statusValEl.className = 'text-[10px] text-emerald-400 font-semibold mt-0.5';
+            statusValEl.dataset.checked = 'true';
           }
           if (dotEl) {
             dotEl.classList.remove('hidden');
@@ -4817,10 +4833,14 @@
           if (statusValEl) {
             statusValEl.textContent = t('versionUpToDate');
             statusValEl.className = 'text-[10px] text-zinc-500 mt-0.5';
+            statusValEl.dataset.checked = 'true';
           }
         }
       } catch (_) {
-        if (statusValEl) statusValEl.textContent = t('versionCheckFailed');
+        if (statusValEl) {
+          statusValEl.textContent = t('versionCheckFailed');
+          statusValEl.dataset.checked = 'true';
+        }
       }
     }
 

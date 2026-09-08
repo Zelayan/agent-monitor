@@ -1,5 +1,5 @@
 // AGENT MONITOR Service Worker
-const CACHE_NAME = 'agent-monitor-v3';
+const CACHE_NAME = 'agent-monitor-v4';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
